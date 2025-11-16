@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <!--<TargetFramework>net9.0</TargetFramework>-->
+    <TargetFramework>$(AvaloniaBuildFramework)</TargetFramework>
     <LangVersion>latest</LangVersion>
     <IsPackable>False</IsPackable>
     <Nullable>disable</Nullable>
@@ -19,6 +20,13 @@
   <Import Project="..\..\build\Avalonia.Desktop.props" />
   <Import Project="..\..\build\Avalonia.Diagnostics.props" />
 
+  <!-- iPlus settings and overrides -->
+  <ItemGroup Condition="'$(UseAvaloniaFork)' == 'True'">
+    <Reference Include="Avalonia.X11">
+      <HintPath>$(AvaloniaRootDir)\src\Avalonia.X11\bin\$(Configuration)\$(AvaloniaBuildFramework)\Avalonia.X11.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <!-- End iPlus settings and overrides -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\Svg.Controls.Avalonia\Svg.Controls.Avalonia.csproj" />
   </ItemGroup>

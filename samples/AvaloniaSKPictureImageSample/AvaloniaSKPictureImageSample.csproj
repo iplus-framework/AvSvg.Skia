@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <!--<TargetFramework>net9.0</TargetFramework>-->
+    <TargetFramework>$(AvaloniaBuildFramework)</TargetFramework>
     <IsPackable>False</IsPackable>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
@@ -19,7 +20,7 @@
   <Import Project="..\..\build\Avalonia.Diagnostics.props" />
   <Import Project="..\..\build\SkiaSharp.v3.props" />
   <Import Project="..\..\build\SkiaSharp.Native.v3.props" />
-
+  
   <ItemGroup>
     <AdditionalFiles Include="Assets/__tiger.svg" NamespaceName="AvaloniaSKPictureImageSample" ClassName="Tiger" />
     <AdditionalFiles Include="Assets/__AJ_Digital_Camera.svg" NamespaceName="AvaloniaSKPictureImageSample" ClassName="Camera" />

@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFrameworks>netstandard2.0;net461;net6.0;net8.0</TargetFrameworks>
+    <!--<TargetFrameworks>netstandard2.0;net461;net6.0;net8.0</TargetFrameworks>-->
+    <TargetFrameworks>$(AvaloniaBuildFramework)</TargetFrameworks>
     <EnableDefaultCompileItems>False</EnableDefaultCompileItems>
     <EnableDefaultItems>False</EnableDefaultItems>
     <NoWarn>CS1591</NoWarn>
@@ -18,10 +19,12 @@
     <PackageTags>vector graphics;rendering;2d;graphics;picture;bitamp;geometry;shapes;skiasharp;skia;control;avalonia;avaloniaui</PackageTags>
   </PropertyGroup>
 
+  <Import Project="..\..\build\Avalonia.props" />
   <Import Project="..\..\build\SourceLink.props" />
   <!--<Import Project="..\..\build\SignAssembly.props" />-->
   <Import Project="..\..\build\ReferenceAssemblies.props" />
   <Import Project="..\..\build\Avalonia.Skia.props" />
+  <Import Project="..\..\build\SkiaSharp.props" />
 
   <PropertyGroup>
     <VersionPrefix>$(AvaloniaVersionPrefix)</VersionPrefix>

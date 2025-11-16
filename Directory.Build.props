@@ -1,4 +1,7 @@
 ﻿<Project>
+  <!-- iPlus settings and overrides -->
+  <Import Project="$(MSBuildThisFileDirectory)../iPlus/build/Avalonia.Build.props" />
+  <!-- End iPlus settings and overrides -->
   <PropertyGroup>
     <VersionPrefix>3.2.1</VersionPrefix>
     <VersionSuffix></VersionSuffix>
@@ -17,4 +20,5 @@
   <PropertyGroup>
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
+
 </Project>

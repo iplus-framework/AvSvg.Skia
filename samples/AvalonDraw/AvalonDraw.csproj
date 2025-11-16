@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <!--<TargetFramework>net9.0</TargetFramework>-->
+    <TargetFramework>$(AvaloniaBuildFramework)</TargetFramework>
     <LangVersion>latest</LangVersion>
     <IsPackable>False</IsPackable>
     <Nullable>disable</Nullable>
@@ -19,10 +20,20 @@
   <Import Project="..\..\build\SkiaSharp.v3.props" />
   <Import Project="..\..\build\SkiaSharp.Native.v3.props" />
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(UseAvaloniaFork)' == 'False'">
     <PackageReference Include="Avalonia.Controls.DataGrid" />
     <PackageReference Include="Avalonia.Controls.ColorPicker" />
   </ItemGroup>
+
+  <!-- iPlus settings and overrides -->
+  <Import Condition="'$(UseAvaloniaFork)' == 'True'" Project="../../../iPlus/build/AvaloniaBaseColorPickerInclude.props" />
+  <Import Condition="'$(UseAvaloniaFork)' == 'True'" Project="../../../iPlus/build/AvaloniaDataGridInclude.props" />
+  <ItemGroup Condition="'$(UseAvaloniaFork)' == 'True'">
+    <Reference Include="Avalonia.X11">
+      <HintPath>$(AvaloniaRootDir)\src\Avalonia.X11\bin\$(Configuration)\$(AvaloniaBuildFramework)\Avalonia.X11.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <!-- End iPlus settings and overrides -->
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Svg.Controls.Skia.Avalonia\Svg.Controls.Skia.Avalonia.csproj" />

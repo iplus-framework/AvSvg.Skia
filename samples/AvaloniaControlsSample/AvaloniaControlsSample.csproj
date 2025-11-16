@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <!--<TargetFramework>net9.0</TargetFramework>-->
+    <TargetFramework>$(AvaloniaBuildFramework)</TargetFramework>
     <LangVersion>latest</LangVersion>
     <IsPackable>False</IsPackable>
     <Nullable>disable</Nullable>
@@ -18,6 +19,17 @@
   <Import Project="..\..\build\Avalonia.Diagnostics.props" />
   <Import Project="..\..\build\SkiaSharp.v3.props" />
   <Import Project="..\..\build\SkiaSharp.Native.v3.props" />
+
+
+  <!-- iPlus settings and overrides -->
+  <ItemGroup Condition="'$(UseAvaloniaFork)' == 'True'">
+    <Reference Include="Avalonia.X11">
+      <HintPath>$(AvaloniaRootDir)\src\Avalonia.X11\bin\$(Configuration)\$(AvaloniaBuildFramework)\Avalonia.X11.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <!-- End iPlus settings and overrides -->
+ 
+  <Import Project="..\..\build\Avalonia.Skia.props" />
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Skia.Controls.Avalonia\Skia.Controls.Avalonia.csproj" />

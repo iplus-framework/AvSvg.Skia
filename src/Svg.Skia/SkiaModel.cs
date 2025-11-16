@@ -739,11 +739,21 @@ public class SkiaModel
                         return null;
                     }
 
+                    // Use SKSamplingOptions instead of SKFilterQuality (fixes CS0618 and CS1503)
+                    var sampling = imageImageFilter.FilterQuality switch
+                    {
+                        SKFilterQuality.None => new SkiaSharp.SKSamplingOptions(SkiaSharp.SKFilterMode.Nearest),
+                        SKFilterQuality.Low => new SkiaSharp.SKSamplingOptions(SkiaSharp.SKFilterMode.Linear),
+                        SKFilterQuality.Medium => new SkiaSharp.SKSamplingOptions(SkiaSharp.SKFilterMode.Linear),
+                        SKFilterQuality.High => new SkiaSharp.SKSamplingOptions(SkiaSharp.SKFilterMode.Linear),
+                        _ => new SkiaSharp.SKSamplingOptions(SkiaSharp.SKFilterMode.Nearest)
+                    };
+
                     return SkiaSharp.SKImageFilter.CreateImage(
                         ToSKImage(imageImageFilter.Image),
                         ToSKRect(imageImageFilter.Src),
                         ToSKRect(imageImageFilter.Dst),
-                        SkiaSharp.SKFilterQuality.High);
+                        sampling);
                 }
             case MatrixConvolutionImageFilter matrixConvolutionImageFilter:
                 {

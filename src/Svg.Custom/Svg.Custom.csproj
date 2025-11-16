@@ -2,7 +2,9 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFrameworks>netstandard2.0;net6.0;net8.0</TargetFrameworks>
+    <!--<TargetFrameworks>netstandard2.0;net6.0;net8.0</TargetFrameworks>-->
+    <!--<TargetFrameworks>netstandard2.0;$(AvaloniaBuildFramework)</TargetFrameworks>-->
+    <TargetFrameworks>$(AvaloniaBuildFramework)</TargetFrameworks>
     <EnableDefaultCompileItems>False</EnableDefaultCompileItems>
     <EnableDefaultItems>False</EnableDefaultItems>
     <GenerateAssemblyInfo>True</GenerateAssemblyInfo>
@@ -10,8 +12,10 @@
     <IsPackable>True</IsPackable>
     <Nullable>disable</Nullable>
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <SvgRootPath>..\..\externals\SVG</SvgRootPath>
     <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)\$(Configuration)\$(TargetFramework)\GeneratedFiles</CompilerGeneratedFilesOutputPath>
     <DefineConstants>$(DefineConstants);NO_SDC</DefineConstants>
+    <LangVersion>10.0</LangVersion>
   </PropertyGroup>
 
   <!-- Trimming parameters -->
@@ -37,13 +41,13 @@
   <Import Project="..\..\build\SignAssembly.props" />
   <Import Project="..\..\build\ReferenceAssemblies.props" />
 
-  <PropertyGroup>
+  <!--<PropertyGroup>
     <SvgSourcesBasePath>..\..\externals\SVG</SvgSourcesBasePath>
-    <!--<SvgSourcesBasePath>..\..\..\SVG</SvgSourcesBasePath>-->
+    --><!--<SvgSourcesBasePath>..\..\..\SVG</SvgSourcesBasePath>--><!--
   </PropertyGroup>
   
   <ItemGroup>
-    <!-- https://github.com/vvvv/SVG/blob/master/Source/SvgDtdResolver.cs#L32 -->
+    --><!-- https://github.com/vvvv/SVG/blob/master/Source/SvgDtdResolver.cs#L32 --><!--
     <EmbeddedResource Include="$(SvgSourcesBasePath)\Source\Resources\svg11.dtd">
       <Link>Resources\svg11.dtd</Link>
       <LogicalName>Svg.Resources.svg11.dtd</LogicalName>
@@ -55,15 +59,36 @@
     <Compile Include="$(SvgSourcesBasePath)\Source\**\*.cs" Exclude="$(SvgSourcesBasePath)\Source\obj\**" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Properties\AssemblyInfo.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Resources\svg11.dtd" />
-  </ItemGroup>
+  </ItemGroup>-->
 
-  <PropertyGroup Condition="'$(TargetFramework)'=='netstandard2.0'">
+  <!--<PropertyGroup Condition="'$(TargetFramework)'=='netstandard2.0'">
     <DefineConstants>$(DefineConstants);NETSTANDARD;NETSTANDARD20</DefineConstants>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)'=='net6.0'">
     <DefineConstants>$(DefineConstants);NETCORE;NET6</DefineConstants>
-  </PropertyGroup>
+  </PropertyGroup>-->
+
+  <ItemGroup>
+    <!-- https://github.com/vvvv/SVG/blob/master/Source/SvgDtdResolver.cs#L32 -->
+    <EmbeddedResource Include="$(SvgRootPath)\Source\Resources\svg11.dtd">
+      <Link>Resources\svg11.dtd</Link>
+      <LogicalName>Svg.Resources.svg11.dtd</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="**\*.cs" Exclude="bin\**;obj\**" />
+    <Compile Include="$(SvgRootPath)\Source\**\*.cs" Exclude="$(SvgRootPath)\Source\obj\**" />
+    <Compile Remove="$(SvgRootPath)\Source\Properties\AssemblyInfo.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\Resources\svg11.dtd" />
+  </ItemGroup>
+
+  <!-- Exclude generated files to prevent duplicates -->
+  <ItemGroup>
+    <Compile Remove="$(CompilerGeneratedFilesOutputPath)/**/*.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\Generated\**\*.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="ExCSS" />
@@ -74,11 +99,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\externals\Svg.Generators\Svg.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="$(SvgRootPath)\Generators\Svg.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+  <!--<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="System.Memory" />
-  </ItemGroup>
+  </ItemGroup>-->
 
 </Project>

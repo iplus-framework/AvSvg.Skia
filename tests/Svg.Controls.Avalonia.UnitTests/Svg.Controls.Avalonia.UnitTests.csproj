@@ -1,7 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <!--<TargetFramework>net9.0</TargetFramework>-->
+    <TargetFramework>$(AvaloniaBuildFramework)</TargetFramework>
     <OutputType>Library</OutputType>
     <IsPackable>False</IsPackable>
     <Nullable>enable</Nullable>
@@ -20,8 +21,10 @@
     <ProjectReference Include="..\..\src\Svg.Controls.Avalonia\Svg.Controls.Avalonia.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(UseAvaloniaFork)' == 'False'">
     <PackageReference Include="Avalonia.Headless.XUnit" />
   </ItemGroup>
-
+  <!-- iPlus settings and overrides -->
+  <Import Condition="'$(UseAvaloniaFork)' == 'True'" Project="$(MSBuildThisFileDirectory)../../../iPlus/build/AvaloniaBaseHeadlessInclude.props" />
+  <!-- End iPlus settings and overrides -->
 </Project>

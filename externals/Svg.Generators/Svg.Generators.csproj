@@ -1,8 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFrameworks>netstandard2.0</TargetFrameworks>
-        <OutputType>Library</OutputType>
+      <TargetFrameworks>netstandard2.0</TargetFrameworks>
+      <!--<TargetFrameworks>$(AvaloniaBuildFramework)</TargetFrameworks>-->
+      <OutputType>Library</OutputType>
         <IsPackable>False</IsPackable>
         <AnalysisLevel>latest</AnalysisLevel>
         <Nullable>enable</Nullable>
@@ -25,10 +26,22 @@
     <ItemGroup>
       <Compile Include="$(GeneratorsBasePath)\**\*.cs" Exclude="$(GeneratorsBasePath)\Properties\**;$(GeneratorsBasePath)\obj\**;$(GeneratorsBasePath)\bin\**" />
     </ItemGroup>
-  
+
     <ItemGroup>
-        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
-        <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+      <Compile Remove="..\SVG\Generators\AvailableElementsGeneratorNet80.cs" />
     </ItemGroup>
+
+    <ItemGroup>
+      <None Include="..\SVG\Generators\AvailableElementsGeneratorNet80.cs" />
+    </ItemGroup>
+
+  <ItemGroup Condition="'$(UseAvaloniaFork)' == 'False'">
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseAvaloniaFork)' == 'True'">
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" VersionOverride="4.8.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers"  VersionOverride="3.3.4" PrivateAssets="all" />
+  </ItemGroup>
 
 </Project>
