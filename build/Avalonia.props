@@ -6,7 +6,5 @@
   <!-- iPlus settings and overrides -->
   <Import Condition="'$(UseAvaloniaFork)' == 'True'" Project="$(MSBuildThisFileDirectory)../../iPlus/build/AvaloniaBaseInclude.props" />
   <Import Condition="'$(UseAvaloniaFork)' == 'True'" Project="$(MSBuildThisFileDirectory)../../iPlus/build/AvaloniaBaseBuildServicesInclude.props" />
-  <Import Condition="'$(UseAvaloniaFork)' == 'True'" Project="$(AvaloniaRootDir)/build/BuildTargets.targets" />
-  <Import Condition="'$(UseAvaloniaFork)' == 'True'" Project="$(AvaloniaRootDir)/build/SourceGenerators.props" />
   <!-- End iPlus settings and overrides -->
 </Project>

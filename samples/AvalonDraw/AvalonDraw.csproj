@@ -32,6 +32,16 @@
     <Reference Include="Avalonia.X11">
       <HintPath>$(AvaloniaRootDir)\src\Avalonia.X11\bin\$(Configuration)\$(AvaloniaBuildFramework)\Avalonia.X11.dll</HintPath>
     </Reference>
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.Skottie" />
+    <!--<PackageReference Include="SkiaSharp.NativeAssets.Linux" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />-->
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" />
+    <!--<PackageReference Include="SkiaSharp.NativeAssets.macOS" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Android" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" />-->
+    <PackageReference Include="HarfBuzzSharp" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Win32" />
   </ItemGroup>
   <!-- End iPlus settings and overrides -->
 
