@@ -1,5 +1,8 @@
 ﻿<Project>
   <!-- iPlus settings and overrides -->
+  <PropertyGroup>
+    <IsAvaloniaUIProject>true</IsAvaloniaUIProject>
+  </PropertyGroup>  
   <Import Project="$(MSBuildThisFileDirectory)../iPlus/build/Avalonia.Build.props" />
   <!-- End iPlus settings and overrides -->
   <PropertyGroup>

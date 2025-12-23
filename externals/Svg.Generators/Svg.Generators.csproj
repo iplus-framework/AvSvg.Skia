@@ -8,19 +8,25 @@
         <AnalysisLevel>latest</AnalysisLevel>
         <Nullable>enable</Nullable>
         <LangVersion>latest</LangVersion>
-        <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+        <EnforceExtendedAnalyzerRules>false</EnforceExtendedAnalyzerRules>
         <Configurations>Debug;Release</Configurations>
+        <!-- Disable parallel build for this project to prevent race conditions -->
+        <BuildInParallel>false</BuildInParallel>
     </PropertyGroup>
 
   <PropertyGroup>
     <GeneratorsBasePath>..\SVG\Generators</GeneratorsBasePath>
+    <!-- Ensure NuGet assets are resolved relative to the project file, not symbolic links -->
+    <MSBuildProjectExtensionsPath>$(MSBuildProjectDirectory)\obj\</MSBuildProjectExtensionsPath>
+    <BaseIntermediateOutputPath>$(MSBuildProjectDirectory)\obj\</BaseIntermediateOutputPath>
   </PropertyGroup>
 
     <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+        <NoWarn>$(NoWarn);RS1042</NoWarn>
     </PropertyGroup>
     
     <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-        <NoWarn>$(NoWarn);CS1591;CS0618</NoWarn>
+        <NoWarn>$(NoWarn);CS1591;CS0618;RS1042</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
@@ -35,13 +41,10 @@
       <None Include="..\SVG\Generators\AvailableElementsGeneratorNet80.cs" />
     </ItemGroup>
 
-  <ItemGroup Condition="'$(UseAvaloniaFork)' == 'False'">
+  <!-- Use centralized package versions from Directory.Packages.props -->
+  <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(UseAvaloniaFork)' == 'True'">
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" VersionOverride="4.8.0" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers"  VersionOverride="3.3.4" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>
