@@ -23,5 +23,10 @@
   <PropertyGroup>
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
-
+  <PropertyGroup>
+    <UseAvaloniaFork Condition="'$(UseAvaloniaFork)' == ''">True</UseAvaloniaFork>
+  </PropertyGroup>
+  <Target Name="LogDirectoryBuildProps" BeforeTargets="Build">
+    <Message Text="Directory.Build.props applied" Importance="High" />
+  </Target>
 </Project>
