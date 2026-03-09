@@ -1,0 +1,7 @@
+xaml:
+  - {path: readme.md, title: "XAML Usage"}
+  - {path: overview.md, title: "Overview"}
+  - {path: svg-control-and-svgimage.md, title: "Svg Control and SvgImage"}
+  - {path: svgresource-and-brushes.md, title: "SvgResource and Brushes"}
+  - {path: styling-and-previewer.md, title: "Styling and Previewer"}
+  - {path: skia-controls-and-skpictureimage.md, title: "Skia Controls and SKPictureImage"}

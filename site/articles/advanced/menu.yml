@@ -1,0 +1,6 @@
+advanced:
+  - {path: readme.md, title: "Advanced"}
+  - {path: android-vectordrawable-support.md, title: "Android VectorDrawable Support"}
+  - {path: trimming-aot-and-nativeaot.md, title: "Trimming, AOT, and NativeAOT"}
+  - {path: testing-and-w3c-suite.md, title: "Testing and W3C Suite"}
+  - {path: build-and-package.md, title: "Build and Package"}
