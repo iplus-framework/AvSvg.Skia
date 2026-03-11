@@ -1,23 +1,36 @@
 # Svg.Editor package layout
 
-`samples/AvalonDraw` is now the demo host for the extracted editor stack.
+The canonical end-user documentation for the extracted editor stack now lives in the Lunet site:
 
-Reference `Svg.Editor.Skia.Avalonia` when you want the ready-made editor workspace and interactive canvas.
-It now exposes `SvgEditorWorkspace` for the full composed editor and `SvgEditorSurface` for the canvas only.
+- `site/articles/editor/` for architecture and integration guides
+- `site/articles/packages/svg-editor-*.md` for package-by-package coverage
+- `site/articles/reference/api-coverage-index.md` for generated API inputs
 
-Reference `Svg.Editor.Avalonia` when you only need the editor dialogs and other Avalonia-specific UI pieces without the Skia editing surface.
-It now contains the reusable side-panel controls: `DocumentOutlineView`, `ResourceBrowserView`, `PropertyInspectorView`, `ToolPaletteView`, and `StatusBarView`.
-It also exposes the standalone editor views used by the default dialog host, including `InsertElementPickerView`, `PatternEditorView`, `GradientStopsEditorView`, `GradientMeshEditorView`, `StrokeProfileEditorView`, `TextEditorView`, `PathSegmentsEditorView`, `SwatchEditorView`, `SymbolPickerView`, `SymbolNameEditorView`, and `SettingsEditorView`.
-Use `ISvgEditorDialogService` and `ISvgEditorFileDialogService` to replace the default window/file-picker flow when embedding the editor into a host application.
+Use this file as a short maintainer note only.
 
-Reference `Svg.Editor.Skia` when you need rendering/editing helpers and overlay logic but are composing your own UI.
-It exposes the public editor-side helpers `SvgEditorOverlayRenderer`, `SvgEditorInteractionController`, `BoundsInfo`, and `PathPoint`.
+## Package summary
 
-Reference `Svg.Editor.Svg` for SVG document mutation services, resource management, and property editing support.
+- `Svg.Editor.Core`: shared session, settings, outline, artboard, clipboard, and history state
+- `Svg.Editor.Svg`: document mutation services and editor-side SVG/resource models
+- `Svg.Editor.Skia`: selection math, path editing, align/distribute, and overlay rendering
+- `Svg.Editor.Avalonia`: reusable Avalonia panels, editor views, and dialog abstractions
+- `Svg.Editor.Skia.Avalonia`: `SvgEditorSurface` and `SvgEditorWorkspace`
 
-Reference `Svg.Editor.Core` for shared editor state types such as `SvgEditorSession`, `SvgEditorSettings`, `SvgNode`, and `ArtboardInfo`.
+## Host-owned seams on `SvgEditorWorkspace`
 
-`SvgEditorWorkspace` now keeps host-owned seams public:
-- assign `DialogService` to customize modal presentation and inline editor hosting
-- assign `FileDialogService` to customize open/save/export/image picking
-- call `OpenDocumentAsync`, `SaveDocumentAsync`, `ExportSelectedElementAsync`, `ExportPdfAsync`, `ExportXpsAsync`, `PlaceImageAsync`, and `ShowSettingsAsync` from host menus or commands instead of relying on the built-in menu bar
+- `DialogService`
+- `FileDialogService`
+- `PreviewRequested`
+- `ResourceAssembly`
+- `WorkspaceTitlePrefix`
+
+Public host command entry points remain:
+
+- `LoadDocument`
+- `OpenDocumentAsync`
+- `SaveDocumentAsync`
+- `ExportSelectedElementAsync`
+- `ExportPdfAsync`
+- `ExportXpsAsync`
+- `PlaceImageAsync`
+- `ShowSettingsAsync`
