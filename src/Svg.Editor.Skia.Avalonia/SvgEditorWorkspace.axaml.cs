@@ -16,6 +16,7 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform;
+using Avalonia.Platform.Storage;
 using Avalonia.Svg.Skia;
 using Avalonia.Threading;
 using Svg;
@@ -39,6 +40,7 @@ namespace Svg.Editor.Skia.Avalonia;
 public partial class SvgEditorWorkspace : UserControl
 {
     private const string DefaultWorkspaceTitlePrefix = "SVG Editor";
+    private static readonly DataFormat<string> SvgNodeDragFormat = DataFormat.CreateStringApplicationFormat("SvgNode");
 
     private struct DragInfo
     {
@@ -695,21 +697,20 @@ public partial class SvgEditorWorkspace : UserControl
 
     private void Window_OnDragOver(object? sender, DragEventArgs e)
     {
-        if (e.Data.Contains(DataFormats.FileNames))
+        if (e.DataTransfer.TryGetFiles()?.Any() == true)
             e.DragEffects = DragDropEffects.Copy;
     }
 
     private async void Window_OnDrop(object? sender, DragEventArgs e)
     {
-        if (e.Data.Contains(DataFormats.FileNames))
+        var file = e.DataTransfer.TryGetFiles()?
+            .Select(x => x.TryGetLocalPath())
+            .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+
+        if (!string.IsNullOrWhiteSpace(file))
         {
-            var files = e.Data.GetFileNames();
-            var file = files?.FirstOrDefault();
-            if (!string.IsNullOrEmpty(file))
-            {
-                LoadDocument(file!);
-                SvgView.InvalidateVisual();
-            }
+            LoadDocument(file!);
+            SvgView.InvalidateVisual();
         }
     }
 
@@ -2036,7 +2037,7 @@ public partial class SvgEditorWorkspace : UserControl
             ExpandedNodeIds.Add(node.Element.ID);
         for (var i = 0; i < node.Children.Count; i++)
         {
-            if (item.ItemContainerGenerator.ContainerFromIndex(i) is TreeViewItem child)
+            if (item.ContainerFromIndex(i) is TreeViewItem child)
                 SaveExpandedNodes(child, node.Children[i]);
         }
     }
@@ -2055,7 +2056,7 @@ public partial class SvgEditorWorkspace : UserControl
             item.IsExpanded = true;
         for (var i = 0; i < node.Children.Count; i++)
         {
-            if (item.ItemContainerGenerator.ContainerFromIndex(i) is TreeViewItem child)
+            if (item.ContainerFromIndex(i) is TreeViewItem child)
                 RestoreExpandedNodes(child, node.Children[i]);
         }
     }
@@ -3134,9 +3135,9 @@ public partial class SvgEditorWorkspace : UserControl
                     return;
                 _treeDragging = true;
             }
-            var data = new DataObject();
-            data.Set("SvgNode", node);
-            await DragDrop.DoDragDrop(e, data, DragDropEffects.Move);
+            var data = new DataTransfer();
+            data.Add(DataTransferItem.Create(SvgNodeDragFormat, node.Element.ID ?? string.Empty));
+            await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
             _dragNode = null;
             _treeDragging = false;
         }
@@ -3150,7 +3151,7 @@ public partial class SvgEditorWorkspace : UserControl
 
     private void DocumentTree_OnDragOver(object? sender, DragEventArgs e)
     {
-        if (!e.Data.Contains("SvgNode"))
+        if (!e.DataTransfer.Contains(SvgNodeDragFormat))
         {
             HideDropIndicator();
             return;
@@ -3206,61 +3207,58 @@ public partial class SvgEditorWorkspace : UserControl
 
     private void DocumentTree_OnDrop(object? sender, DragEventArgs e)
     {
-        if (!e.Data.Contains("SvgNode") || _dropTarget is null)
+        if (!e.DataTransfer.Contains(SvgNodeDragFormat) || _dropTarget is null || _dragNode is not { } node)
         {
             HideDropIndicator();
             return;
         }
 
-        if (e.Data.Get("SvgNode") is SvgNode node)
+        var target = _dropTarget;
+        if (node == target || IsAncestor(node, target) || node.Parent is null)
         {
-            var target = _dropTarget;
-            if (node == target || IsAncestor(node, target) || node.Parent is null)
-            {
-                HideDropIndicator();
-                return;
-            }
-
-            SaveUndoState();
-            SaveExpandedNodes();
-            node.Parent.Element.Children.Remove(node.Element);
-
-            switch (_dropPosition)
-            {
-                case DropPosition.Before:
-                    if (target.Parent?.Element is SvgElement parentBefore)
-                    {
-                        var index = parentBefore.Children.IndexOf(target.Element);
-                        if (index < 0)
-                            index = parentBefore.Children.Count;
-                        if (index >= parentBefore.Children.Count)
-                            parentBefore.Children.Add(node.Element);
-                        else
-                            parentBefore.Children.Insert(index, node.Element);
-                    }
-                    break;
-                case DropPosition.After:
-                    if (target.Parent?.Element is SvgElement parentAfter)
-                    {
-                        var index = parentAfter.Children.IndexOf(target.Element);
-                        if (index < 0)
-                            index = parentAfter.Children.Count - 1;
-                        if (index + 1 >= parentAfter.Children.Count)
-                            parentAfter.Children.Add(node.Element);
-                        else
-                            parentAfter.Children.Insert(index + 1, node.Element);
-                    }
-                    break;
-                default:
-                    target.Element.Children.Add(node.Element);
-                    break;
-            }
-
-            SvgView.SkSvg!.FromSvgDocument(_document);
-            BuildTree();
-            SelectNodeFromElement(node.Element);
-            SvgView.InvalidateVisual();
+            HideDropIndicator();
+            return;
         }
+
+        SaveUndoState();
+        SaveExpandedNodes();
+        node.Parent.Element.Children.Remove(node.Element);
+
+        switch (_dropPosition)
+        {
+            case DropPosition.Before:
+                if (target.Parent?.Element is SvgElement parentBefore)
+                {
+                    var index = parentBefore.Children.IndexOf(target.Element);
+                    if (index < 0)
+                        index = parentBefore.Children.Count;
+                    if (index >= parentBefore.Children.Count)
+                        parentBefore.Children.Add(node.Element);
+                    else
+                        parentBefore.Children.Insert(index, node.Element);
+                }
+                break;
+            case DropPosition.After:
+                if (target.Parent?.Element is SvgElement parentAfter)
+                {
+                    var index = parentAfter.Children.IndexOf(target.Element);
+                    if (index < 0)
+                        index = parentAfter.Children.Count - 1;
+                    if (index + 1 >= parentAfter.Children.Count)
+                        parentAfter.Children.Add(node.Element);
+                    else
+                        parentAfter.Children.Insert(index + 1, node.Element);
+                }
+                break;
+            default:
+                target.Element.Children.Add(node.Element);
+                break;
+        }
+
+        SvgView.SkSvg!.FromSvgDocument(_document);
+        BuildTree();
+        SelectNodeFromElement(node.Element);
+        SvgView.InvalidateVisual();
 
         HideDropIndicator();
         _dropTarget = null;

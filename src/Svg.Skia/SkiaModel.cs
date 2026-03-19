@@ -882,7 +882,7 @@ public partial class SkiaModel
                         ToSKImage(imageImageFilter.Image),
                         ToSKRect(imageImageFilter.Src),
                         ToSKRect(imageImageFilter.Dst),
-                        SkiaSharp.SKFilterQuality.High);
+                        SkiaSharp.SkiaExtensions.ToSamplingOptions(SkiaSharp.SKFilterQuality.High));
                 }
             case MatrixConvolutionImageFilter matrixConvolutionImageFilter:
                 {
