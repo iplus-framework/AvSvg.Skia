@@ -25,10 +25,12 @@ The generated API reference under `/api` is built from these projects:
 Current API settings:
 
 - configuration: `Release`
-- target framework override: `netstandard2.0`
+- default target framework override: `netstandard2.0`
+- Avalonia 12 project overrides:
+  `Svg.Controls.Avalonia`, `Svg.Controls.Skia.Avalonia`, `Skia.Controls.Avalonia`, `Svg.Editor.Avalonia`, and `Svg.Editor.Skia.Avalonia` build API metadata with `net8.0`
 - output path: `/api`
 
-## Why `netstandard2.0`
+## Why mixed target frameworks
 
 This repository mixes:
 
@@ -36,7 +38,7 @@ This repository mixes:
 - multi-target editor packages,
 - `netstandard2.0`-only generator packages.
 
-Using `netstandard2.0` as the documentation build target keeps the API site aligned across the documented assemblies without having to split the API generation into multiple passes.
+The docs build keeps `netstandard2.0` as the default extraction target for the shared runtime and generator-facing packages, while overriding the Avalonia 12 packages to `net8.0`. That keeps a single API site without forcing the Avalonia projects back onto a framework they no longer target.
 
 ## `Svg.CodeGen.Skia`
 
