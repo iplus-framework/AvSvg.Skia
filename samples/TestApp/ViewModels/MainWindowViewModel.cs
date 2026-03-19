@@ -8,9 +8,6 @@ using System.Reactive.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using Avalonia;
-using Avalonia.Controls;
-using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform.Storage;
 using DynamicData;
 using DynamicData.Binding;
@@ -81,13 +78,13 @@ public partial class MainWindowViewModel : ViewModelBase
             .ToObservableChangeSet()
             .Filter(queryFilter)
             .Sort(SortExpressionComparer<FileItemViewModel>.Ascending(x => x.Name))
-            .ObserveOn(RxApp.MainThreadScheduler)
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Bind(out _filteredItems)
             .AsObservableList();
 
         var resetQueryCanExecute = this.WhenAnyItemQuery()
             .Select(x => !string.IsNullOrWhiteSpace(x))
-            .ObserveOn(RxApp.MainThreadScheduler);
+            .ObserveOn(RxSchedulers.MainThreadScheduler);
 
         ResetQueryCommand = ReactiveCommand.Create(() => ItemQuery = "", resetQueryCanExecute);
 
@@ -141,26 +138,28 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task AddItemExecute()
     {
-        var window = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
-        if (window is null)
+        var storageProvider = StorageService.GetStorageProvider();
+        if (storageProvider is null)
         {
             return;
         }
 
-        var dlg = new OpenFileDialog
+        var result = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             AllowMultiple = true,
-            Filters = new List<FileDialogFilter>
+            Title = "Add svg files",
+            FileTypeFilter = new List<FilePickerFileType>
             {
-                new() {Name = "Svg Files (*.svg;*.svgz)", Extensions = new List<string> {"svg", "svgz"}},
-                new() {Name = "All Files (*.*)", Extensions = new List<string> {"*"}}
+                StorageService.ImageSvg,
+                StorageService.ImageSvgz,
+                StorageService.All
             }
-        };
-        var result = await dlg.ShowAsync(window);
-        if (result is { })
+        });
+
+        foreach (var file in result)
         {
-            var paths = result.ToList();
-            foreach (var path in paths)
+            var path = file.TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(path))
             {
                 AddItem(path);
             }

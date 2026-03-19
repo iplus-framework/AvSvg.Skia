@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using ShimSkiaSharp;
 using SkiaSharp;
 using Svg.Model.Drawables;
@@ -53,7 +54,7 @@ public partial class MainView : UserControl
     {
         e.DragEffects = e.DragEffects & (DragDropEffects.Copy | DragDropEffects.Link);
 
-        if (!e.Data.Contains(DataFormats.Files))
+        if (e.DataTransfer.TryGetFiles() is not { Length: > 0 })
         {
             e.DragEffects = DragDropEffects.None;
         }
@@ -61,21 +62,23 @@ public partial class MainView : UserControl
 
     private void Drop(object? sender, DragEventArgs e)
     {
-        if (e.Data.Contains(DataFormats.Files))
+        var paths = e.DataTransfer.TryGetFiles()?
+            .Select(file => file.TryGetLocalPath())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Cast<string>()
+            .ToArray();
+
+        if (paths is { Length: > 0 })
         {
-            var paths = e.Data.GetFileNames();
-            if (paths is { })
+            if (DataContext is MainWindowViewModel vm)
             {
-                if (DataContext is MainWindowViewModel vm)
+                try
                 {
-                    try
-                    {
-                        vm.Drop(paths);
-                    }
-                    catch (Exception)
-                    {
-                        // ignored
-                    }
+                    vm.Drop(paths);
+                }
+                catch (Exception)
+                {
+                    // ignored
                 }
             }
         }

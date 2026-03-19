@@ -30,7 +30,7 @@
     <File Path="build/Avalonia.Desktop.props" />
     <File Path="build/Avalonia.Diagnostics.props" />
     <File Path="build/Avalonia.props" />
-    <File Path="build/Avalonia.ReactiveUI.props" />
+    <File Path="build/ReactiveUI.Avalonia.props" />
     <File Path="build/Avalonia.Skia.props" />
     <File Path="build/Avalonia.Themes.Fluent.props" />
     <File Path="build/Avalonia.Web.props" />

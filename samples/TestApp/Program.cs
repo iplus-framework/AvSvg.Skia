@@ -1,7 +1,7 @@
 ﻿using System;
 using Avalonia;
-using Avalonia.ReactiveUI;
 using Avalonia.Svg.Skia;
+using ReactiveUI.Avalonia;
 
 namespace TestApp;
 
@@ -29,6 +29,6 @@ class Program
             .With(new X11PlatformOptions { })
             .LogToTrace()
             .UseSkia()
-            .UseReactiveUI();
+            .UseReactiveUI(static _ => { });
     }
 }

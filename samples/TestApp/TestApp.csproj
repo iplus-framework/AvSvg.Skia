@@ -16,6 +16,7 @@
   <PropertyGroup>
     <LangVersion>13</LangVersion>
     <UseBackingFields>true</UseBackingFields>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,7 +27,7 @@
   <Import Project="..\..\build\Avalonia.props" />
   <Import Project="..\..\build\Avalonia.Themes.Fluent.props" />
   <Import Project="..\..\build\Avalonia.Diagnostics.props" />
-  <Import Project="..\..\build\Avalonia.ReactiveUI.props" />
+  <Import Project="..\..\build\ReactiveUI.Avalonia.props" />
   <Import Project="..\..\build\Avalonia.Desktop.props" />
   <Import Project="..\..\build\SkiaSharp.v3.props" />
   <Import Project="..\..\build\SkiaSharp.Native.v3.props" />
@@ -43,6 +44,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="DynamicData" />
   </ItemGroup>
 
 </Project>
