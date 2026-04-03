@@ -87,17 +87,20 @@ The scoped six-phase plan is complete. The remaining animation work is follow-up
 - Implemented:
   - incremental redraw in `SKSvg` using cached static content plus rebuilt animated top-level animated roots where the drawable/model pipeline can safely support it
   - benchmark and profiling harness for animation-frame cost in the shared `Svg.Skia` renderer
+  - retained native-composition mapping for the supported Avalonia host path, using one composition child visual per top-level SVG child and updating animated layers without falling back to the regular `Render(...)` path
 - Delivered in the follow-up slices:
   - stop rebuilding the full document picture on every effective animation frame in the common renderer path when the document can be safely split into static and animated top-level layers
   - keep hit testing and interaction semantics aligned with the animated drawable state
   - preserve the current shared SVG runtime as the source of truth
   - add a local BenchmarkDotNet harness in `tests/Svg.Skia.Benchmarks` that compares layered animation-frame updates against defs-backed fallback rebuilds, with and without drawing
-- Remaining follow-up item:
-  - limited host-native composition mapping only after the shared runtime, layered redraw path, and benchmark harness are stable enough to justify the extra renderer complexity
+  - expose a shared native-composition scene/frame extraction contract from `SKSvg`
+  - attach Avalonia retained visuals through the compositor child-visual API when the animated document can be represented as top-level native-composition layers
+- Current limitation outside the shared runtime:
+  - Uno still falls back to the shared render-loop or dispatcher backends because the restored Uno package surface does not currently provide a working child-visual attachment path on the active target platforms
 - Explicit non-goals for the implemented follow-up slices:
   - no attempt to translate arbitrary SVG nodes into Avalonia or Uno composition objects
   - no broad retained-scene-graph rewrite of the existing drawable system
-  - no host-native SVG-node-to-composition mapping in the same change
+  - no platform-specific reimplementation of SVG timing semantics
 
 ## Scope
 
