@@ -83,64 +83,64 @@ public static class SvgAnimationHostBackendResolver
         switch (requestedBackend)
         {
             case SvgAnimationHostBackend.DispatcherTimer:
-            {
-                return capabilities.SupportsDispatcherTimer
-                    ? new SvgAnimationHostBackendResolution(
-                        requestedBackend,
-                        SvgAnimationHostBackend.DispatcherTimer,
-                        null)
-                    : new SvgAnimationHostBackendResolution(
+                {
+                    return capabilities.SupportsDispatcherTimer
+                        ? new SvgAnimationHostBackendResolution(
+                            requestedBackend,
+                            SvgAnimationHostBackend.DispatcherTimer,
+                            null)
+                        : new SvgAnimationHostBackendResolution(
+                            requestedBackend,
+                            SvgAnimationHostBackend.Manual,
+                            "Dispatcher timer animation playback is unavailable.");
+                }
+            case SvgAnimationHostBackend.RenderLoop:
+                {
+                    if (capabilities.SupportsRenderLoop)
+                    {
+                        return new SvgAnimationHostBackendResolution(
+                            requestedBackend,
+                            SvgAnimationHostBackend.RenderLoop,
+                            null);
+                    }
+
+                    if (capabilities.SupportsDispatcherTimer)
+                    {
+                        return new SvgAnimationHostBackendResolution(
+                            requestedBackend,
+                            SvgAnimationHostBackend.DispatcherTimer,
+                            "Render-loop animation playback is unavailable; falling back to dispatcher timer.");
+                    }
+
+                    return new SvgAnimationHostBackendResolution(
                         requestedBackend,
                         SvgAnimationHostBackend.Manual,
-                        "Dispatcher timer animation playback is unavailable.");
-            }
-            case SvgAnimationHostBackend.RenderLoop:
-            {
-                if (capabilities.SupportsRenderLoop)
-                {
-                    return new SvgAnimationHostBackendResolution(
-                        requestedBackend,
-                        SvgAnimationHostBackend.RenderLoop,
-                        null);
+                        "Render-loop animation playback is unavailable.");
                 }
-
-                if (capabilities.SupportsDispatcherTimer)
-                {
-                    return new SvgAnimationHostBackendResolution(
-                        requestedBackend,
-                        SvgAnimationHostBackend.DispatcherTimer,
-                        "Render-loop animation playback is unavailable; falling back to dispatcher timer.");
-                }
-
-                return new SvgAnimationHostBackendResolution(
-                    requestedBackend,
-                    SvgAnimationHostBackend.Manual,
-                    "Render-loop animation playback is unavailable.");
-            }
             case SvgAnimationHostBackend.Default:
             default:
-            {
-                if (capabilities.SupportsRenderLoop)
                 {
+                    if (capabilities.SupportsRenderLoop)
+                    {
+                        return new SvgAnimationHostBackendResolution(
+                            requestedBackend,
+                            SvgAnimationHostBackend.RenderLoop,
+                            null);
+                    }
+
+                    if (capabilities.SupportsDispatcherTimer)
+                    {
+                        return new SvgAnimationHostBackendResolution(
+                            requestedBackend,
+                            SvgAnimationHostBackend.DispatcherTimer,
+                            null);
+                    }
+
                     return new SvgAnimationHostBackendResolution(
                         requestedBackend,
-                        SvgAnimationHostBackend.RenderLoop,
-                        null);
+                        SvgAnimationHostBackend.Manual,
+                        "Automatic animation playback backends are unavailable.");
                 }
-
-                if (capabilities.SupportsDispatcherTimer)
-                {
-                    return new SvgAnimationHostBackendResolution(
-                        requestedBackend,
-                        SvgAnimationHostBackend.DispatcherTimer,
-                        null);
-                }
-
-                return new SvgAnimationHostBackendResolution(
-                    requestedBackend,
-                    SvgAnimationHostBackend.Manual,
-                    "Automatic animation playback backends are unavailable.");
-            }
         }
     }
 }

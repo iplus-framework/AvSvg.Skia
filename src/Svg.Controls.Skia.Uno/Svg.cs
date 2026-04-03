@@ -2,9 +2,9 @@ using System.Diagnostics;
 using System.Numerics;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Input;
 using Svg;
 using Svg.Model;
 using Svg.Skia;
@@ -987,15 +987,15 @@ public sealed class Svg : SKCanvasElement
         switch (_animationBackendResolution.ActualBackend)
         {
             case SvgAnimationHostBackend.DispatcherTimer:
-            {
-                StartDispatcherTimer();
-                break;
-            }
+                {
+                    StartDispatcherTimer();
+                    break;
+                }
             case SvgAnimationHostBackend.RenderLoop:
-            {
-                StartRenderLoop();
-                break;
-            }
+                {
+                    StartRenderLoop();
+                    break;
+                }
         }
     }
 

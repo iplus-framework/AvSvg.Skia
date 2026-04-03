@@ -1,6 +1,6 @@
 using System;
-using Xunit;
 using Svg.Model.Services;
+using Xunit;
 
 namespace Svg.Model.UnitTests;
 

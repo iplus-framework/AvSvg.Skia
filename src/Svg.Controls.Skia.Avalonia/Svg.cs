@@ -1067,18 +1067,18 @@ public class Svg : Control
         switch (_animationBackendResolution.ActualBackend)
         {
             case SvgAnimationHostBackend.DispatcherTimer:
-            {
-                _animationDispatcherTimer ??= CreateAnimationDispatcherTimer();
-                _animationDispatcherTimer.Interval = NormalizeAnimationFrameInterval(AnimationFrameInterval);
-                _animationDispatcherTimer.Start();
-                break;
-            }
+                {
+                    _animationDispatcherTimer ??= CreateAnimationDispatcherTimer();
+                    _animationDispatcherTimer.Interval = NormalizeAnimationFrameInterval(AnimationFrameInterval);
+                    _animationDispatcherTimer.Start();
+                    break;
+                }
             case SvgAnimationHostBackend.RenderLoop:
-            {
-                _animationRenderLoopActive = true;
-                RequestNextAnimationFrame();
-                break;
-            }
+                {
+                    _animationRenderLoopActive = true;
+                    RequestNextAnimationFrame();
+                    break;
+                }
         }
     }
 
