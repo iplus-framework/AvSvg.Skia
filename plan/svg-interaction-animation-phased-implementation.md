@@ -18,7 +18,7 @@ This plan is intentionally split into phases so interaction can ship before the 
 - Phase 4 shared animation runtime core has been implemented.
 - Phase 5 performance and incremental redraw has been implemented for the current shared-renderer scope.
 - Phase 6 optional native host animation backends has been implemented for host-side scheduling and backend selection.
-- Post-phase follow-up work is now tracked in this document, with the first incremental redraw follow-up slice implemented and the benchmark harness slice in progress.
+- Post-phase follow-up work is now tracked in this document, with the first incremental redraw follow-up slice and the initial benchmark harness both implemented.
 - The first implementation slice is in place in:
   - `src/Svg.Skia/SKSvg.Interaction.cs`
   - `src/Svg.Skia/Interaction/SvgInteractionDispatcher.cs`
@@ -86,13 +86,15 @@ The scoped six-phase plan is complete. The remaining animation work is follow-up
 
 - Implemented:
   - incremental redraw in `SKSvg` using cached static content plus rebuilt animated top-level animated roots where the drawable/model pipeline can safely support it
-- Delivered in the first slice:
-  - stop rebuilding the full document picture on every effective animation frame in the common renderer path
+  - benchmark and profiling harness for animation-frame cost in the shared `Svg.Skia` renderer
+- Delivered in the follow-up slices:
+  - stop rebuilding the full document picture on every effective animation frame in the common renderer path when the document can be safely split into static and animated top-level layers
   - keep hit testing and interaction semantics aligned with the animated drawable state
   - preserve the current shared SVG runtime as the source of truth
-- In progress:
-  - benchmark and profiling harness for animation-frame cost in the shared `Svg.Skia` renderer
-- Explicit non-goals for the current slice:
+  - add a local BenchmarkDotNet harness in `tests/Svg.Skia.Benchmarks` that compares layered animation-frame updates against defs-backed fallback rebuilds, with and without drawing
+- Remaining follow-up item:
+  - limited host-native composition mapping only after the shared runtime, layered redraw path, and benchmark harness are stable enough to justify the extra renderer complexity
+- Explicit non-goals for the implemented follow-up slices:
   - no attempt to translate arbitrary SVG nodes into Avalonia or Uno composition objects
   - no broad retained-scene-graph rewrite of the existing drawable system
   - no host-native SVG-node-to-composition mapping in the same change

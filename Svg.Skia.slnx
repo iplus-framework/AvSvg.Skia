@@ -86,6 +86,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ShimSkiaSharp.UnitTests/ShimSkiaSharp.UnitTests.csproj" />
+    <Project Path="tests/Svg.Skia.Benchmarks/Svg.Skia.Benchmarks.csproj" />
     <Project Path="tests/Svg.Controls.Avalonia.UnitTests/Svg.Controls.Avalonia.UnitTests.csproj" />
     <Project Path="tests/Svg.Controls.Skia.Avalonia.UnitTests/Svg.Controls.Skia.Avalonia.UnitTests.csproj" />
     <Project Path="tests/Svg.Controls.Skia.Uno.UnitTests/Svg.Controls.Skia.Uno.UnitTests.csproj" />
