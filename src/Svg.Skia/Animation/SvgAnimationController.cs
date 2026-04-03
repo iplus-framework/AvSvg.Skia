@@ -321,7 +321,8 @@ public sealed class SvgAnimationController : IDisposable
         var attributes = new Dictionary<string, SvgAnimationFrameAttributeState>(StringComparer.Ordinal);
         foreach (var binding in _bindings)
         {
-            if (!TryResolveAnimatedAttributeValue(this, binding, time, out var value))
+            attributes.TryGetValue(binding.TargetAttributeKey, out var currentAttributeState);
+            if (!TryResolveAnimatedAttributeValue(this, binding, time, currentAttributeState?.Value, out var value))
             {
                 continue;
             }
@@ -661,7 +662,12 @@ public sealed class SvgAnimationController : IDisposable
         return null;
     }
 
-    private static bool TryResolveAnimatedAttributeValue(SvgAnimationController controller, AnimationBinding binding, TimeSpan time, out string value)
+    private static bool TryResolveAnimatedAttributeValue(
+        SvgAnimationController controller,
+        AnimationBinding binding,
+        TimeSpan time,
+        string? currentComposedValue,
+        out string value)
     {
         value = string.Empty;
 
@@ -685,7 +691,7 @@ public sealed class SvgAnimationController : IDisposable
 
                 if (animateMotion.Additive == SvgAnimationAdditive.Sum)
                 {
-                    value = CombineTransformValue(binding.BaseValueString, value);
+                    value = CombineTransformValue(ResolveCurrentComposedBaseValue(currentComposedValue, binding.BaseValueString), value);
                 }
 
                 return true;
@@ -698,7 +704,7 @@ public sealed class SvgAnimationController : IDisposable
 
                 if (animateTransform.Additive == SvgAnimationAdditive.Sum)
                 {
-                    value = CombineTransformValue(binding.BaseValueString, value);
+                    value = CombineTransformValue(ResolveCurrentComposedBaseValue(currentComposedValue, binding.BaseValueString), value);
                 }
 
                 return true;
@@ -710,8 +716,7 @@ public sealed class SvgAnimationController : IDisposable
                 }
 
                 if (animateColor.Additive == SvgAnimationAdditive.Sum &&
-                    !UsesImplicitBaseValue(binding, animateColor) &&
-                    binding.BaseValueString is { } additiveColorBase &&
+                    TryResolveAdditiveBaseValue(binding, animateColor, currentComposedValue, out var additiveColorBase) &&
                     TryAddValue(binding, additiveColorBase, value, out var additiveColorValue))
                 {
                     value = additiveColorValue;
@@ -726,8 +731,7 @@ public sealed class SvgAnimationController : IDisposable
                 }
 
                 if (animate.Additive == SvgAnimationAdditive.Sum &&
-                    !UsesImplicitBaseValue(binding, animate) &&
-                    binding.BaseValueString is { } additiveValueBase &&
+                    TryResolveAdditiveBaseValue(binding, animate, currentComposedValue, out var additiveValueBase) &&
                     TryAddValue(binding, additiveValueBase, value, out var additiveValue))
                 {
                     value = additiveValue;
@@ -795,8 +799,11 @@ public sealed class SvgAnimationController : IDisposable
         }
 
         if (animation.Additive == SvgAnimationAdditive.Sum &&
-            !UsesImplicitBaseValue(binding, animation) &&
-            binding.BaseValueString is { } baseValue &&
+            TryResolveAdditiveBaseValue(
+                binding,
+                animation,
+                ConvertAttributeValueToString(GetAttributeValue(target, binding.AttributeName)),
+                out var baseValue) &&
             TryAddValue(binding, baseValue, value, out var additiveValue))
         {
             value = additiveValue;
@@ -819,7 +826,11 @@ public sealed class SvgAnimationController : IDisposable
 
         if (animation.Additive == SvgAnimationAdditive.Sum)
         {
-            transformValue = CombineTransformValue(binding.BaseValueString, transformValue);
+            transformValue = CombineTransformValue(
+                ResolveCurrentComposedBaseValue(
+                    ConvertAttributeValueToString(GetAttributeValue(target, binding.AttributeName)),
+                    binding.BaseValueString),
+                transformValue);
         }
 
         _ = SetAttributeValue(target, binding.AttributeName, transformValue);
@@ -839,7 +850,11 @@ public sealed class SvgAnimationController : IDisposable
 
         if (animation.Additive == SvgAnimationAdditive.Sum)
         {
-            transformValue = CombineTransformValue(binding.BaseValueString, transformValue);
+            transformValue = CombineTransformValue(
+                ResolveCurrentComposedBaseValue(
+                    ConvertAttributeValueToString(GetAttributeValue(target, binding.AttributeName)),
+                    binding.BaseValueString),
+                transformValue);
         }
 
         _ = SetAttributeValue(target, binding.AttributeName, transformValue);
@@ -1138,12 +1153,37 @@ public sealed class SvgAnimationController : IDisposable
             return false;
         }
 
+        var sign = 1;
+        if (part[0] is '+' or '-')
+        {
+            sign = part[0] == '-' ? -1 : 1;
+            part = part.Substring(1).Trim();
+            if (part.Length == 0 || string.Equals(part, "indefinite", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        if (TryParseColonClockValue(part, out result))
+        {
+            if (sign < 0)
+            {
+                result = -result;
+            }
+
+            return true;
+        }
+
         double scalar;
 
         if (part.EndsWith("ms", StringComparison.OrdinalIgnoreCase) &&
             double.TryParse(part.Substring(0, part.Length - 2), NumberStyles.Float, CultureInfo.InvariantCulture, out scalar))
         {
             result = TimeSpan.FromMilliseconds(scalar);
+            if (sign < 0)
+            {
+                result = -result;
+            }
             return true;
         }
 
@@ -1151,6 +1191,10 @@ public sealed class SvgAnimationController : IDisposable
             double.TryParse(part.Substring(0, part.Length - 3), NumberStyles.Float, CultureInfo.InvariantCulture, out scalar))
         {
             result = TimeSpan.FromMinutes(scalar);
+            if (sign < 0)
+            {
+                result = -result;
+            }
             return true;
         }
 
@@ -1158,6 +1202,10 @@ public sealed class SvgAnimationController : IDisposable
             double.TryParse(part.Substring(0, part.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out scalar))
         {
             result = TimeSpan.FromHours(scalar);
+            if (sign < 0)
+            {
+                result = -result;
+            }
             return true;
         }
 
@@ -1165,16 +1213,61 @@ public sealed class SvgAnimationController : IDisposable
             double.TryParse(part.Substring(0, part.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out scalar))
         {
             result = TimeSpan.FromSeconds(scalar);
+            if (sign < 0)
+            {
+                result = -result;
+            }
             return true;
         }
 
         if (double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out scalar))
         {
             result = TimeSpan.FromSeconds(scalar);
+            if (sign < 0)
+            {
+                result = -result;
+            }
             return true;
         }
 
         return false;
+    }
+
+    private static bool TryParseColonClockValue(string value, out TimeSpan result)
+    {
+        result = default;
+
+        var parts = value.Split(':');
+        if (parts.Length is < 2 or > 3)
+        {
+            return false;
+        }
+
+        var hours = 0;
+        var minutesText = parts[parts.Length - 2];
+        var secondsText = parts[parts.Length - 1];
+
+        if (parts.Length == 3 &&
+            !int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out hours))
+        {
+            return false;
+        }
+
+        if (!int.TryParse(minutesText, NumberStyles.None, CultureInfo.InvariantCulture, out var minutes) ||
+            !double.TryParse(secondsText, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
+        {
+            return false;
+        }
+
+        if (hours < 0 || minutes < 0 || minutes >= 60 || seconds < 0d || seconds >= 60d)
+        {
+            return false;
+        }
+
+        result = TimeSpan.FromHours(hours) +
+                 TimeSpan.FromMinutes(minutes) +
+                 TimeSpan.FromSeconds(seconds);
+        return true;
     }
 
     private static bool TryResolveAnimatedValue(AnimationBinding binding, SvgAnimationValueElement animation, AnimationSample sample, bool forceColorInterpolation, out string value)
@@ -2370,6 +2463,37 @@ public sealed class SvgAnimationController : IDisposable
         }
 
         return string.Concat(baseValue!.Trim(), " ", transformValue.Trim());
+    }
+
+    private static string? ResolveCurrentComposedBaseValue(string? currentComposedValue, string? fallbackBaseValue)
+    {
+        if (!string.IsNullOrWhiteSpace(currentComposedValue))
+        {
+            return currentComposedValue;
+        }
+
+        return fallbackBaseValue;
+    }
+
+    private static bool TryResolveAdditiveBaseValue(
+        AnimationBinding binding,
+        SvgAnimationValueElement animation,
+        string? currentComposedValue,
+        out string baseValue)
+    {
+        baseValue = ResolveCurrentComposedBaseValue(currentComposedValue, binding.BaseValueString) ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(baseValue))
+        {
+            return true;
+        }
+
+        if (UsesImplicitBaseValue(binding, animation))
+        {
+            baseValue = string.Empty;
+            return false;
+        }
+
+        return false;
     }
 
     private static string CreateEventInstanceKey(SvgElementAddress address, SvgPointerEventType eventType)

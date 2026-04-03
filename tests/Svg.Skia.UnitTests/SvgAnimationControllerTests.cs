@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using ShimSkiaSharp;
 using Svg;
@@ -161,6 +162,26 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void Save_SucceedsWhenAnimationLayerCachingIsActive()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(TopLevelLayeredAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.True(svg.UsesAnimationLayerCaching);
+
+        using var initialStream = new MemoryStream();
+        Assert.True(svg.Save(initialStream, SkiaColors.Transparent));
+        Assert.True(initialStream.Length > 0);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+
+        using var updatedStream = new MemoryStream();
+        Assert.True(svg.Save(updatedStream, SkiaColors.Transparent));
+        Assert.True(updatedStream.Length > 0);
+    }
+
+    [Fact]
     public void SetAnimationTime_RebuildsInheritedStrokeAnimationsUnderLayerCaching()
     {
         using var svg = new SKSvg();
@@ -211,6 +232,39 @@ public class SvgAnimationControllerTests
         Assert.True(updatedInside.Green > updatedInside.Blue);
         Assert.True(updatedExpandedArea.Alpha > 200);
         Assert.True(updatedExpandedArea.Green > updatedExpandedArea.Blue);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_ParsesColonClockValues()
+    {
+        var document = SvgService.FromSvg(ColonClockAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var beforeBegin = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+        var beforeTarget = beforeBegin.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(beforeTarget);
+        Assert.Equal(0f, beforeTarget!.X.Value, 3);
+
+        var duringAnimation = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(3));
+        var duringTarget = duringAnimation.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(duringTarget);
+        Assert.Equal(5f, duringTarget!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_ComposesConcurrentAdditiveAnimationsFromCurrentFrameState()
+    {
+        var document = SvgService.FromSvg(ConcurrentAdditiveAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(7.5f, target!.X.Value, 3);
     }
 
     [Fact]
@@ -610,6 +664,29 @@ public class SvgAnimationControllerTests
             <animate attributeName="font-size" attributeType="CSS" begin="0s" dur="2s" fill="freeze" from="10" to="20" />
             <animate attributeName="fill" attributeType="CSS" begin="0s" dur="2s" fill="freeze" from="#0000ff" to="#00aa00" />
           </g>
+        </svg>
+        """;
+
+    private const string ColonClockAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" begin="00:00:02" dur="00:00:02" from="0" to="10" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string ConcurrentAdditiveAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="2s" fill="freeze" />
+            <animate attributeName="x" from="0" to="5" dur="2s" additive="sum" fill="freeze" />
+          </rect>
         </svg>
         """;
 
