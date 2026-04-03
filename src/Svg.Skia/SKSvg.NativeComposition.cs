@@ -15,10 +15,7 @@ public partial class SKSvg
     {
         get
         {
-            return SourceDocument is { } &&
-                   AnimationController is { } animationController &&
-                   animationController.TryGetAnimatedTopLevelChildIndexes(out var animatedChildIndexes) &&
-                   animatedChildIndexes.Count > 0;
+            return TryGetRenderableNativeCompositionAnimatedChildIndexes(out _, out _, out _);
         }
     }
 
@@ -79,17 +76,51 @@ public partial class SKSvg
         animatedChildIndexes = Array.Empty<int>();
         sourceBounds = SKRect.Empty;
 
+        if (!TryGetRenderableNativeCompositionAnimatedChildIndexes(out sourceDocument, out var renderableAnimatedChildIndexes, out sourceBounds) ||
+            AnimationController is not { } animationController)
+        {
+            return false;
+        }
+
+        animatedChildIndexes = renderableAnimatedChildIndexes;
+        currentDocument = GetNativeCompositionDocument(animationController);
+        return true;
+    }
+
+    private bool TryGetRenderableNativeCompositionAnimatedChildIndexes(
+        out SvgDocument sourceDocument,
+        out int[] animatedChildIndexes,
+        out SKRect sourceBounds)
+    {
+        sourceDocument = null!;
+        animatedChildIndexes = Array.Empty<int>();
+        sourceBounds = SKRect.Empty;
+
         if (SourceDocument is not { } currentSourceDocument ||
             AnimationController is not { } animationController ||
-            !animationController.TryGetAnimatedTopLevelChildIndexes(out animatedChildIndexes) ||
-            animatedChildIndexes.Count == 0 ||
+            !animationController.TryGetAnimatedTopLevelChildIndexes(out var candidateAnimatedChildIndexes) ||
+            candidateAnimatedChildIndexes.Count == 0 ||
             !TryGetNativeCompositionSourceBounds(out sourceBounds))
         {
             return false;
         }
 
+        var renderableIndexes = new int[candidateAnimatedChildIndexes.Count];
+        for (var i = 0; i < candidateAnimatedChildIndexes.Count; i++)
+        {
+            var animatedChildIndex = candidateAnimatedChildIndexes[i];
+            if (animatedChildIndex < 0 ||
+                animatedChildIndex >= currentSourceDocument.Children.Count ||
+                !CanRenderNativeCompositionRoot(currentSourceDocument.Children[animatedChildIndex], sourceBounds))
+            {
+                return false;
+            }
+
+            renderableIndexes[i] = animatedChildIndex;
+        }
+
         sourceDocument = currentSourceDocument;
-        currentDocument = GetNativeCompositionDocument(animationController);
+        animatedChildIndexes = renderableIndexes;
         return true;
     }
 
@@ -179,6 +210,26 @@ public partial class SKSvg
             new SKSize(drawBounds.Width, drawBounds.Height),
             opacity,
             isVisible: true);
+    }
+
+    private bool CanRenderNativeCompositionRoot(SvgElement element, SKRect sourceBounds)
+    {
+        var references = new HashSet<Uri> { element.OwnerDocument.BaseUri };
+        var drawable = DrawableFactory.Create(element, sourceBounds, null, AssetLoader, references, _ignoreAttributes);
+        if (drawable is null)
+        {
+            return false;
+        }
+
+        drawable.PostProcess(sourceBounds, SKMatrix.Identity);
+
+        var drawBounds = GetNativeCompositionRenderBounds(drawable);
+        if (TryGetNativeCompositionTranslation(element, out var nativeTranslation))
+        {
+            drawBounds = OffsetRect(drawBounds, -nativeTranslation.X, -nativeTranslation.Y);
+        }
+
+        return !drawBounds.IsEmpty && drawBounds.Width > 0 && drawBounds.Height > 0;
     }
 
     private static SKRect GetNativeCompositionRenderBounds(DrawableBase drawable)

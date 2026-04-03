@@ -83,6 +83,18 @@ public class SKSvgNativeCompositionTests
         Assert.Equal(10f, animatedLayer.Size.Height, 3);
     }
 
+    [Fact]
+    public void SupportsNativeComposition_ReturnsFalseForDefsBackedAnimatedTargets()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(DefsBackedUseAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.False(svg.SupportsNativeComposition);
+        Assert.False(svg.TryCreateNativeCompositionScene(out _));
+        Assert.False(svg.TryCreateNativeCompositionFrame(out _));
+    }
+
     private const string NativeCompositionSceneSvg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="30">
           <rect id="static" x="0" y="0" width="4" height="4" fill="red" />
@@ -110,6 +122,21 @@ public class SKSvgNativeCompositionTests
               <rect x="0" y="0" width="10" height="10" fill="blue" />
             </g>
           </g>
+        </svg>
+        """;
+
+    private const string DefsBackedUseAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="40"
+             height="20"
+             viewBox="0 0 40 20">
+          <defs>
+            <rect id="template" x="0" y="0" width="8" height="8" fill="red">
+              <animate attributeName="x" from="0" to="10" dur="2s" fill="freeze" />
+            </rect>
+          </defs>
+          <use id="instance" xlink:href="#template" />
         </svg>
         """;
 }
