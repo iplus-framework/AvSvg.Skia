@@ -143,4 +143,20 @@ internal sealed class SvgAnimationFrameState
             }
         }
     }
+
+    public IEnumerable<SvgAnimationFrameAttributeState> EnumerateRemovedAttributes(SvgAnimationFrameState? previous)
+    {
+        if (previous is null)
+        {
+            yield break;
+        }
+
+        foreach (var pair in previous._attributes)
+        {
+            if (!_attributes.ContainsKey(pair.Key))
+            {
+                yield return pair.Value;
+            }
+        }
+    }
 }

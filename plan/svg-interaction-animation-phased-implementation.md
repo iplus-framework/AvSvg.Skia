@@ -86,10 +86,12 @@ The scoped six-phase plan is complete. The remaining animation work is follow-up
 
 - Implemented:
   - incremental redraw in `SKSvg` using cached static content plus rebuilt animated top-level animated roots where the drawable/model pipeline can safely support it
+  - recursive subtree-level shim and `SkiaSharp.SKPicture` invalidation within animated top-level roots, reusing unchanged descendant subtree pictures instead of re-recording the whole animated top-level root on every effective frame
   - benchmark and profiling harness for animation-frame cost in the shared `Svg.Skia` renderer
   - retained native-composition mapping for the supported Avalonia host path, using one composition child visual per top-level SVG child and updating animated layers without falling back to the regular `Render(...)` path
 - Delivered in the follow-up slices:
   - stop rebuilding the full document picture on every effective animation frame in the common renderer path when the document can be safely split into static and animated top-level layers
+  - stop rebuilding the full animated top-level subtree picture when only a descendant target changes, by caching descendant subtree pictures and rebuilding only the dirty path to the animated root
   - keep hit testing and interaction semantics aligned with the animated drawable state
   - preserve the current shared SVG runtime as the source of truth
   - add a local BenchmarkDotNet harness in `tests/Svg.Skia.Benchmarks` that compares layered animation-frame updates against defs-backed fallback rebuilds, with and without drawing
@@ -100,6 +102,7 @@ The scoped six-phase plan is complete. The remaining animation work is follow-up
 - Explicit non-goals for the implemented follow-up slices:
   - no attempt to translate arbitrary SVG nodes into Avalonia or Uno composition objects
   - no broad retained-scene-graph rewrite of the existing drawable system
+  - no full retained scene-graph rewrite of every drawable node; subtree invalidation remains layered on top of the existing drawable/picture pipeline
   - no platform-specific reimplementation of SVG timing semantics
 
 ## Scope
@@ -400,15 +403,18 @@ This is an optimization layer only. The shared SVG runtime remains the source of
   - persistent animated `SvgDocument` reuse inside `SKSvg`
   - no-op rebuild suppression for equivalent animation states
   - `AnimationMinimumRenderInterval`, `HasPendingAnimationFrame`, `FlushPendingAnimationFrame()`, and `LastAnimationDirtyTargetCount`
+  - recursive subtree-level picture invalidation for animated top-level roots, with nested shim-picture composition and cached descendant `SkiaSharp.SKPicture` reuse
+  - benchmark and profiling harness for shared animation-frame cost
   - unit coverage for equivalent-frame suppression, pending throttled frames, and reversion when an animation becomes inactive
 - Remaining limitations within the phase:
-  - the renderer still rebuilds the full `SKPicture` after dirty attributes are applied to the reused animated document
-  - there is no subtree-level picture invalidation yet
-  - there is no profiling or benchmark harness in the repo yet; validation is currently behavioral rather than benchmark-based
+  - subtree invalidation now covers top-level animated roots, nested animated subtrees within those roots, and rendered wrapper/generated drawables such as `use`, `switch`, and marker-hosted drawables, but it is still not a general retained scene-graph renderer
+  - the renderer now stops dirty-path rebuilds at the selected cache root inside the animated scope instead of always walking back to the animated top-level root, but it still recomposes the touched top-level animated scope on top of the static layer
+  - non-drawable resource pipelines such as gradients, clip-path resources, and filter graphs still use the fallback full-frame rebuild path because they do not map cleanly onto retained drawable subtrees
 
 ### Follow-up implementation direction
 
 - first reduce animation-frame work by caching static document content and re-recording only the animated document regions that contain active animation targets
+- then refine the animated-layer path by caching descendant subtree pictures and only rebuilding the dirty path through the existing drawable graph
 - keep the animated drawable tree authoritative for hit testing so pointer routing follows animated geometry
 - treat the first redraw optimization as top-down and conservative; correctness takes priority over the finest possible invalidation granularity
 

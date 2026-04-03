@@ -1651,6 +1651,21 @@ public partial class SkiaModel
                     }
                     break;
                 }
+            case DrawPictureCanvasCommand drawPictureCanvasCommand:
+                {
+                    if (drawPictureCanvasCommand.Picture is { } picture)
+                    {
+                        if (!wireframe && TryGetCachedPicture(picture, out var cachedPicture))
+                        {
+                            skCanvas.DrawPicture(cachedPicture);
+                        }
+                        else
+                        {
+                            Draw(picture, skCanvas, wireframe);
+                        }
+                    }
+                    break;
+                }
             case DrawPathCanvasCommand drawPathCanvasCommand:
                 {
                     if (drawPathCanvasCommand.Path is { } && drawPathCanvasCommand.Paint is { })

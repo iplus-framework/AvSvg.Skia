@@ -41,7 +41,7 @@ public class SvgAnimationFrameBenchmarks
     public void GlobalSetup()
     {
         var layeredSvg = BuildLayeredSvg(StaticElementCount, AnimatedElementCount);
-        var fallbackSvg = BuildDefsFallbackSvg(StaticElementCount, AnimatedElementCount);
+        var fallbackSvg = BuildPaintServerFallbackSvg(StaticElementCount, AnimatedElementCount);
 
         _layeredAdvanceSvg = CreateSvg(layeredSvg, shouldUseLayerCaching: true);
         _layeredDrawSvg = CreateSvg(layeredSvg, shouldUseLayerCaching: true);
@@ -159,20 +159,24 @@ public class SvgAnimationFrameBenchmarks
         return builder.ToString();
     }
 
-    private static string BuildDefsFallbackSvg(int staticElementCount, int animatedElementCount)
+    private static string BuildPaintServerFallbackSvg(int staticElementCount, int animatedElementCount)
     {
         const int width = 320;
         var height = CalculateSceneHeight(staticElementCount, animatedElementCount);
-        var builder = CreateSvgBuilder(width, height, includeXLink: true);
+        var builder = CreateSvgBuilder(width, height);
 
         builder.AppendLine("  <defs>");
         for (var i = 0; i < animatedElementCount; i++)
         {
             var y = 120 + (i * 12);
             var color = Palette[i % Palette.Length];
-            builder.AppendLine($"""    <rect id="template-{i}" x="0" y="{y}" width="18" height="8" fill="{color}">""");
-            builder.AppendLine("""      <animate attributeName="x" from="0" to="220" dur="2s" repeatCount="indefinite" />""");
-            builder.AppendLine("""    </rect>""");
+            var gradientId = $"gradient-{i}";
+            builder.AppendLine($"""    <linearGradient id="{gradientId}" x1="0%" y1="0%" x2="100%" y2="0%">""");
+            builder.AppendLine($"""      <stop id="gradient-stop-{i}" offset="0%" stop-color="{color}">""");
+            builder.AppendLine("""        <animate attributeName="stop-color" values="crimson;royalblue;seagreen;darkorange" dur="2s" repeatCount="indefinite" />""");
+            builder.AppendLine("""      </stop>""");
+            builder.AppendLine("""      <stop offset="100%" stop-color="white" />""");
+            builder.AppendLine("""    </linearGradient>""");
         }
 
         builder.AppendLine("  </defs>");
@@ -180,7 +184,8 @@ public class SvgAnimationFrameBenchmarks
 
         for (var i = 0; i < animatedElementCount; i++)
         {
-            builder.AppendLine($"""  <use id="instance-{i}" xlink:href="#template-{i}" />""");
+            var y = 120 + (i * 12);
+            builder.AppendLine($"""  <rect id="gradient-target-{i}" x="0" y="{y}" width="220" height="8" fill="url(#gradient-{i})" />""");
         }
 
         builder.AppendLine("</svg>");

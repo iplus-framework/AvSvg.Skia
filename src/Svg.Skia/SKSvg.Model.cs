@@ -827,7 +827,7 @@ public partial class SKSvg : IDisposable
         var rendered = false;
         if (UsesAnimationLayerCaching || TryInitializeAnimationLayerCaching())
         {
-            rendered = TryRenderAnimationLayerFrame(_animatedDocument);
+            rendered = TryRenderAnimationLayerFrame(_animatedDocument, frameState, _lastRenderedAnimationFrameState);
             if (!rendered)
             {
                 DisableAnimationLayerCaching();

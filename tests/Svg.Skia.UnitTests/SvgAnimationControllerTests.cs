@@ -1,10 +1,15 @@
 using System;
+using System.Linq;
 using ShimSkiaSharp;
 using Svg;
 using Svg.Model.Drawables;
 using Svg.Model.Services;
 using Svg.Transforms;
 using Xunit;
+using SkiaAlphaType = SkiaSharp.SKAlphaType;
+using SkiaBitmap = SkiaSharp.SKBitmap;
+using SkiaColors = SkiaSharp.SKColors;
+using SkiaColorType = SkiaSharp.SKColorType;
 
 namespace Svg.Skia.UnitTests;
 
@@ -104,20 +109,108 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
-    public void SetAnimationTime_FallsBackFromAnimationLayerCachingForDefsTargets()
+    public void SetAnimationTime_ReusesUnchangedAnimatedSubtreePictures()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(SubtreeLayeredAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.True(svg.UsesAnimationLayerCaching);
+
+        var initialPictures = GetAnimatedSubtreePictures(svg);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+
+        var updatedPictures = GetAnimatedSubtreePictures(svg);
+        Assert.Equal(2, initialPictures.Count);
+        Assert.Equal(2, updatedPictures.Count);
+        Assert.Same(initialPictures[0], updatedPictures[0]);
+        Assert.NotSame(initialPictures[1], updatedPictures[1]);
+    }
+
+    [Fact]
+    public void SetAnimationTime_UsesAnimationLayerCachingForDefsBackedUseTargets()
     {
         using var svg = new SKSvg();
         svg.FromSvg(DefsBackedAnimationSvg);
 
         Assert.True(svg.HasAnimations);
-        Assert.False(svg.UsesAnimationLayerCaching);
+        Assert.True(svg.UsesAnimationLayerCaching);
         Assert.Equal("instance", svg.HitTestTopmostElement(new SKPoint(2, 2))?.ID);
 
         svg.SetAnimationTime(TimeSpan.FromSeconds(2));
 
-        Assert.False(svg.UsesAnimationLayerCaching);
+        Assert.True(svg.UsesAnimationLayerCaching);
         Assert.Null(svg.HitTestTopmostElement(new SKPoint(2, 2)));
         Assert.Equal("instance", svg.HitTestTopmostElement(new SKPoint(12, 2))?.ID);
+    }
+
+    [Fact]
+    public void SetAnimationTime_FallsBackFromAnimationLayerCachingForPaintServerTargets()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(PaintServerAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.False(svg.UsesAnimationLayerCaching);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+
+        Assert.False(svg.UsesAnimationLayerCaching);
+        Assert.NotNull(svg.Picture);
+    }
+
+    [Fact]
+    public void SetAnimationTime_RebuildsInheritedStrokeAnimationsUnderLayerCaching()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(InheritedStrokeAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.True(svg.UsesAnimationLayerCaching);
+
+        using var initialBitmap = RenderBitmap(svg);
+        var initialStroke = initialBitmap.GetPixel(20, 8);
+        Assert.True(initialStroke.Red > 180);
+        Assert.True(initialStroke.Green > 180);
+        Assert.True(initialStroke.Blue < 80);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(4));
+
+        using var updatedBitmap = RenderBitmap(svg);
+        var updatedStroke = updatedBitmap.GetPixel(20, 8);
+        Assert.True(updatedStroke.Alpha > 200);
+        Assert.True(updatedStroke.Red < 80);
+        Assert.True(updatedStroke.Green < 80);
+        Assert.True(updatedStroke.Blue < 80);
+    }
+
+    [Fact]
+    public void SetAnimationTime_RebuildsInheritedFontSizeAndFillAnimationsUnderLayerCaching()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(InheritedFontSizeAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.True(svg.UsesAnimationLayerCaching);
+
+        using var initialBitmap = RenderBitmap(svg);
+        var initialInside = initialBitmap.GetPixel(5, 5);
+        var initialExpandedArea = initialBitmap.GetPixel(15, 5);
+        Assert.True(initialInside.Alpha > 200);
+        Assert.True(initialInside.Blue > 180);
+        Assert.True(initialInside.Green < 80);
+        Assert.True(initialExpandedArea.Alpha < 32);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(2));
+
+        using var updatedBitmap = RenderBitmap(svg);
+        var updatedInside = updatedBitmap.GetPixel(5, 5);
+        var updatedExpandedArea = updatedBitmap.GetPixel(15, 5);
+        Assert.True(updatedInside.Alpha > 200);
+        Assert.True(updatedInside.Green > updatedInside.Blue);
+        Assert.True(updatedExpandedArea.Alpha > 200);
+        Assert.True(updatedExpandedArea.Green > updatedExpandedArea.Blue);
     }
 
     [Fact]
@@ -441,6 +534,25 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
+    private const string SubtreeLayeredAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="80"
+             height="40"
+             viewBox="0 0 80 40">
+          <rect id="static" x="0" y="0" width="6" height="6" fill="black" />
+          <g id="animated-root">
+            <g id="stable-subtree">
+              <rect x="0" y="12" width="10" height="10" fill="red" />
+            </g>
+            <g id="changing-subtree">
+              <rect id="moving" x="20" y="12" width="10" height="10" fill="blue">
+                <animate attributeName="x" from="20" to="30" dur="1s" fill="freeze" />
+              </rect>
+            </g>
+          </g>
+        </svg>
+        """;
+
     private const string DefsBackedAnimationSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -453,6 +565,51 @@ public class SvgAnimationControllerTests
             </rect>
           </defs>
           <use id="instance" xlink:href="#template" />
+        </svg>
+        """;
+
+    private const string PaintServerAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="20"
+             viewBox="0 0 40 20">
+          <defs>
+            <linearGradient id="gradient">
+              <stop id="gradient-stop" offset="0%" stop-color="red">
+                <animate attributeName="stop-color" from="red" to="blue" dur="2s" fill="freeze" />
+              </stop>
+              <stop offset="100%" stop-color="white" />
+            </linearGradient>
+          </defs>
+          <rect id="target" x="0" y="0" width="20" height="10" fill="url(#gradient)" />
+        </svg>
+        """;
+
+    private const string InheritedStrokeAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="40"
+             viewBox="0 0 40 40">
+          <g id="animated-root"
+             stroke="#f1e900"
+             fill="#ffffff"
+             stroke-width="6">
+            <circle cx="20" cy="20" r="12" />
+            <animate attributeName="stroke" attributeType="CSS" begin="0s" dur="4s" fill="freeze" from="#f1e900" to="#000000" />
+          </g>
+        </svg>
+        """;
+
+    private const string InheritedFontSizeAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="24"
+             viewBox="0 0 40 24">
+          <g id="animated-root" fill="#0000ff" font-size="10">
+            <rect x="0" y="0" width="1em" height="1em" />
+            <animate attributeName="font-size" attributeType="CSS" begin="0s" dur="2s" fill="freeze" from="10" to="20" />
+            <animate attributeName="fill" attributeType="CSS" begin="0s" dur="2s" fill="freeze" from="#0000ff" to="#00aa00" />
+          </g>
         </svg>
         """;
 
@@ -532,4 +689,54 @@ public class SvgAnimationControllerTests
           </circle>
         </svg>
         """;
+
+    private static System.Collections.Generic.List<ShimSkiaSharp.SKPicture> GetAnimatedSubtreePictures(SKSvg svg)
+    {
+        var compositePicture = svg.Model;
+        Assert.NotNull(compositePicture);
+
+        var layerPictures = compositePicture!.Commands!.OfType<DrawPictureCanvasCommand>().ToList();
+        Assert.True(layerPictures.Count >= 2);
+
+        var dynamicLayerPicture = layerPictures[layerPictures.Count - 1].Picture;
+        Assert.NotNull(dynamicLayerPicture);
+        return CollectLeafPictures(dynamicLayerPicture!);
+    }
+
+    private static System.Collections.Generic.List<ShimSkiaSharp.SKPicture> CollectLeafPictures(ShimSkiaSharp.SKPicture picture)
+    {
+        var nestedPictures = picture.Commands!
+            .OfType<DrawPictureCanvasCommand>()
+            .Select(static command => command.Picture)
+            .Where(static nestedPicture => nestedPicture is not null)
+            .Cast<ShimSkiaSharp.SKPicture>()
+            .ToList();
+
+        if (nestedPictures.Count == 0)
+        {
+            return new System.Collections.Generic.List<ShimSkiaSharp.SKPicture> { picture };
+        }
+
+        var leafPictures = new System.Collections.Generic.List<SKPicture>();
+        for (var i = 0; i < nestedPictures.Count; i++)
+        {
+            leafPictures.AddRange(CollectLeafPictures(nestedPictures[i]));
+        }
+
+        return leafPictures;
+    }
+
+    private static SkiaBitmap RenderBitmap(SKSvg svg)
+    {
+        Assert.NotNull(svg.Picture);
+        var bitmap = svg.Picture!.ToBitmap(
+            SkiaColors.Transparent,
+            1f,
+            1f,
+            SkiaColorType.Rgba8888,
+            SkiaAlphaType.Unpremul,
+            svg.Settings.Srgb);
+
+        return Assert.IsType<SkiaBitmap>(bitmap);
+    }
 }

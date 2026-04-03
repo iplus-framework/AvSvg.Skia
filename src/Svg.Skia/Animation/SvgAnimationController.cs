@@ -244,6 +244,30 @@ public sealed class SvgAnimationController : IDisposable
         return true;
     }
 
+    internal IReadOnlyList<string> GetAnimatedTargetAddressKeys()
+    {
+        if (_bindings.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var keys = new List<string>(_bindings.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var binding in _bindings)
+        {
+            var key = binding.TargetAddress.Key;
+            if (string.IsNullOrWhiteSpace(key) || !seen.Add(key))
+            {
+                continue;
+            }
+
+            keys.Add(key);
+        }
+
+        return keys;
+    }
+
     public SvgDocument CreateAnimatedDocument()
     {
         return CreateAnimatedDocument(EvaluateFrameState(Clock.CurrentTime));
