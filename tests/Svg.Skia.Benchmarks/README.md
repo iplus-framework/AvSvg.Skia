@@ -8,6 +8,8 @@ This harness measures the shared SVG animation hot path in `Svg.Skia`.
 - defs-backed animation updates that still fall back to full-document rebuilds
 - the same two scenarios with a draw pass included
 
+The benchmark covers the shared renderer and animation controller. It does not benchmark host-specific retained composition attachment because that work sits above `Svg.Skia` in the UI packages.
+
 ## Run
 
 ```bash
