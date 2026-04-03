@@ -58,6 +58,28 @@ public class SvgSourceTests
     }
 
     [AvaloniaFact]
+    public void Picture_TracksSkSvgRebuilds()
+    {
+        var source = SvgSource.LoadFromSvg(SampleSvg);
+        var original = source.Picture;
+
+        Assert.NotNull(original);
+        var command = source.Svg?.Model?.Commands?.OfType<DrawPathCanvasCommand>().FirstOrDefault();
+        Assert.NotNull(command);
+
+        if (command?.Paint is { } paint)
+        {
+            paint.Color = new SKColor(0, 255, 0, 255);
+        }
+
+        var rebuilt = source.Svg?.RebuildFromModel();
+
+        Assert.NotNull(rebuilt);
+        Assert.Same(rebuilt, source.Picture);
+        Assert.NotSame(original, source.Picture);
+    }
+
+    [AvaloniaFact]
     public void LoadFromSvg_ReLoad_PreservesPicture()
     {
         var source = SvgSource.LoadFromSvg(SampleSvg);

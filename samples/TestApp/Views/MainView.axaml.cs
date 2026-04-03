@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using ShimSkiaSharp;
 using SkiaSharp;
 using Svg.Model.Drawables;
@@ -24,6 +25,8 @@ public partial class MainView : UserControl
     private SkiaSharp.SKColor _hitBoundsColor = SKColors.Cyan;
     private readonly IList<ShimSkiaSharp.SKPoint> _hitTestPoints = new List<ShimSkiaSharp.SKPoint>();
     private readonly IList<ShimSkiaSharp.SKRect> _hitTestRects = new List<ShimSkiaSharp.SKRect>();
+    private readonly DispatcherTimer _animationUiTimer;
+    private double _resumeAnimationPlaybackRate = 1.0;
 
     public MainView()
     {
@@ -31,7 +34,10 @@ public partial class MainView : UserControl
         AddHandler(DragDrop.DropEvent, Drop);
         AddHandler(DragDrop.DragOverEvent, DragOver);
         HitResults.ItemsSource = _hitResults;
+        _animationUiTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background, OnAnimationUiTick);
+        _animationUiTimer.Start();
         SubscribeOnDraw();
+        UpdateAnimationUi();
     }
 
     private void SubscribeOnDraw()
@@ -47,6 +53,9 @@ public partial class MainView : UserControl
         {
             _currentSkSvg.OnDraw += SkSvg_OnDraw;
         }
+
+        AutoStartAnimationIfNeeded();
+        UpdateAnimationUi();
     }
 
     private void DragOver(object? sender, DragEventArgs e)
@@ -149,6 +158,90 @@ public partial class MainView : UserControl
         }
 
         Svg.InvalidateVisual();
+        UpdateAnimationUi();
+    }
+
+    private void PlayAnimationButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (Svg.SkSvg?.HasAnimations != true)
+        {
+            UpdateAnimationUi();
+            return;
+        }
+
+        if (Svg.AnimationPlaybackRate <= 0)
+        {
+            var playbackRate = _resumeAnimationPlaybackRate > 0 ? _resumeAnimationPlaybackRate : 1.0;
+            Svg.AnimationPlaybackRate = playbackRate;
+        }
+
+        UpdateAnimationUi();
+    }
+
+    private void PauseAnimationButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (Svg.AnimationPlaybackRate > 0)
+        {
+            _resumeAnimationPlaybackRate = Svg.AnimationPlaybackRate;
+        }
+
+        Svg.AnimationPlaybackRate = 0;
+        UpdateAnimationUi();
+    }
+
+    private void RestartAnimationButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        Svg.SkSvg?.ResetAnimation();
+        AutoStartAnimationIfNeeded();
+        Svg.InvalidateVisual();
+        UpdateAnimationUi();
+    }
+
+    private void OnAnimationUiTick(object? sender, EventArgs e)
+    {
+        if (!ReferenceEquals(_currentSkSvg, Svg.SkSvg))
+        {
+            SubscribeOnDraw();
+        }
+
+        if (Svg.AnimationPlaybackRate > 0)
+        {
+            _resumeAnimationPlaybackRate = Svg.AnimationPlaybackRate;
+        }
+
+        UpdateAnimationUi();
+    }
+
+    private void AutoStartAnimationIfNeeded()
+    {
+        if (Svg.SkSvg?.HasAnimations != true || Svg.AnimationPlaybackRate > 0)
+        {
+            return;
+        }
+
+        Svg.AnimationPlaybackRate = _resumeAnimationPlaybackRate > 0
+            ? _resumeAnimationPlaybackRate
+            : 1.0;
+    }
+
+    private void UpdateAnimationUi()
+    {
+        var skSvg = Svg.SkSvg;
+        var hasAnimations = skSvg?.HasAnimations == true;
+        var animationTime = skSvg?.AnimationTime ?? TimeSpan.Zero;
+        var isPaused = Svg.AnimationPlaybackRate <= 0;
+
+        PlayAnimationButton.IsEnabled = hasAnimations && isPaused;
+        PauseAnimationButton.IsEnabled = hasAnimations && !isPaused;
+        RestartAnimationButton.IsEnabled = hasAnimations;
+
+        AnimationStatusText.Text = !hasAnimations
+            ? "No animation"
+            : isPaused
+                ? "Paused"
+                : "Playing";
+
+        AnimationClockText.Text = animationTime.ToString(@"mm\:ss\.fff");
     }
 
     private void SkSvg_OnDraw(object? sender, SKSvgDrawEventArgs e)
