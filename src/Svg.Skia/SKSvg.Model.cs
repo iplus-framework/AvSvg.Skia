@@ -6,6 +6,7 @@ using System.IO;
 using System.Threading;
 using System.Xml;
 using ShimSkiaSharp;
+using Svg;
 using Svg.Model;
 using Svg.Model.Drawables.Factories;
 using Svg.Model.Services;
@@ -117,6 +118,11 @@ public partial class SKSvg : IDisposable
     private Uri? _originalBaseUri;
     private SourceFormat _originalSourceFormat;
     private int _activeDraws;
+    private SvgDocument? _animatedDocument;
+    private SvgAnimationFrameState? _lastRenderedAnimationFrameState;
+    private SvgAnimationFrameState? _pendingAnimationFrameState;
+    private TimeSpan _lastRenderedAnimationTime = TimeSpan.MinValue;
+    private TimeSpan _animationMinimumRenderInterval;
 
     public object Sync { get; } = new();
 
@@ -129,6 +135,24 @@ public partial class SKSvg : IDisposable
     public SKDrawable? Drawable { get; private set; }
 
     public SKPicture? Model { get; private set; }
+
+    public SvgDocument? SourceDocument { get; private set; }
+
+    public SvgAnimationController? AnimationController { get; private set; }
+
+    public bool HasAnimations => AnimationController?.HasAnimations == true;
+
+    public TimeSpan AnimationTime => AnimationController?.Clock.CurrentTime ?? TimeSpan.Zero;
+
+    public TimeSpan AnimationMinimumRenderInterval
+    {
+        get => _animationMinimumRenderInterval;
+        set => _animationMinimumRenderInterval = value < TimeSpan.Zero ? TimeSpan.Zero : value;
+    }
+
+    public bool HasPendingAnimationFrame => _pendingAnimationFrameState is not null;
+
+    public int LastAnimationDirtyTargetCount { get; private set; }
 
     private SkiaSharp.SKPicture? _picture;
     public virtual SkiaSharp.SKPicture? Picture
@@ -211,9 +235,16 @@ public partial class SKSvg : IDisposable
 
     public event EventHandler<SKSvgDrawEventArgs>? OnDraw;
 
+    public event EventHandler<SvgAnimationFrameChangedEventArgs>? AnimationInvalidated;
+
     protected virtual void RaiseOnDraw(SKSvgDrawEventArgs e)
     {
         OnDraw?.Invoke(this, e);
+    }
+
+    protected virtual void RaiseAnimationInvalidated(SvgAnimationFrameChangedEventArgs e)
+    {
+        AnimationInvalidated?.Invoke(this, e);
     }
 
     public SvgParameters? Parameters => _originalParameters;
@@ -281,6 +312,7 @@ public partial class SKSvg : IDisposable
 
         clone.Wireframe = Wireframe;
         clone.IgnoreAttributes = IgnoreAttributes;
+        clone.AnimationMinimumRenderInterval = AnimationMinimumRenderInterval;
 
         clone._originalParameters = _originalParameters;
         clone._originalPath = _originalPath;
@@ -301,6 +333,17 @@ public partial class SKSvg : IDisposable
         {
             clone.Model = model.DeepClone();
             clone.Drawable = Drawable?.DeepClone();
+        }
+
+        if (SourceDocument?.DeepCopy() is SvgDocument sourceDocumentClone)
+        {
+            clone.SourceDocument = sourceDocumentClone;
+
+            if (HasAnimations)
+            {
+                clone.ReplaceAnimationController(new SvgAnimationController(sourceDocumentClone));
+                clone.SetAnimationTime(AnimationTime);
+            }
         }
 
         return clone;
@@ -433,13 +476,21 @@ public partial class SKSvg : IDisposable
             svgDocument.BaseUri = baseUri;
         }
 
-        Model = SvgService.ToModel(svgDocument, AssetLoader, out var drawable, out _, _ignoreAttributes);
-        Drawable = drawable;
-        Picture = SkiaModel.ToSKPicture(Model);
-        WireframePicture?.Dispose();
-        WireframePicture = null;
+        SourceDocument = svgDocument;
+        ClearAnimationRenderState();
 
-        return Picture;
+        var animationController = new SvgAnimationController(svgDocument);
+        if (animationController.HasAnimations)
+        {
+            ReplaceAnimationController(animationController);
+            _ = RenderAnimationFrame(animationController.EvaluateFrameState(TimeSpan.Zero), raiseInvalidation: false, bypassThrottle: true);
+            return Picture;
+        }
+
+        animationController.Dispose();
+        ReplaceAnimationController(null);
+
+        return RenderSvgDocument(svgDocument);
     }
 
     public SkiaSharp.SKPicture? ReLoad(SvgParameters? parameters)
@@ -494,6 +545,42 @@ public partial class SKSvg : IDisposable
     public SkiaSharp.SKPicture? FromSvgDocument(SvgDocument? svgDocument)
     {
         return LoadSvgDocument(svgDocument);
+    }
+
+    public void SetAnimationTime(TimeSpan time)
+    {
+        AnimationController?.Clock.Seek(time);
+    }
+
+    public void AdvanceAnimation(TimeSpan delta)
+    {
+        AnimationController?.Clock.AdvanceBy(delta);
+    }
+
+    public void ResetAnimation()
+    {
+        AnimationController?.Reset();
+    }
+
+    public bool NotifyPointerEvent(SvgElement? element, SvgPointerEventType eventType)
+    {
+        if (!RecordAnimationPointerEvent(element, eventType))
+        {
+            return false;
+        }
+
+        RefreshCurrentAnimationFrame(bypassThrottle: true);
+        return true;
+    }
+
+    public bool FlushPendingAnimationFrame()
+    {
+        if (_pendingAnimationFrameState is not { } pendingFrameState)
+        {
+            return false;
+        }
+
+        return RenderAnimationFrame(pendingFrameState, raiseInvalidation: true, bypassThrottle: true);
     }
 
     public bool Save(System.IO.Stream stream, SkiaSharp.SKColor background, SkiaSharp.SKEncodedImageFormat format = SkiaSharp.SKEncodedImageFormat.Png, int quality = 100, float scaleX = 1f, float scaleY = 1f)
@@ -568,6 +655,10 @@ public partial class SKSvg : IDisposable
 
     private void Reset()
     {
+        ReplaceAnimationController(null);
+        SourceDocument = null;
+        ClearAnimationRenderState();
+
         lock (Sync)
         {
             WaitForDrawsLocked();
@@ -613,5 +704,132 @@ public partial class SKSvg : IDisposable
         {
             Monitor.Wait(Sync);
         }
+    }
+
+    private SkiaSharp.SKPicture? RenderSvgDocument(SvgDocument svgDocument)
+    {
+        var model = SvgService.ToModel(svgDocument, AssetLoader, out var drawable, out _, _ignoreAttributes);
+        var picture = SkiaModel.ToSKPicture(model);
+
+        lock (Sync)
+        {
+            WaitForDrawsLocked();
+
+            Model = model;
+            Drawable = drawable;
+
+            _picture?.Dispose();
+            _picture = picture;
+
+            WireframePicture?.Dispose();
+            WireframePicture = null;
+        }
+
+        return picture;
+    }
+
+    private void ReplaceAnimationController(SvgAnimationController? controller)
+    {
+        if (AnimationController is { } existing)
+        {
+            existing.FrameChanged -= OnAnimationFrameChanged;
+            existing.Dispose();
+        }
+
+        AnimationController = controller;
+
+        if (controller is { })
+        {
+            controller.FrameChanged += OnAnimationFrameChanged;
+        }
+    }
+
+    private void OnAnimationFrameChanged(object? sender, SvgAnimationFrameChangedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, AnimationController) || SourceDocument is null || AnimationController is null)
+        {
+            return;
+        }
+
+        _ = RenderAnimationFrame(e.Time, raiseInvalidation: true, bypassThrottle: false);
+    }
+
+    internal bool RecordAnimationPointerEvent(SvgElement? element, SvgPointerEventType eventType)
+    {
+        return AnimationController?.RecordPointerEvent(element, eventType) == true;
+    }
+
+    internal void RefreshCurrentAnimationFrame(bool bypassThrottle = false)
+    {
+        _ = RenderAnimationFrame(AnimationTime, raiseInvalidation: true, bypassThrottle: bypassThrottle);
+    }
+
+    private void ClearAnimationRenderState()
+    {
+        _animatedDocument = null;
+        _lastRenderedAnimationFrameState = null;
+        _pendingAnimationFrameState = null;
+        _lastRenderedAnimationTime = TimeSpan.MinValue;
+        LastAnimationDirtyTargetCount = 0;
+    }
+
+    private bool RenderAnimationFrame(TimeSpan time, bool raiseInvalidation, bool bypassThrottle)
+    {
+        if (SourceDocument is null || AnimationController is null)
+        {
+            return false;
+        }
+
+        return RenderAnimationFrame(AnimationController.EvaluateFrameState(time), raiseInvalidation, bypassThrottle);
+    }
+
+    private bool RenderAnimationFrame(SvgAnimationFrameState frameState, bool raiseInvalidation, bool bypassThrottle)
+    {
+        if (SourceDocument is null || AnimationController is null)
+        {
+            return false;
+        }
+
+        if (_lastRenderedAnimationFrameState is { } lastRenderedFrameState &&
+            frameState.IsEquivalentTo(lastRenderedFrameState))
+        {
+            _pendingAnimationFrameState = null;
+            LastAnimationDirtyTargetCount = 0;
+            return false;
+        }
+
+        if (!bypassThrottle &&
+            AnimationMinimumRenderInterval > TimeSpan.Zero &&
+            _lastRenderedAnimationFrameState is not null &&
+            _lastRenderedAnimationTime != TimeSpan.MinValue &&
+            (frameState.Time - _lastRenderedAnimationTime).Duration() < AnimationMinimumRenderInterval)
+        {
+            _pendingAnimationFrameState = frameState;
+            LastAnimationDirtyTargetCount = frameState.GetDirtyTargetCount(_lastRenderedAnimationFrameState);
+            return false;
+        }
+
+        if (_animatedDocument is null)
+        {
+            _animatedDocument = AnimationController.CreateAnimatedDocument(frameState);
+            LastAnimationDirtyTargetCount = frameState.Count;
+        }
+        else
+        {
+            LastAnimationDirtyTargetCount = frameState.GetDirtyTargetCount(_lastRenderedAnimationFrameState);
+            AnimationController.ApplyFrameState(_animatedDocument, frameState, _lastRenderedAnimationFrameState);
+        }
+
+        _ = RenderSvgDocument(_animatedDocument);
+        _lastRenderedAnimationFrameState = frameState;
+        _lastRenderedAnimationTime = frameState.Time;
+        _pendingAnimationFrameState = null;
+
+        if (raiseInvalidation)
+        {
+            RaiseAnimationInvalidated(new SvgAnimationFrameChangedEventArgs(frameState.Time));
+        }
+
+        return true;
     }
 }

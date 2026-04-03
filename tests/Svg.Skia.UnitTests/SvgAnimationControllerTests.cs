@@ -1,0 +1,470 @@
+using System;
+using ShimSkiaSharp;
+using Svg;
+using Svg.Model.Drawables;
+using Svg.Model.Services;
+using Svg.Transforms;
+using Xunit;
+
+namespace Svg.Skia.UnitTests;
+
+public class SvgAnimationControllerTests
+{
+    [Fact]
+    public void CreateAnimatedDocument_AppliesCoreAnimationTypes()
+    {
+        var document = SvgService.FromSvg(AnimationRuntimeSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        Assert.True(controller.HasAnimations);
+
+        var frameChangedCount = 0;
+        controller.FrameChanged += (_, args) =>
+        {
+            frameChangedCount++;
+            Assert.Equal(TimeSpan.FromSeconds(1), args.Time);
+        };
+
+        controller.Clock.Seek(TimeSpan.FromSeconds(1));
+        Assert.Equal(1, frameChangedCount);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+
+        var move = animated.GetElementById<SvgRectangle>("move");
+        Assert.NotNull(move);
+        Assert.Equal(10f, move!.X.Value, 3);
+
+        var color = animated.GetElementById<SvgRectangle>("color");
+        Assert.NotNull(color);
+        var fill = Assert.IsType<SvgColourServer>(color!.Fill);
+        Assert.Equal((byte)0, fill.Colour.R);
+        Assert.InRange(fill.Colour.G, (byte)127, (byte)128);
+        Assert.InRange(fill.Colour.B, (byte)127, (byte)128);
+
+        var transform = animated.GetElementById<SvgRectangle>("transform");
+        Assert.NotNull(transform);
+        var translate = Assert.IsType<SvgTranslate>(Assert.Single(transform!.Transforms));
+        Assert.Equal(5f, translate.X, 3);
+        Assert.Equal(0f, translate.Y, 3);
+
+        var set = animated.GetElementById<SvgRectangle>("set");
+        Assert.NotNull(set);
+        Assert.Equal("visible", set!.Visibility);
+
+        var motion = animated.GetElementById<SvgCircle>("motion");
+        Assert.NotNull(motion);
+        var motionTranslate = Assert.IsType<SvgTranslate>(Assert.Single(motion!.Transforms));
+        Assert.Equal(5f, motionTranslate.X, 3);
+        Assert.Equal(30f, motionTranslate.Y, 3);
+    }
+
+    [Fact]
+    public void SetAnimationTime_RebuildsRenderedState()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(HitTestAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.NotNull(svg.AnimationController);
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(2, 2))?.ID);
+
+        var invalidatedCount = 0;
+        svg.AnimationInvalidated += (_, args) =>
+        {
+            invalidatedCount++;
+            Assert.Equal(TimeSpan.FromSeconds(2), args.Time);
+        };
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(1, invalidatedCount);
+        Assert.Null(svg.HitTestTopmostElement(new SKPoint(2, 2)));
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(22, 2))?.ID);
+    }
+
+    [Fact]
+    public void Dispatcher_ClickOffsetEvent_StartsAnimationAtScheduledTime()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(EventBeginSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.NotNull(svg.AnimationController);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+
+        var dispatcher = new SvgInteractionDispatcher();
+        var clickInput = new SvgPointerInput(
+            new SKPoint(20, 20),
+            SvgPointerDeviceType.Mouse,
+            SvgMouseButton.Left,
+            1,
+            0,
+            false,
+            false,
+            false,
+            "pointer-1");
+
+        _ = dispatcher.DispatchPointerPressed(svg, clickInput);
+        _ = dispatcher.DispatchPointerReleased(svg, clickInput);
+
+        var beforeStart = svg.AnimationController!.CreateAnimatedDocument(TimeSpan.FromSeconds(1.5));
+        var beforeStartTarget = beforeStart.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(beforeStartTarget);
+        Assert.Equal(0f, beforeStartTarget!.X.Value, 3);
+
+        var duringAnimation = svg.AnimationController.CreateAnimatedDocument(TimeSpan.FromSeconds(3));
+        var animatedTarget = duringAnimation.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(animatedTarget);
+        Assert.Equal(5f, animatedTarget!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_RespectsEventBasedEndTiming()
+    {
+        var document = SvgService.FromSvg(EventEndSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        controller.Clock.Seek(TimeSpan.FromSeconds(2));
+
+        var trigger = document!.GetElementById("trigger");
+        Assert.NotNull(trigger);
+        Assert.True(controller.RecordPointerEvent(trigger, SvgPointerEventType.Click));
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(3));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(2f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_UsesAnimateMotionValuesPath()
+    {
+        var document = SvgService.FromSvg(MotionValuesSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1.5));
+
+        var motion = animated.GetElementById<SvgCircle>("motion");
+        Assert.NotNull(motion);
+        var translate = Assert.IsType<SvgTranslate>(Assert.Single(motion!.Transforms));
+        Assert.Equal(10f, translate.X, 3);
+        Assert.Equal(5f, translate.Y, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AppliesAdditiveAndAccumulateSemantics()
+    {
+        var document = SvgService.FromSvg(AdditiveAndAccumulateSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var additiveFrame = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+        var additiveTarget = additiveFrame.GetElementById<SvgRectangle>("additive");
+        Assert.NotNull(additiveTarget);
+        Assert.Equal(10f, additiveTarget!.X.Value, 3);
+
+        var accumulatedFrame = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2.5));
+
+        var numericTarget = accumulatedFrame.GetElementById<SvgRectangle>("numeric");
+        Assert.NotNull(numericTarget);
+        Assert.Equal(12.5f, numericTarget!.X.Value, 3);
+
+        var transformTarget = accumulatedFrame.GetElementById<SvgRectangle>("transformAccum");
+        Assert.NotNull(transformTarget);
+        var accumulatedTransform = Assert.IsType<SvgTranslate>(Assert.Single(transformTarget!.Transforms));
+        Assert.Equal(12.5f, accumulatedTransform.X, 3);
+        Assert.Equal(0f, accumulatedTransform.Y, 3);
+
+        var motionTarget = accumulatedFrame.GetElementById<SvgCircle>("motionAccum");
+        Assert.NotNull(motionTarget);
+        var accumulatedMotion = Assert.IsType<SvgTranslate>(Assert.Single(motionTarget!.Transforms));
+        Assert.Equal(12.5f, accumulatedMotion.X, 3);
+        Assert.Equal(0f, accumulatedMotion.Y, 3);
+    }
+
+    [Fact]
+    public void SetAnimationTime_SkipsEquivalentFrameRebuilds()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(DelayedAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.NotNull(svg.Model);
+        Assert.NotNull(svg.Picture);
+
+        var initialModel = svg.Model;
+        var initialPicture = svg.Picture;
+        var invalidatedCount = 0;
+        svg.AnimationInvalidated += (_, _) => invalidatedCount++;
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(0, invalidatedCount);
+        Assert.Same(initialModel, svg.Model);
+        Assert.Same(initialPicture, svg.Picture);
+        Assert.False(svg.HasPendingAnimationFrame);
+        Assert.Equal(0, svg.LastAnimationDirtyTargetCount);
+    }
+
+    [Fact]
+    public void SetAnimationTime_QueuesPendingFrameWhenThrottled()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(HitTestAnimationSvg);
+        svg.AnimationMinimumRenderInterval = TimeSpan.FromSeconds(1);
+
+        Assert.True(svg.HasAnimations);
+        Assert.NotNull(svg.Model);
+
+        var initialModel = svg.Model;
+        var invalidatedCount = 0;
+        svg.AnimationInvalidated += (_, args) =>
+        {
+            invalidatedCount++;
+            Assert.Equal(TimeSpan.FromSeconds(0.5), args.Time);
+        };
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(0.5));
+
+        Assert.Equal(0, invalidatedCount);
+        Assert.True(svg.HasPendingAnimationFrame);
+        Assert.Same(initialModel, svg.Model);
+        Assert.True(svg.LastAnimationDirtyTargetCount > 0);
+
+        Assert.True(svg.FlushPendingAnimationFrame());
+        Assert.Equal(1, invalidatedCount);
+        Assert.False(svg.HasPendingAnimationFrame);
+        Assert.NotSame(initialModel, svg.Model);
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(7, 2))?.ID);
+    }
+
+    [Fact]
+    public void SetAnimationTime_RevertsRemovedAnimatedStateWhenAnimationStops()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(TransientAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(0.5));
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(7, 2))?.ID);
+        Assert.Null(svg.HitTestTopmostElement(new SKPoint(2, 2)));
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(2));
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(2, 2))?.ID);
+        Assert.Null(svg.HitTestTopmostElement(new SKPoint(7, 2)));
+    }
+
+    [Fact]
+    public void SetAnimationTime_RemovesAnimatedAttributeWhenBaseAttributeWasImplicit()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(TransientImplicitAttributeSvg);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(0.5));
+
+        var activeDocument = GetRenderedDocument(svg);
+        var activeTarget = activeDocument.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(activeTarget);
+        Assert.True(activeTarget!.TryGetAttribute("x", out _));
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(2));
+
+        var renderedDocument = GetRenderedDocument(svg);
+        var target = renderedDocument.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.False(target!.TryGetAttribute("x", out _));
+    }
+
+    [Fact]
+    public void ResetAnimation_AtZeroClearsEventDrivenRenderedState()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(ImmediateEventSetSvg);
+
+        Assert.True(svg.HasAnimations);
+
+        var dispatcher = new SvgInteractionDispatcher();
+        var clickInput = new SvgPointerInput(
+            new SKPoint(20, 20),
+            SvgPointerDeviceType.Mouse,
+            SvgMouseButton.Left,
+            1,
+            0,
+            false,
+            false,
+            false,
+            "pointer-1");
+
+        _ = dispatcher.DispatchPointerPressed(svg, clickInput);
+        _ = dispatcher.DispatchPointerReleased(svg, clickInput);
+
+        Assert.Null(svg.HitTestTopmostElement(new SKPoint(2, 2)));
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(12, 2))?.ID);
+
+        var invalidatedCount = 0;
+        svg.AnimationInvalidated += (_, args) =>
+        {
+            invalidatedCount++;
+            Assert.Equal(TimeSpan.Zero, args.Time);
+        };
+
+        svg.ResetAnimation();
+
+        Assert.Equal(1, invalidatedCount);
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(2, 2))?.ID);
+        Assert.Null(svg.HitTestTopmostElement(new SKPoint(12, 2)));
+    }
+
+    private static SvgDocument GetRenderedDocument(SKSvg svg)
+    {
+        var drawable = Assert.IsAssignableFrom<DrawableBase>(svg.Drawable);
+        return Assert.IsType<SvgDocument>(drawable.Element);
+    }
+
+    private const string AnimationRuntimeSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="60"
+             height="40"
+             viewBox="0 0 60 40">
+          <defs>
+            <path id="motionPath" d="M0,30 L10,30" />
+          </defs>
+          <rect id="move" x="0" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="20" dur="2s" fill="freeze" />
+          </rect>
+          <rect id="color" x="0" y="10" width="5" height="5" fill="#00ff00">
+            <animateColor attributeName="fill" from="#00ff00" to="#0000ff" dur="2s" fill="freeze" />
+          </rect>
+          <rect id="transform" x="0" y="20" width="5" height="5" fill="blue">
+            <animateTransform attributeName="transform" type="translate" from="0 0" to="10 0" dur="2s" fill="freeze" />
+          </rect>
+          <rect id="set" x="20" y="20" width="5" height="5" visibility="hidden" fill="black">
+            <set attributeName="visibility" to="visible" begin="1s" fill="freeze" />
+          </rect>
+          <circle id="motion" cx="0" cy="0" r="2" fill="purple">
+            <animateMotion dur="2s" fill="freeze">
+              <mpath xlink:href="#motionPath" />
+            </animateMotion>
+          </circle>
+        </svg>
+        """;
+
+    private const string HitTestAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="10"
+             viewBox="0 0 40 10">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="20" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string EventBeginSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="40"
+             viewBox="0 0 40 40">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="10" begin="trigger.click+1s" dur="2s" fill="freeze" />
+          </rect>
+          <circle id="trigger" cx="20" cy="20" r="4" fill="blue" />
+        </svg>
+        """;
+
+    private const string DelayedAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="10"
+             viewBox="0 0 40 10">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="20" begin="2s" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string EventEndSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="10"
+             viewBox="0 0 40 10">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="10" begin="0s" dur="10s" end="trigger.click" fill="freeze" />
+          </rect>
+          <circle id="trigger" cx="20" cy="5" r="3" fill="blue" />
+        </svg>
+        """;
+
+    private const string MotionValuesSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="30"
+             height="30"
+             viewBox="0 0 30 30">
+          <circle id="motion" cx="0" cy="0" r="2" fill="purple">
+            <animateMotion values="0,0;10,0;10,10" calcMode="linear" keyTimes="0;0.5;1" dur="2s" fill="freeze" />
+          </circle>
+        </svg>
+        """;
+
+    private const string TransientAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="10"
+             viewBox="0 0 40 10">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="1s" />
+          </rect>
+        </svg>
+        """;
+
+    private const string TransientImplicitAttributeSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="10"
+             viewBox="0 0 40 10">
+          <rect id="target" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="1s" />
+          </rect>
+        </svg>
+        """;
+
+    private const string ImmediateEventSetSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="40"
+             viewBox="0 0 40 40">
+          <rect id="target" y="0" width="5" height="5" fill="red">
+            <set attributeName="x" to="10" begin="trigger.click" dur="1s" fill="freeze" />
+          </rect>
+          <circle id="trigger" cx="20" cy="20" r="4" fill="blue" />
+        </svg>
+        """;
+
+    private const string AdditiveAndAccumulateSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="50"
+             height="30"
+             viewBox="0 0 50 30">
+          <rect id="additive" x="5" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="2s" additive="sum" fill="freeze" />
+          </rect>
+          <rect id="numeric" x="0" y="10" width="5" height="5" fill="green">
+            <animate attributeName="x" from="0" to="10" dur="2s" repeatCount="3" accumulate="sum" fill="freeze" />
+          </rect>
+          <rect id="transformAccum" x="0" y="20" width="5" height="5" fill="blue">
+            <animateTransform attributeName="transform" type="translate" from="0 0" to="10 0" dur="2s" repeatCount="3" accumulate="sum" fill="freeze" />
+          </rect>
+          <circle id="motionAccum" cx="0" cy="0" r="2" fill="purple">
+            <animateMotion dur="2s" repeatCount="3" accumulate="sum" fill="freeze" path="M0,0 L10,0" />
+          </circle>
+        </svg>
+        """;
+}
