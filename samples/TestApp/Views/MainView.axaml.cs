@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -242,6 +243,8 @@ public partial class MainView : UserControl
                 : "Playing";
 
         AnimationClockText.Text = animationTime.ToString(@"mm\:ss\.fff");
+        AnimationBackendInfoText.Text = Svg.ActualAnimationBackend.ToString();
+        ToolTip.SetTip(AnimationBackendInfoText, Svg.AnimationBackendFallbackReason);
     }
 
     private void SkSvg_OnDraw(object? sender, SKSvgDrawEventArgs e)

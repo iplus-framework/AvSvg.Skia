@@ -171,6 +171,7 @@
             <skia:SvgAnimationHostBackend>Manual</skia:SvgAnimationHostBackend>
             <skia:SvgAnimationHostBackend>DispatcherTimer</skia:SvgAnimationHostBackend>
             <skia:SvgAnimationHostBackend>RenderLoop</skia:SvgAnimationHostBackend>
+            <skia:SvgAnimationHostBackend>NativeComposition</skia:SvgAnimationHostBackend>
           </ComboBox>
         </StackPanel>
 
@@ -215,10 +216,10 @@
                      Text="00:00.000" />
         </StackPanel>
 
-        <TextBlock Margin="0,0,12,6"
+        <TextBlock Name="AnimationBackendInfoText"
+                   Margin="0,0,12,6"
                    VerticalAlignment="Center"
-                   ToolTip.Tip="{Binding #Svg.AnimationBackendFallbackReason}"
-                   Text="{Binding #Svg.ActualAnimationBackend}" />
+                   Text="Manual" />
 
         <Button Content="Export"
                 Command="{Binding ExportCommand}"
