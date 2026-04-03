@@ -7,16 +7,22 @@ public enum SvgAnimationHostBackend
     Default,
     Manual,
     DispatcherTimer,
-    RenderLoop
+    RenderLoop,
+    NativeComposition
 }
 
 public sealed class SvgAnimationHostBackendCapabilities
 {
-    public SvgAnimationHostBackendCapabilities(bool isHostReady, bool supportsDispatcherTimer, bool supportsRenderLoop)
+    public SvgAnimationHostBackendCapabilities(
+        bool isHostReady,
+        bool supportsDispatcherTimer,
+        bool supportsRenderLoop,
+        bool supportsNativeComposition)
     {
         IsHostReady = isHostReady;
         SupportsDispatcherTimer = supportsDispatcherTimer;
         SupportsRenderLoop = supportsRenderLoop;
+        SupportsNativeComposition = supportsNativeComposition;
     }
 
     public bool IsHostReady { get; }
@@ -24,6 +30,8 @@ public sealed class SvgAnimationHostBackendCapabilities
     public bool SupportsDispatcherTimer { get; }
 
     public bool SupportsRenderLoop { get; }
+
+    public bool SupportsNativeComposition { get; }
 }
 
 public sealed class SvgAnimationHostBackendResolution
@@ -94,6 +102,18 @@ public static class SvgAnimationHostBackendResolver
                             SvgAnimationHostBackend.Manual,
                             "Dispatcher timer animation playback is unavailable.");
                 }
+            case SvgAnimationHostBackend.NativeComposition:
+                {
+                    if (capabilities.SupportsNativeComposition && SupportsAutomaticTicks(capabilities))
+                    {
+                        return new SvgAnimationHostBackendResolution(
+                            requestedBackend,
+                            SvgAnimationHostBackend.NativeComposition,
+                            null);
+                    }
+
+                    return ResolveNativeCompositionFallback(requestedBackend, capabilities);
+                }
             case SvgAnimationHostBackend.RenderLoop:
                 {
                     if (capabilities.SupportsRenderLoop)
@@ -120,6 +140,14 @@ public static class SvgAnimationHostBackendResolver
             case SvgAnimationHostBackend.Default:
             default:
                 {
+                    if (capabilities.SupportsNativeComposition && SupportsAutomaticTicks(capabilities))
+                    {
+                        return new SvgAnimationHostBackendResolution(
+                            requestedBackend,
+                            SvgAnimationHostBackend.NativeComposition,
+                            null);
+                    }
+
                     if (capabilities.SupportsRenderLoop)
                     {
                         return new SvgAnimationHostBackendResolution(
@@ -142,5 +170,36 @@ public static class SvgAnimationHostBackendResolver
                         "Automatic animation playback backends are unavailable.");
                 }
         }
+    }
+
+    private static bool SupportsAutomaticTicks(SvgAnimationHostBackendCapabilities capabilities)
+    {
+        return capabilities.SupportsRenderLoop || capabilities.SupportsDispatcherTimer;
+    }
+
+    private static SvgAnimationHostBackendResolution ResolveNativeCompositionFallback(
+        SvgAnimationHostBackend requestedBackend,
+        SvgAnimationHostBackendCapabilities capabilities)
+    {
+        if (capabilities.SupportsRenderLoop)
+        {
+            return new SvgAnimationHostBackendResolution(
+                requestedBackend,
+                SvgAnimationHostBackend.RenderLoop,
+                "Native composition animation playback is unavailable; falling back to render loop.");
+        }
+
+        if (capabilities.SupportsDispatcherTimer)
+        {
+            return new SvgAnimationHostBackendResolution(
+                requestedBackend,
+                SvgAnimationHostBackend.DispatcherTimer,
+                "Native composition animation playback is unavailable; falling back to dispatcher timer.");
+        }
+
+        return new SvgAnimationHostBackendResolution(
+            requestedBackend,
+            SvgAnimationHostBackend.Manual,
+            "Native composition animation playback is unavailable.");
     }
 }

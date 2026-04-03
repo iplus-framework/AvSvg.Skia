@@ -956,7 +956,8 @@ public sealed class Svg : SKCanvasElement
         return new SvgAnimationHostBackendCapabilities(
             isHostReady,
             isHostReady && DispatcherQueue is not null,
-            isHostReady);
+            isHostReady,
+            supportsNativeComposition: false);
     }
 
     private void UpdateAnimationPlayback()

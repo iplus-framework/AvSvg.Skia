@@ -10,7 +10,8 @@ public class SvgAnimationHostBackendResolverTests
         var capabilities = new SvgAnimationHostBackendCapabilities(
             isHostReady: true,
             supportsDispatcherTimer: true,
-            supportsRenderLoop: true);
+            supportsRenderLoop: true,
+            supportsNativeComposition: false);
 
         var resolution = SvgAnimationHostBackendResolver.Resolve(
             SvgAnimationHostBackend.Default,
@@ -28,7 +29,8 @@ public class SvgAnimationHostBackendResolverTests
         var capabilities = new SvgAnimationHostBackendCapabilities(
             isHostReady: true,
             supportsDispatcherTimer: true,
-            supportsRenderLoop: false);
+            supportsRenderLoop: false,
+            supportsNativeComposition: false);
 
         var resolution = SvgAnimationHostBackendResolver.Resolve(
             SvgAnimationHostBackend.RenderLoop,
@@ -48,7 +50,8 @@ public class SvgAnimationHostBackendResolverTests
         var capabilities = new SvgAnimationHostBackendCapabilities(
             isHostReady: false,
             supportsDispatcherTimer: false,
-            supportsRenderLoop: false);
+            supportsRenderLoop: false,
+            supportsNativeComposition: false);
 
         var resolution = SvgAnimationHostBackendResolver.Resolve(
             SvgAnimationHostBackend.Default,
@@ -66,7 +69,8 @@ public class SvgAnimationHostBackendResolverTests
         var capabilities = new SvgAnimationHostBackendCapabilities(
             isHostReady: true,
             supportsDispatcherTimer: true,
-            supportsRenderLoop: true);
+            supportsRenderLoop: true,
+            supportsNativeComposition: false);
 
         var resolution = SvgAnimationHostBackendResolver.Resolve(
             SvgAnimationHostBackend.DispatcherTimer,
@@ -84,7 +88,8 @@ public class SvgAnimationHostBackendResolverTests
         var capabilities = new SvgAnimationHostBackendCapabilities(
             isHostReady: false,
             supportsDispatcherTimer: false,
-            supportsRenderLoop: false);
+            supportsRenderLoop: false,
+            supportsNativeComposition: false);
 
         var resolution = SvgAnimationHostBackendResolver.Resolve(
             SvgAnimationHostBackend.Manual,
@@ -94,5 +99,45 @@ public class SvgAnimationHostBackendResolverTests
         Assert.Equal(SvgAnimationHostBackend.Manual, resolution.ActualBackend);
         Assert.Null(resolution.FallbackReason);
         Assert.False(resolution.IsFallback);
+    }
+
+    [Fact]
+    public void Resolve_DefaultPrefersNativeCompositionWhenSupported()
+    {
+        var capabilities = new SvgAnimationHostBackendCapabilities(
+            isHostReady: true,
+            supportsDispatcherTimer: true,
+            supportsRenderLoop: true,
+            supportsNativeComposition: true);
+
+        var resolution = SvgAnimationHostBackendResolver.Resolve(
+            SvgAnimationHostBackend.Default,
+            capabilities,
+            hasAnimations: true);
+
+        Assert.Equal(SvgAnimationHostBackend.NativeComposition, resolution.ActualBackend);
+        Assert.Null(resolution.FallbackReason);
+        Assert.False(resolution.IsFallback);
+    }
+
+    [Fact]
+    public void Resolve_NativeCompositionFallsBackToRenderLoop()
+    {
+        var capabilities = new SvgAnimationHostBackendCapabilities(
+            isHostReady: true,
+            supportsDispatcherTimer: true,
+            supportsRenderLoop: true,
+            supportsNativeComposition: false);
+
+        var resolution = SvgAnimationHostBackendResolver.Resolve(
+            SvgAnimationHostBackend.NativeComposition,
+            capabilities,
+            hasAnimations: true);
+
+        Assert.Equal(SvgAnimationHostBackend.RenderLoop, resolution.ActualBackend);
+        Assert.Equal(
+            "Native composition animation playback is unavailable; falling back to render loop.",
+            resolution.FallbackReason);
+        Assert.True(resolution.IsFallback);
     }
 }

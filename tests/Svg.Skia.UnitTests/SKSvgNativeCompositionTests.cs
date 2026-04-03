@@ -1,0 +1,115 @@
+using System;
+using Xunit;
+
+namespace Svg.Skia.UnitTests;
+
+public class SKSvgNativeCompositionTests
+{
+    [Fact]
+    public void TryCreateNativeCompositionScene_PreservesTopLevelOrderAndExtractsVisualState()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(NativeCompositionSceneSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.True(svg.SupportsNativeComposition);
+        Assert.True(svg.TryCreateNativeCompositionScene(out var scene));
+        Assert.NotNull(scene);
+
+        Assert.Collection(
+            scene!.Layers,
+            staticLayer =>
+            {
+                Assert.Equal(0, staticLayer.DocumentChildIndex);
+                Assert.False(staticLayer.IsAnimated);
+                Assert.True(staticLayer.IsVisible);
+                Assert.NotNull(staticLayer.Picture);
+            },
+            animatedLayer =>
+            {
+                Assert.Equal(1, animatedLayer.DocumentChildIndex);
+                Assert.True(animatedLayer.IsAnimated);
+                Assert.True(animatedLayer.IsVisible);
+                Assert.NotNull(animatedLayer.Picture);
+                Assert.Equal(4f, animatedLayer.Offset.X, 3);
+                Assert.Equal(6f, animatedLayer.Offset.Y, 3);
+                Assert.Equal(10f, animatedLayer.Size.Width, 3);
+                Assert.Equal(20f, animatedLayer.Size.Height, 3);
+                Assert.Equal(0.5f, animatedLayer.Opacity, 3);
+            });
+    }
+
+    [Fact]
+    public void TryCreateNativeCompositionFrame_ReturnsAnimatedLayersOnly()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(NativeCompositionFrameSvg);
+
+        Assert.True(svg.HasAnimations);
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+
+        Assert.True(svg.TryCreateNativeCompositionFrame(out var frame));
+        Assert.NotNull(frame);
+        var animatedLayer = Assert.Single(frame!.Layers);
+        Assert.Equal(0, animatedLayer.DocumentChildIndex);
+        Assert.True(animatedLayer.IsAnimated);
+        Assert.True(animatedLayer.IsVisible);
+        Assert.NotNull(animatedLayer.Picture);
+        Assert.Equal(12f, animatedLayer.Offset.X, 3);
+        Assert.Equal(8f, animatedLayer.Offset.Y, 3);
+        Assert.Equal(10f, animatedLayer.Size.Width, 3);
+        Assert.Equal(10f, animatedLayer.Size.Height, 3);
+    }
+
+    [Fact]
+    public void TryCreateNativeCompositionScene_UsesTransformedDescendantBounds()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(NativeCompositionTransformedDescendantSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.True(svg.SupportsNativeComposition);
+        Assert.True(svg.TryCreateNativeCompositionScene(out var scene));
+        Assert.NotNull(scene);
+
+        var animatedLayer = Assert.Single(scene!.Layers);
+        Assert.Equal(0, animatedLayer.DocumentChildIndex);
+        Assert.True(animatedLayer.IsAnimated);
+        Assert.True(animatedLayer.IsVisible);
+        Assert.NotNull(animatedLayer.Picture);
+        Assert.Equal(0f, animatedLayer.Offset.X, 3);
+        Assert.Equal(0f, animatedLayer.Offset.Y, 3);
+        Assert.Equal(50f, animatedLayer.Size.Width, 3);
+        Assert.Equal(10f, animatedLayer.Size.Height, 3);
+    }
+
+    private const string NativeCompositionSceneSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="30">
+          <rect id="static" x="0" y="0" width="4" height="4" fill="red" />
+          <rect id="animated" x="1" y="2" width="10" height="20" fill="blue" opacity="0.5" transform="translate(3,4)">
+            <animate attributeName="x" from="1" to="11" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string NativeCompositionFrameSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="30">
+          <rect id="animated" x="2" y="3" width="10" height="10" fill="blue">
+            <animateTransform attributeName="transform" type="translate" from="0 0" to="10 5" dur="1s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string NativeCompositionTransformedDescendantSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50">
+          <g id="animated-root">
+            <rect x="0" y="0" width="10" height="10" fill="red">
+              <animate attributeName="width" from="10" to="12" dur="1s" fill="freeze" />
+            </rect>
+            <g transform="translate(40,0)">
+              <rect x="0" y="0" width="10" height="10" fill="blue" />
+            </g>
+          </g>
+        </svg>
+        """;
+}
