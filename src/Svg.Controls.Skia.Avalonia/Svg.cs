@@ -45,6 +45,8 @@ public class Svg : Control
     private TimeSpan _lastAnimationPlaybackTimestamp;
     private bool _animationRenderLoopActive;
     private bool _animationRenderLoopRequested;
+    private bool _nativeCompositionHostSupported = true;
+    private SvgCompositionVisualScene? _nativeCompositionScene;
     private static readonly Cursor s_arrowCursor = new(StandardCursorType.Arrow);
     private static readonly Cursor s_appStartingCursor = new(StandardCursorType.AppStarting);
     private static readonly Cursor s_crossCursor = new(StandardCursorType.Cross);
@@ -513,6 +515,7 @@ public class Svg : Control
     {
         base.OnDetachedFromVisualTree(e);
         ApplyNativeCursor(null);
+        DeactivateNativeComposition();
         UpdateAnimationPlayback();
     }
 
@@ -538,12 +541,18 @@ public class Svg : Control
         }
 
         var sourceSize = new Size(picture.CullRect.Width, picture.CullRect.Height);
+        RefreshNativeCompositionLayout();
 
         return Stretch.CalculateSize(finalSize, sourceSize);
     }
 
     public override void Render(DrawingContext context)
     {
+        if (IsNativeCompositionActive)
+        {
+            return;
+        }
+
         var source = _svg;
         var picture = source?.Picture;
         if (picture is null)
@@ -680,6 +689,12 @@ public class Svg : Control
             {
                 skSvg.IgnoreAttributes = change.GetNewValue<bool>() ? DrawAttributes.Filter : DrawAttributes.None;
             }
+
+            if (IsNativeCompositionActive)
+            {
+                UpdateAnimationPlayback();
+            }
+
             InvalidateVisual();
         }
 
@@ -687,7 +702,19 @@ public class Svg : Control
             change.Property == PanXProperty ||
             change.Property == PanYProperty)
         {
+            RefreshNativeCompositionLayout();
             InvalidateVisual();
+        }
+
+        if (change.Property == StretchProperty ||
+            change.Property == StretchDirectionProperty)
+        {
+            RefreshNativeCompositionLayout();
+        }
+
+        if (change.Property == WireframeProperty)
+        {
+            _nativeCompositionScene?.UpdateWireframe(change.GetNewValue<bool>());
         }
     }
 
@@ -809,6 +836,11 @@ public class Svg : Control
     {
         var previous = _svg;
         _svg = source;
+
+        if (!ReferenceEquals(previous, source))
+        {
+            DeactivateNativeComposition();
+        }
 
         if (previous is not null && !ReferenceEquals(previous, source) && !IsCachedSource(previous))
         {
@@ -1020,6 +1052,7 @@ public class Svg : Control
         }
 
         ApplyNativeCursor(null);
+        _nativeCompositionHostSupported = true;
 
         if (_trackedAnimationSvg is { })
         {
@@ -1042,12 +1075,14 @@ public class Svg : Control
         return new SvgAnimationHostBackendCapabilities(
             isHostReady,
             isHostReady,
-            isHostReady);
+            isHostReady,
+            isHostReady && _nativeCompositionHostSupported && _trackedAnimationSvg?.SupportsNativeComposition == true);
     }
 
     private void UpdateAnimationPlayback()
     {
         StopAnimationPlaybackDrivers();
+        DeactivateNativeComposition();
 
         var capabilities = CreateAnimationBackendCapabilities();
         var hasAnimations = _trackedAnimationSvg?.HasAnimations == true;
@@ -1056,6 +1091,17 @@ public class Svg : Control
         if (_trackedAnimationSvg is not { } skSvg)
         {
             return;
+        }
+
+        if (_animationBackendResolution.ActualBackend == SvgAnimationHostBackend.NativeComposition &&
+            !TryActivateNativeComposition(skSvg))
+        {
+            var fallbackCapabilities = new SvgAnimationHostBackendCapabilities(
+                capabilities.IsHostReady,
+                capabilities.SupportsDispatcherTimer,
+                capabilities.SupportsRenderLoop,
+                supportsNativeComposition: false);
+            _animationBackendResolution = SvgAnimationHostBackendResolver.Resolve(AnimationBackend, fallbackCapabilities, hasAnimations);
         }
 
         skSvg.AnimationMinimumRenderInterval = _animationBackendResolution.ActualBackend == SvgAnimationHostBackend.Manual
@@ -1079,6 +1125,27 @@ public class Svg : Control
                     RequestNextAnimationFrame();
                     break;
                 }
+            case SvgAnimationHostBackend.NativeComposition:
+                {
+                    if (capabilities.SupportsRenderLoop)
+                    {
+                        _animationRenderLoopActive = true;
+                        RequestNextAnimationFrame();
+                    }
+                    else if (capabilities.SupportsDispatcherTimer)
+                    {
+                        _animationDispatcherTimer ??= CreateAnimationDispatcherTimer();
+                        _animationDispatcherTimer.Interval = NormalizeAnimationFrameInterval(AnimationFrameInterval);
+                        _animationDispatcherTimer.Start();
+                    }
+
+                    break;
+                }
+        }
+
+        if (_animationBackendResolution.ActualBackend != SvgAnimationHostBackend.NativeComposition)
+        {
+            InvalidateVisual();
         }
     }
 
@@ -1126,7 +1193,9 @@ public class Svg : Control
     private void OnAnimationFrameRequested(TimeSpan time)
     {
         _animationRenderLoopRequested = false;
-        if (!_animationRenderLoopActive || _animationBackendResolution.ActualBackend != SvgAnimationHostBackend.RenderLoop)
+        if (!_animationRenderLoopActive ||
+            (_animationBackendResolution.ActualBackend != SvgAnimationHostBackend.RenderLoop &&
+             _animationBackendResolution.ActualBackend != SvgAnimationHostBackend.NativeComposition))
         {
             return;
         }
@@ -1191,13 +1260,61 @@ public class Svg : Control
         return TimeSpan.FromTicks((long)Math.Round(scaledTicks, MidpointRounding.AwayFromZero));
     }
 
+    private bool IsNativeCompositionActive => _nativeCompositionScene is not null;
+
+    private bool TryActivateNativeComposition(SKSvg skSvg)
+    {
+        if (!skSvg.TryCreateNativeCompositionScene(out var scene) || scene is null)
+        {
+            return false;
+        }
+
+        if (!SvgCompositionVisualScene.TryCreate(this, scene, Wireframe, out var compositionScene) || compositionScene is null)
+        {
+            return false;
+        }
+
+        _nativeCompositionScene = compositionScene;
+        return true;
+    }
+
+    private void DeactivateNativeComposition()
+    {
+        _nativeCompositionScene?.Dispose();
+        _nativeCompositionScene = null;
+    }
+
+    private void RefreshNativeCompositionLayout()
+    {
+        _nativeCompositionScene?.RefreshLayout();
+    }
+
+    private bool TryUpdateNativeCompositionFrame()
+    {
+        if (_nativeCompositionScene is null || _trackedAnimationSvg is not { } skSvg)
+        {
+            return false;
+        }
+
+        if (!skSvg.TryCreateNativeCompositionFrame(out var frame) || frame is null)
+        {
+            return false;
+        }
+
+        _nativeCompositionScene.UpdateFrame(frame, Wireframe);
+        return true;
+    }
+
     private void OnAnimationInvalidated(object? sender, SvgAnimationFrameChangedEventArgs e)
     {
         if (Dispatcher.UIThread.CheckAccess())
         {
             InvalidateMeasure();
             InvalidateArrange();
-            InvalidateVisual();
+            if (!TryUpdateNativeCompositionFrame())
+            {
+                InvalidateVisual();
+            }
             return;
         }
 
@@ -1205,7 +1322,32 @@ public class Svg : Control
         {
             InvalidateMeasure();
             InvalidateArrange();
-            InvalidateVisual();
+            if (!TryUpdateNativeCompositionFrame())
+            {
+                InvalidateVisual();
+            }
+        });
+    }
+
+    internal void OnNativeCompositionRenderUnavailable(string reason)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_nativeCompositionHostSupported)
+            {
+                return;
+            }
+
+            _nativeCompositionHostSupported = false;
+
+            if (_animationBackendResolution.ActualBackend == SvgAnimationHostBackend.NativeComposition)
+            {
+                UpdateAnimationPlayback();
+                InvalidateVisual();
+            }
+
+            Logger.TryGet(LogEventLevel.Warning, LogArea.Control)
+                ?.Log(this, $"Native composition backend became unavailable: {reason}");
         });
     }
 }
