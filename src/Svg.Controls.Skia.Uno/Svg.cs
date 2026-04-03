@@ -33,7 +33,7 @@ public sealed class Svg : SKCanvasElement
     private readonly Stopwatch _animationPlaybackStopwatch = new();
     private DispatcherQueueTimer? _animationDispatcherTimer;
     private SvgAnimationHostBackendResolution _animationBackendResolution =
-        new(SvgAnimationHostBackend.Manual, SvgAnimationHostBackend.Manual, null);
+        new(SvgAnimationHostBackend.Default, SvgAnimationHostBackend.Default, null);
     private TimeSpan _lastAnimationPlaybackTimestamp;
     private bool _animationRenderingSubscribed;
     private static readonly InputSystemCursor s_arrowCursor = InputSystemCursor.Create(InputSystemCursorShape.Arrow);
@@ -149,7 +149,7 @@ public sealed class Svg : SKCanvasElement
             nameof(AnimationBackend),
             typeof(SvgAnimationHostBackend),
             typeof(Svg),
-            new PropertyMetadata(SvgAnimationHostBackend.Manual, OnAnimationPlaybackPropertyChanged));
+            new PropertyMetadata(SvgAnimationHostBackend.Default, OnAnimationPlaybackPropertyChanged));
 
     public static readonly DependencyProperty AnimationFrameIntervalProperty =
         DependencyProperty.Register(

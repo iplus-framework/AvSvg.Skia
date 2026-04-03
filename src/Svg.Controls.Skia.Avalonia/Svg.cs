@@ -37,9 +37,9 @@ public class Svg : Control
     private SKSvg? _trackedAnimationSvg;
     private readonly Stopwatch _animationPlaybackStopwatch = new();
     private DispatcherTimer? _animationDispatcherTimer;
-    private SvgAnimationHostBackend _animationBackend = SvgAnimationHostBackend.Manual;
+    private SvgAnimationHostBackend _animationBackend = SvgAnimationHostBackend.Default;
     private SvgAnimationHostBackendResolution _animationBackendResolution =
-        new(SvgAnimationHostBackend.Manual, SvgAnimationHostBackend.Manual, null);
+        new(SvgAnimationHostBackend.Default, SvgAnimationHostBackend.Default, null);
     private TimeSpan _animationFrameInterval = TimeSpan.FromMilliseconds(16);
     private double _animationPlaybackRate = 1.0;
     private TimeSpan _lastAnimationPlaybackTimestamp;

@@ -219,7 +219,7 @@
         <TextBlock Name="AnimationBackendInfoText"
                    Margin="0,0,12,6"
                    VerticalAlignment="Center"
-                   Text="Manual" />
+                   Text="Default" />
 
         <Button Content="Export"
                 Command="{Binding ExportCommand}"
@@ -239,7 +239,7 @@
              Stretch="{Binding #SvgStretch.SelectedItem}"
              Path="{Binding SelectedItem.Path, FallbackValue=''}"
              EnableCache="True"
-             AnimationBackend="RenderLoop"
+             AnimationBackend="Default"
              PointerPressed="Svg_OnPointerPressed" />
       </ScrollViewer>
     </DockPanel>
