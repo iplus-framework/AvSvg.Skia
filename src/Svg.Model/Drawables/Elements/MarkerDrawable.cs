@@ -178,6 +178,20 @@ public sealed class MarkerDrawable : DrawableBase
         MarkerElementDrawable?.PostProcess(viewport, TotalTransform);
     }
 
+    internal override bool SupportsPaintedFillHitTest => MarkerElementDrawable?.SupportsPaintedFillHitTest ?? false;
+
+    internal override bool SupportsPaintedStrokeHitTest => MarkerElementDrawable?.SupportsPaintedStrokeHitTest ?? false;
+
+    internal override bool HitTestFillCore(SKPoint point)
+    {
+        return MarkerElementDrawable?.HitTestFill(point) ?? false;
+    }
+
+    internal override bool HitTestStrokeCore(SKPoint point)
+    {
+        return MarkerElementDrawable?.HitTestStroke(point) ?? false;
+    }
+
     public override SKDrawable Clone()
     {
         var clone = new MarkerDrawable(AssetLoader, CloneReferences(References));

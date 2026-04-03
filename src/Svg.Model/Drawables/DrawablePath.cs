@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using ShimSkiaSharp;
+using Svg.Model.Services;
 
 namespace Svg.Model.Drawables;
 
@@ -84,5 +85,15 @@ public abstract class DrawablePath : DrawableBase, IMarkerHost
                 drawable.PostProcess(viewport, TotalTransform);
             }
         }
+    }
+
+    internal override bool HitTestFillCore(SKPoint point)
+    {
+        return Path is { } path && GeometryHitTestService.ContainsFill(path, point, TotalTransform);
+    }
+
+    internal override bool HitTestStrokeCore(SKPoint point)
+    {
+        return Path is { } path && GeometryHitTestService.ContainsStroke(path, point, TotalTransform, GetHitTestStrokeWidth());
     }
 }

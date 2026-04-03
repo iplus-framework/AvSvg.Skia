@@ -14,6 +14,33 @@ public static class HitTestService
                a.Top < b.Bottom && a.Bottom > b.Top;
     }
 
+    public static bool HitTestPointer(DrawableBase drawable, SKPoint point)
+    {
+        if (drawable.Element is not SvgVisualElement visualElement)
+        {
+            return drawable.HitTest(point);
+        }
+
+        if (string.Equals(visualElement.Display?.Trim(), "none", System.StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return visualElement.PointerEvents switch
+        {
+            SvgPointerEvents.None => false,
+            SvgPointerEvents.VisiblePainted => visualElement.Visible && drawable.HitTestPainted(point),
+            SvgPointerEvents.VisibleFill => visualElement.Visible && drawable.HitTestFill(point),
+            SvgPointerEvents.VisibleStroke => visualElement.Visible && drawable.HitTestStroke(point),
+            SvgPointerEvents.Visible => visualElement.Visible && (drawable.HitTestFill(point) || drawable.HitTestStroke(point)),
+            SvgPointerEvents.Painted => drawable.HitTestPainted(point),
+            SvgPointerEvents.Fill => drawable.HitTestFill(point),
+            SvgPointerEvents.Stroke => drawable.HitTestStroke(point),
+            SvgPointerEvents.All => drawable.HitTestFill(point) || drawable.HitTestStroke(point),
+            _ => visualElement.Visible && drawable.HitTestPainted(point)
+        };
+    }
+
     public static IEnumerable<DrawableBase> HitTest(DrawableBase drawable, SKPoint point)
     {
         if (drawable is DrawableContainer container)
@@ -74,4 +101,3 @@ public static class HitTestService
         }
     }
 }
-

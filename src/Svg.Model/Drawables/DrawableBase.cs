@@ -261,12 +261,164 @@ public abstract class DrawableBase : SKDrawable, IFilterSource, IPictureSource
 
     public virtual bool HitTest(SKPoint point)
     {
-        return TransformedBounds.Contains(point);
+        if (this is DrawableContainer)
+        {
+            return TransformedBounds.Contains(point);
+        }
+
+        return HitTestPainted(point);
     }
 
     public virtual bool HitTest(SKRect rect)
     {
-        return HitTestService.IntersectsWith(TransformedBounds, rect);
+        return HitTestService.IntersectsWith(GetHitTestBounds(), rect);
+    }
+
+    internal virtual bool SupportsPaintedFillHitTest => Fill is not null;
+
+    internal virtual bool SupportsPaintedStrokeHitTest => Stroke is not null;
+
+    internal virtual bool HitTestFillCore(SKPoint point)
+    {
+        return GetHitTestBounds().Contains(point);
+    }
+
+    internal virtual bool HitTestStrokeCore(SKPoint point)
+    {
+        return false;
+    }
+
+    internal virtual float GetHitTestStrokeWidth()
+    {
+        if (Stroke?.StrokeWidth is > 0f and var strokeWidth)
+        {
+            return strokeWidth;
+        }
+
+        if (Element is SvgVisualElement visualElement)
+        {
+            var width = visualElement.StrokeWidth.ToDeviceValue(UnitRenderingType.Other, visualElement, GeometryBounds);
+            if (width > 0f)
+            {
+                return width;
+            }
+        }
+
+        return 0f;
+    }
+
+    internal bool HitTestFill(SKPoint point)
+    {
+        return CanHitTestPoint(point) && HitTestFillCore(point);
+    }
+
+    internal bool HitTestStroke(SKPoint point)
+    {
+        return CanHitTestPoint(point) && HitTestStrokeCore(point);
+    }
+
+    internal bool HitTestPainted(SKPoint point)
+    {
+        if (!CanHitTestPoint(point))
+        {
+            return false;
+        }
+
+        return (SupportsPaintedFillHitTest && HitTestFillCore(point)) ||
+               (SupportsPaintedStrokeHitTest && HitTestStrokeCore(point));
+    }
+
+    internal bool CanHitTestPoint(SKPoint point)
+    {
+        if (!GetHitTestBounds().Contains(point))
+        {
+            return false;
+        }
+
+        if (Clip is null && ClipPath is null)
+        {
+            return !HasMaskDrawable() || IsPointInMask(point);
+        }
+
+        if (!TryGetLocalPoint(point, out var localPoint))
+        {
+            return false;
+        }
+
+        if (Clip is { } clip && !clip.Contains(localPoint))
+        {
+            return false;
+        }
+
+        if (ClipPath is { } clipPath && !GeometryHitTestService.Contains(clipPath, localPoint))
+        {
+            return false;
+        }
+
+        return !HasMaskDrawable() || IsPointInMask(point);
+    }
+
+    internal SKRect GetHitTestBounds()
+    {
+        var bounds = TransformedBounds;
+        var strokeWidth = GetHitTestStrokeWidth();
+        if (strokeWidth <= 0f)
+        {
+            return bounds;
+        }
+
+        var scaleX = Math.Sqrt(TotalTransform.ScaleX * TotalTransform.ScaleX + TotalTransform.SkewY * TotalTransform.SkewY);
+        var scaleY = Math.Sqrt(TotalTransform.SkewX * TotalTransform.SkewX + TotalTransform.ScaleY * TotalTransform.ScaleY);
+        var inflation = (float)(Math.Max(scaleX, scaleY) * strokeWidth / 2f);
+
+        if (inflation <= 0f)
+        {
+            return bounds;
+        }
+
+        bounds.Left -= inflation;
+        bounds.Top -= inflation;
+        bounds.Right += inflation;
+        bounds.Bottom += inflation;
+        return bounds;
+    }
+
+    private bool TryGetLocalPoint(SKPoint point, out SKPoint localPoint)
+    {
+        if (TotalTransform.IsIdentity)
+        {
+            localPoint = point;
+            return true;
+        }
+
+        if (!TotalTransform.TryInvert(out var inverse))
+        {
+            localPoint = default;
+            return false;
+        }
+
+        localPoint = inverse.MapPoint(point);
+        return true;
+    }
+
+    private bool HasMaskDrawable()
+    {
+        return MaskDrawable is { IsDrawable: true };
+    }
+
+    private bool IsPointInMask(SKPoint point)
+    {
+        if (MaskDrawable is not { } maskDrawable)
+        {
+            return true;
+        }
+
+        foreach (var _ in HitTestService.HitTest(maskDrawable, point))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     public virtual void PostProcess(SKRect? viewport, SKMatrix totalMatrix)

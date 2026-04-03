@@ -730,6 +730,20 @@ public sealed class TextDrawable : DrawableBase
         base.PostProcess(viewport, totalMatrix);
     }
 
+    internal override bool SupportsPaintedFillHitTest => Text is { } text && PaintingService.IsValidFill(text);
+
+    internal override bool SupportsPaintedStrokeHitTest => Text is { } text && PaintingService.IsValidStroke(text, GeometryBounds);
+
+    internal override bool HitTestFillCore(SKPoint point)
+    {
+        return TransformedBounds.Contains(point);
+    }
+
+    internal override bool HitTestStrokeCore(SKPoint point)
+    {
+        return TransformedBounds.Contains(point);
+    }
+
     public override SKDrawable Clone()
     {
         var clone = new TextDrawable(AssetLoader, CloneReferences(References));

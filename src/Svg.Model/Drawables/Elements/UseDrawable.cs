@@ -169,6 +169,20 @@ public sealed class UseDrawable : DrawableBase
         ReferencedDrawable?.PostProcess(viewport, TotalTransform);
     }
 
+    internal override bool SupportsPaintedFillHitTest => ReferencedDrawable?.SupportsPaintedFillHitTest ?? false;
+
+    internal override bool SupportsPaintedStrokeHitTest => ReferencedDrawable?.SupportsPaintedStrokeHitTest ?? false;
+
+    internal override bool HitTestFillCore(SKPoint point)
+    {
+        return ReferencedDrawable?.HitTestFill(point) ?? false;
+    }
+
+    internal override bool HitTestStrokeCore(SKPoint point)
+    {
+        return ReferencedDrawable?.HitTestStroke(point) ?? false;
+    }
+
     public override SKDrawable Clone()
     {
         var clone = new UseDrawable(AssetLoader, CloneReferences(References));

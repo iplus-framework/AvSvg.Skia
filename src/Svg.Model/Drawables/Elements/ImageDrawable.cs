@@ -180,6 +180,8 @@ public sealed class ImageDrawable : DrawableBase
         FragmentDrawable?.PostProcess(viewport, TotalTransform);
     }
 
+    internal override bool SupportsPaintedFillHitTest => Image is { } || FragmentDrawable is { };
+
     public override SKDrawable Clone()
     {
         var clone = new ImageDrawable(AssetLoader, CloneReferences(References));

@@ -10,6 +10,25 @@ namespace Svg.Skia.UnitTests;
 
 public class HitTestTests : SvgUnitTest
 {
+    private const string StrokeOnlyHitTestSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <rect id="back" x="0" y="0" width="100" height="100" fill="green" />
+          <rect id="front" x="10" y="10" width="80" height="80" fill="none" stroke="red" stroke-width="10" />
+        </svg>
+        """;
+
+    private const string ClipPathHitTestSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <defs>
+            <clipPath id="clip">
+              <circle cx="50" cy="50" r="20" />
+            </clipPath>
+          </defs>
+          <rect id="back" x="0" y="0" width="100" height="100" fill="green" />
+          <rect id="front" x="0" y="0" width="100" height="100" fill="red" clip-path="url(#clip)" />
+        </svg>
+        """;
+
     private static string GetSvgPath(string name)
         => Path.Combine("..", "..", "..", "..", "Tests", name);
 
@@ -79,7 +98,7 @@ public class HitTestTests : SvgUnitTest
         var svg = new SKSvg();
         using var _ = svg.Load(GetSvgPath("HitTestCubic.svg"));
 
-        var results = svg.HitTestElements(new SKPoint(50, 50)).Select(e => e.ID).ToList();
+        var results = svg.HitTestElements(new SKPoint(50, 30)).Select(e => e.ID).ToList();
         Assert.Contains("cubic", results);
     }
 
@@ -89,7 +108,31 @@ public class HitTestTests : SvgUnitTest
         var svg = new SKSvg();
         using var _ = svg.Load(GetSvgPath("HitTestArc.svg"));
 
-        var results = svg.HitTestElements(new SKPoint(50, 30)).Select(e => e.ID).ToList();
+        var results = svg.HitTestElements(new SKPoint(50, 10)).Select(e => e.ID).ToList();
         Assert.Contains("arc", results);
+    }
+
+    [Fact]
+    public void HitTest_Point_StrokeOnlyShape_ExcludesInterior()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(StrokeOnlyHitTestSvg);
+
+        var results = svg.HitTestElements(new SKPoint(50, 50)).Select(e => e.ID).ToList();
+
+        Assert.DoesNotContain("front", results);
+        Assert.Contains("back", results);
+    }
+
+    [Fact]
+    public void HitTest_Point_ClipPath_ExcludesOutsideClip()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(ClipPathHitTestSvg);
+
+        var results = svg.HitTestElements(new SKPoint(10, 10)).Select(e => e.ID).ToList();
+
+        Assert.DoesNotContain("front", results);
+        Assert.Contains("back", results);
     }
 }
