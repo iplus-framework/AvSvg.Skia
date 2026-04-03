@@ -16,6 +16,7 @@ public abstract class DrawableBase : SKDrawable, IFilterSource, IPictureSource
     public HashSet<Uri>? References { get; }
     public SvgElement? Element { get; set; }
     public DrawableBase? Parent { get; set; }
+    public SKRect OwnerViewport { get; set; }
     public bool IsDrawable { get; set; }
     public DrawAttributes IgnoreAttributes { get; set; }
     public bool IsAntialias { get; set; }
@@ -72,6 +73,7 @@ public abstract class DrawableBase : SKDrawable, IFilterSource, IPictureSource
     {
         target.Element = Element;
         target.Parent = parent;
+        target.OwnerViewport = OwnerViewport;
         target.IsDrawable = IsDrawable;
         target.IgnoreAttributes = IgnoreAttributes;
         target.IsAntialias = IsAntialias;

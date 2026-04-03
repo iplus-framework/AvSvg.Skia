@@ -85,6 +85,42 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void SetAnimationTime_UsesAnimationLayerCachingForSupportedTopLevelAnimations()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(TopLevelLayeredAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.True(svg.UsesAnimationLayerCaching);
+        Assert.Equal("static", svg.HitTestTopmostElement(new SKPoint(2, 2))?.ID);
+        Assert.Equal("moving", svg.HitTestTopmostElement(new SKPoint(2, 14))?.ID);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(2));
+
+        Assert.True(svg.UsesAnimationLayerCaching);
+        Assert.Equal("static", svg.HitTestTopmostElement(new SKPoint(2, 2))?.ID);
+        Assert.Null(svg.HitTestTopmostElement(new SKPoint(2, 14)));
+        Assert.Equal("moving", svg.HitTestTopmostElement(new SKPoint(12, 14))?.ID);
+    }
+
+    [Fact]
+    public void SetAnimationTime_FallsBackFromAnimationLayerCachingForDefsTargets()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(DefsBackedAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.False(svg.UsesAnimationLayerCaching);
+        Assert.Equal("instance", svg.HitTestTopmostElement(new SKPoint(2, 2))?.ID);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(2));
+
+        Assert.False(svg.UsesAnimationLayerCaching);
+        Assert.Null(svg.HitTestTopmostElement(new SKPoint(2, 2)));
+        Assert.Equal("instance", svg.HitTestTopmostElement(new SKPoint(12, 2))?.ID);
+    }
+
+    [Fact]
     public void Dispatcher_ClickOffsetEvent_StartsAnimationAtScheduledTime()
     {
         using var svg = new SKSvg();
@@ -388,6 +424,35 @@ public class SvgAnimationControllerTests
           <rect id="target" x="0" y="0" width="5" height="5" fill="red">
             <animate attributeName="x" from="0" to="20" begin="2s" dur="2s" fill="freeze" />
           </rect>
+        </svg>
+        """;
+
+    private const string TopLevelLayeredAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="20"
+             viewBox="0 0 40 20">
+          <rect id="static" x="0" y="0" width="10" height="8" fill="navy" />
+          <g id="animated-root">
+            <rect id="moving" x="0" y="12" width="10" height="6" fill="crimson">
+              <animate attributeName="x" from="0" to="10" dur="2s" fill="freeze" />
+            </rect>
+          </g>
+        </svg>
+        """;
+
+    private const string DefsBackedAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="40"
+             height="20"
+             viewBox="0 0 40 20">
+          <defs>
+            <rect id="template" x="0" y="0" width="10" height="8" fill="forestgreen">
+              <animate attributeName="x" from="0" to="10" dur="2s" fill="freeze" />
+            </rect>
+          </defs>
+          <use id="instance" xlink:href="#template" />
         </svg>
         """;
 

@@ -18,6 +18,7 @@ This plan is intentionally split into phases so interaction can ship before the 
 - Phase 4 shared animation runtime core has been implemented.
 - Phase 5 performance and incremental redraw has been implemented for the current shared-renderer scope.
 - Phase 6 optional native host animation backends has been implemented for host-side scheduling and backend selection.
+- Post-phase follow-up work is now tracked in this document, with the first incremental redraw follow-up slice implemented and the benchmark harness slice in progress.
 - The first implementation slice is in place in:
   - `src/Svg.Skia/SKSvg.Interaction.cs`
   - `src/Svg.Skia/Interaction/SvgInteractionDispatcher.cs`
@@ -70,6 +71,31 @@ This plan is intentionally split into phases so interaction can ship before the 
   - Uno host playback backends using `DispatcherQueueTimer` and `CompositionTarget.Rendering`
   - animated-source cache isolation so replayed cached documents restart from a clean shared-runtime state
 - The scoped phased plan is fully implemented.
+
+## Post-phase follow-up roadmap
+
+The scoped six-phase plan is complete. The remaining animation work is follow-up optimization and native-integration exploration beyond the original phased scope.
+
+### Order
+
+1. subtree and incremental picture invalidation in `SKSvg`
+2. benchmark and profiling harness for animation-frame cost
+3. limited true host-native composition mapping only after the shared runtime and incremental renderer are stable
+
+### Current follow-up slice
+
+- Implemented:
+  - incremental redraw in `SKSvg` using cached static content plus rebuilt animated top-level animated roots where the drawable/model pipeline can safely support it
+- Delivered in the first slice:
+  - stop rebuilding the full document picture on every effective animation frame in the common renderer path
+  - keep hit testing and interaction semantics aligned with the animated drawable state
+  - preserve the current shared SVG runtime as the source of truth
+- In progress:
+  - benchmark and profiling harness for animation-frame cost in the shared `Svg.Skia` renderer
+- Explicit non-goals for the current slice:
+  - no attempt to translate arbitrary SVG nodes into Avalonia or Uno composition objects
+  - no broad retained-scene-graph rewrite of the existing drawable system
+  - no host-native SVG-node-to-composition mapping in the same change
 
 ## Scope
 
@@ -374,6 +400,12 @@ This is an optimization layer only. The shared SVG runtime remains the source of
   - the renderer still rebuilds the full `SKPicture` after dirty attributes are applied to the reused animated document
   - there is no subtree-level picture invalidation yet
   - there is no profiling or benchmark harness in the repo yet; validation is currently behavioral rather than benchmark-based
+
+### Follow-up implementation direction
+
+- first reduce animation-frame work by caching static document content and re-recording only the animated document regions that contain active animation targets
+- keep the animated drawable tree authoritative for hit testing so pointer routing follows animated geometry
+- treat the first redraw optimization as top-down and conservative; correctness takes priority over the finest possible invalidation granularity
 
 ## Phase 6: Optional native host animation backends
 

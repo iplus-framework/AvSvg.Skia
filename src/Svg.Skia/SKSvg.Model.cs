@@ -607,12 +607,6 @@ public partial class SKSvg : IDisposable
         BeginDraw();
         try
         {
-            var picture = Picture;
-            if (picture is null)
-            {
-                return;
-            }
-
             canvas.Save();
             if (Wireframe && Model is { })
             {
@@ -639,8 +633,15 @@ public partial class SKSvg : IDisposable
                     canvas.DrawPicture(wireframePicture);
                 }
             }
-            else
+            else if (!TryDrawAnimationLayers(canvas))
             {
+                var picture = Picture;
+                if (picture is null)
+                {
+                    canvas.Restore();
+                    return;
+                }
+
                 canvas.DrawPicture(picture);
             }
             canvas.Restore();
@@ -708,6 +709,8 @@ public partial class SKSvg : IDisposable
 
     private SkiaSharp.SKPicture? RenderSvgDocument(SvgDocument svgDocument)
     {
+        DisableAnimationLayerCaching();
+
         var model = SvgService.ToModel(svgDocument, AssetLoader, out var drawable, out _, _ignoreAttributes);
         var picture = SkiaModel.ToSKPicture(model);
 
@@ -766,6 +769,7 @@ public partial class SKSvg : IDisposable
 
     private void ClearAnimationRenderState()
     {
+        DisableAnimationLayerCaching();
         _animatedDocument = null;
         _lastRenderedAnimationFrameState = null;
         _pendingAnimationFrameState = null;
@@ -820,7 +824,21 @@ public partial class SKSvg : IDisposable
             AnimationController.ApplyFrameState(_animatedDocument, frameState, _lastRenderedAnimationFrameState);
         }
 
-        _ = RenderSvgDocument(_animatedDocument);
+        var rendered = false;
+        if (UsesAnimationLayerCaching || TryInitializeAnimationLayerCaching())
+        {
+            rendered = TryRenderAnimationLayerFrame(_animatedDocument);
+            if (!rendered)
+            {
+                DisableAnimationLayerCaching();
+            }
+        }
+
+        if (!rendered)
+        {
+            _ = RenderSvgDocument(_animatedDocument);
+        }
+
         _lastRenderedAnimationFrameState = frameState;
         _lastRenderedAnimationTime = frameState.Time;
         _pendingAnimationFrameState = null;

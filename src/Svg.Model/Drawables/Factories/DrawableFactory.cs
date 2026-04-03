@@ -11,7 +11,7 @@ public static class DrawableFactory
 {
     public static DrawableBase? Create(SvgElement svgElement, SKRect skViewport, DrawableBase? parent, ISvgAssetLoader assetLoader, HashSet<Uri>? references, DrawAttributes ignoreAttributes = DrawAttributes.None)
     {
-        return svgElement switch
+        DrawableBase? drawable = svgElement switch
         {
             SvgAnchor svgAnchor => AnchorDrawable.Create(svgAnchor, skViewport, parent, assetLoader, references, ignoreAttributes),
             SvgFragment svgFragment => FragmentDrawable.Create(svgFragment, skViewport, parent, assetLoader, references, ignoreAttributes),
@@ -29,5 +29,12 @@ public static class DrawableFactory
             SvgText svgText => TextDrawable.Create(svgText, skViewport, parent, assetLoader, references, ignoreAttributes),
             _ => null,
         };
+
+        if (drawable is { })
+        {
+            drawable.OwnerViewport = skViewport;
+        }
+
+        return drawable;
     }
 }

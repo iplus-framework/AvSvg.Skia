@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
@@ -207,6 +208,7 @@ public sealed class SvgAnimationController : IDisposable
     private readonly Dictionary<string, AnimationBinding> _bindingsByTargetAttributeKey;
     private readonly Dictionary<string, List<TimeSpan>> _pointerEventInstances = new(StringComparer.Ordinal);
     private readonly HashSet<string> _pointerEventDependencies;
+    private readonly int[]? _animatedTopLevelChildIndexes;
     private SvgAnimationFrameState? _cachedFrameState;
     private int _frameStateVersion;
     private bool _disposed;
@@ -219,6 +221,7 @@ public sealed class SvgAnimationController : IDisposable
         _bindings = DiscoverBindings(sourceDocument);
         _bindingsByTargetAttributeKey = BuildBindingLookup(_bindings);
         _pointerEventDependencies = BuildPointerEventDependencies(_bindings);
+        _animatedTopLevelChildIndexes = DiscoverAnimatedTopLevelChildIndexes(sourceDocument, _bindings);
     }
 
     public SvgDocument SourceDocument { get; }
@@ -228,6 +231,18 @@ public sealed class SvgAnimationController : IDisposable
     public bool HasAnimations => _bindings.Count > 0;
 
     public event EventHandler<SvgAnimationFrameChangedEventArgs>? FrameChanged;
+
+    internal bool TryGetAnimatedTopLevelChildIndexes(out IReadOnlyList<int> childIndexes)
+    {
+        if (_animatedTopLevelChildIndexes is not { Length: > 0 })
+        {
+            childIndexes = Array.Empty<int>();
+            return false;
+        }
+
+        childIndexes = _animatedTopLevelChildIndexes;
+        return true;
+    }
 
     public SvgDocument CreateAnimatedDocument()
     {
@@ -430,6 +445,35 @@ public sealed class SvgAnimationController : IDisposable
         }
 
         return lookup;
+    }
+
+    private static int[]? DiscoverAnimatedTopLevelChildIndexes(SvgDocument sourceDocument, IEnumerable<AnimationBinding> bindings)
+    {
+        var indexes = new SortedSet<int>();
+
+        foreach (var binding in bindings)
+        {
+            var current = binding.SourceTarget;
+            while (current.Parent is SvgElement parent && parent is not SvgDocument)
+            {
+                current = parent;
+            }
+
+            if (current.Parent is not SvgDocument)
+            {
+                return null;
+            }
+
+            var childIndex = sourceDocument.Children.IndexOf(current);
+            if (childIndex < 0)
+            {
+                return null;
+            }
+
+            indexes.Add(childIndex);
+        }
+
+        return indexes.Count > 0 ? indexes.ToArray() : null;
     }
 
     private static void AddEventDependencies(IEnumerable<TimingSpec> specs, HashSet<string> dependencies)
@@ -2260,6 +2304,7 @@ public sealed class SvgAnimationController : IDisposable
         }
     }
 
+    [RequiresUnreferencedCode("Calls System.ComponentModel.TypeDescriptor.GetConverter(Type)")]
     private static bool TryConvertStringToType(string value, Type targetType, out object? result)
     {
         result = null;
