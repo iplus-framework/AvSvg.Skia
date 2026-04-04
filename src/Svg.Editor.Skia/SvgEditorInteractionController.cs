@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Svg;
-using Svg.Model.Drawables;
 using Svg.Skia;
 using Shim = ShimSkiaSharp;
 using SK = SkiaSharp;
@@ -39,12 +38,6 @@ public class SvgEditorInteractionController
     public bool IsPathEditing => PathService.IsEditing;
     public SvgPath? EditPath => PathService.EditPath;
 
-    public DrawableBase? EditDrawable
-    {
-        get => PathService.EditDrawable;
-        set => PathService.EditDrawable = value;
-    }
-
     public SvgSceneNode? EditSceneNode
     {
         get => PathService.EditSceneNode;
@@ -67,9 +60,6 @@ public class SvgEditorInteractionController
         get => PathService.CurrentSegmentTool;
         set => PathService.CurrentSegmentTool = value;
     }
-
-    public BoundsInfo GetBoundsInfo(DrawableBase drawable, SKSvg skSvg, Func<float> getScale)
-        => SelectionService.GetBoundsInfo(drawable, skSvg, getScale);
 
     public BoundsInfo GetBoundsInfo(SvgSceneNode sceneNode, Func<float> getScale)
         => SelectionService.GetBoundsInfo(sceneNode, getScale);
@@ -134,11 +124,8 @@ public class SvgEditorInteractionController
             startScaleX,
             startScaleY);
 
-    public void StartPathEditing(SvgPath path, DrawableBase drawable)
-        => PathService.Start(path, drawable);
-
-    public void StartPathEditing(SvgPath path, SvgSceneNode sceneNode, DrawableBase? drawable = null)
-        => PathService.Start(path, sceneNode, drawable);
+    public void StartPathEditing(SvgPath path, SvgSceneNode sceneNode)
+        => PathService.Start(path, sceneNode);
 
     public void StopPathEditing()
         => PathService.Stop();

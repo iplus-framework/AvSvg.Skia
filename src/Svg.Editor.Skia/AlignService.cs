@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using Svg;
-using Svg.Model.Drawables;
 using Svg.Transforms;
 using SK = SkiaSharp;
 
@@ -23,11 +22,6 @@ public class AlignService
     {
         Horizontal,
         Vertical
-    }
-
-    public void Align(IList<(SvgVisualElement Element, DrawableBase Drawable)> items, AlignType type)
-    {
-        Align(items.Select(static item => (item.Element, ToBounds(item.Drawable.TransformedBounds))).ToList(), type);
     }
 
     public void Align(IList<(SvgVisualElement Element, SK.SKRect Bounds)> items, AlignType type)
@@ -97,11 +91,6 @@ public class AlignService
         }
     }
 
-    public void Distribute(IList<(SvgVisualElement Element, DrawableBase Drawable)> items, DistributeType type)
-    {
-        Distribute(items.Select(static item => (item.Element, ToBounds(item.Drawable.TransformedBounds))).ToList(), type);
-    }
-
     public void Distribute(IList<(SvgVisualElement Element, SK.SKRect Bounds)> items, DistributeType type)
     {
         if (items == null || items.Count < 3)
@@ -146,9 +135,6 @@ public class AlignService
             }
         }
     }
-
-    private static SK.SKRect ToBounds(ShimSkiaSharp.SKRect rect)
-        => new(rect.Left, rect.Top, rect.Right, rect.Bottom);
 
     private static (float X, float Y) GetTranslation(SvgVisualElement element)
     {

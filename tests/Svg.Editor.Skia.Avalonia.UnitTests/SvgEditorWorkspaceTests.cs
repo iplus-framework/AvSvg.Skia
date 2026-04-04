@@ -11,7 +11,6 @@ using Svg;
 using Svg.Editor.Avalonia;
 using Svg.Editor.Skia;
 using Svg.Editor.Skia.Avalonia;
-using Svg.Model.Drawables;
 using Svg.Skia;
 using Svg.Transforms;
 using Xunit;
@@ -364,8 +363,6 @@ public class SvgEditorWorkspaceTests
             var selectedSceneNode = GetPrivateField<SvgSceneNode?>(workspace, "_selectedSceneNode");
             Assert.NotNull(selectedSceneNode);
 
-            SetPrivateField<DrawableBase?>(workspace, "_selectedDrawable", null);
-
             await workspace.ExportSelectedElementAsync();
 
             Assert.True(File.Exists(exportPath));
@@ -420,9 +417,6 @@ public class SvgEditorWorkspaceTests
             var multiSceneNodes = GetPrivateField<IList>(workspace, "_multiSceneNodes");
             Assert.Equal(2, multiSceneNodes.Count);
 
-            var multiDrawables = GetPrivateField<IList>(workspace, "_multiDrawables");
-            multiDrawables.Clear();
-
             InvokePrivateMenuHandler(workspace, "AlignLeftMenuItem_Click");
 
             var translation = Assert.Single(elements[1].Transforms!.OfType<SvgTranslate>());
@@ -468,8 +462,6 @@ public class SvgEditorWorkspaceTests
 
             var selectedSceneNode = GetPrivateField<SvgSceneNode?>(workspace, "_selectedSceneNode");
             Assert.NotNull(selectedSceneNode);
-
-            SetPrivateField<DrawableBase?>(workspace, "_selectedDrawable", null);
 
             InvokePrivateMenuHandler(workspace, "FlipHMenuItem_Click");
 

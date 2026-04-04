@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Svg;
-using Svg.Model.Drawables;
 using Svg.Skia;
 using Svg.Transforms;
 using Shim = ShimSkiaSharp;
@@ -19,13 +18,6 @@ public class SelectionService
     public static SK.SKPoint Mid(SK.SKPoint a, SK.SKPoint b) => new((a.X + b.X) / 2f, (a.Y + b.Y) / 2f);
 
     private static SK.SKPoint ToSkPoint(Shim.SKPoint point) => new(point.X, point.Y);
-
-    public BoundsInfo GetBoundsInfo(DrawableBase drawable, SKSvg skSvg, Func<float> getScale)
-    {
-        var rect = drawable.GeometryBounds;
-        var m = drawable.TotalTransform;
-        return GetBoundsInfo(rect, m, getScale);
-    }
 
     public BoundsInfo GetBoundsInfo(SvgSceneNode sceneNode, Func<float> getScale)
     {

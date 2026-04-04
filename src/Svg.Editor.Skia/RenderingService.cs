@@ -3,7 +3,6 @@ using System.Linq;
 using Svg;
 using Svg.Editor.Svg;
 using Svg.Editor.Svg.Models;
-using Svg.Model.Drawables;
 using Svg.Pathing;
 using static Svg.Editor.Skia.SelectionService;
 using Shim = ShimSkiaSharp;
@@ -196,7 +195,6 @@ public class RenderingService
 
                 if (_pathService.IsEditing &&
                     (ReferenceEquals(_pathService.EditSceneNode, selectedVisual.SceneNode) ||
-                     ReferenceEquals(_pathService.EditDrawable, selectedVisual.Drawable) ||
                      ReferenceEquals(_pathService.EditPath, selectedVisual.Element)))
                 {
                     using var segPaint = new SK.SKPaint
@@ -300,7 +298,6 @@ public class RenderingService
                 if (polyEditing &&
                     editPolyVisual is { } activePolyVisual &&
                     (ReferenceEquals(activePolyVisual.SceneNode, selectedVisual.SceneNode) ||
-                     ReferenceEquals(activePolyVisual.Drawable, selectedVisual.Drawable) ||
                      ReferenceEquals(activePolyVisual.Element, selectedVisual.Element)))
                 {
                     using var segPaint = new SK.SKPaint

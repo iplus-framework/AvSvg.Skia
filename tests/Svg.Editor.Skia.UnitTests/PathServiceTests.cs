@@ -62,7 +62,6 @@ public class PathServiceTests
 
         Assert.Same(path, service.EditPath);
         Assert.Same(sceneNode, service.EditSceneNode);
-        Assert.Null(service.EditDrawable);
         Assert.Equal(new Shim.SKPoint(15, 7), service.PathMatrix.MapPoint(new Shim.SKPoint(0, 0)));
         Assert.Equal(new Shim.SKPoint(0, 0), service.PathInverse.MapPoint(new Shim.SKPoint(15, 7)));
     }
