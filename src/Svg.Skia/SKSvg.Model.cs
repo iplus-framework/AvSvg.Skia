@@ -771,6 +771,41 @@ public partial class SKSvg : IDisposable
         return true;
     }
 
+    private bool TryRenderCurrentAnimatedDocumentRetained()
+    {
+        SvgDocument? currentDocument;
+        SKRect cullRect;
+
+        lock (Sync)
+        {
+            currentDocument = _animatedDocument ?? SourceDocument;
+            cullRect = Model?.CullRect ?? SKRect.Empty;
+            if (cullRect.IsEmpty && currentDocument is { })
+            {
+                cullRect = SKRect.Create(SvgService.GetDimensions(currentDocument));
+            }
+        }
+
+        if (currentDocument is null || cullRect.IsEmpty)
+        {
+            return false;
+        }
+
+        if (!SvgSceneCompiler.TryCompile(currentDocument, cullRect, AssetLoader, IgnoreAttributes, out var sceneDocument) ||
+            sceneDocument is null)
+        {
+            return false;
+        }
+
+        lock (Sync)
+        {
+            _retainedSceneGraph = sceneDocument;
+            _retainedSceneGraphDirty = false;
+        }
+
+        return RenderRetainedSceneDocument(sceneDocument);
+    }
+
     private void ReplaceAnimationController(SvgAnimationController? controller)
     {
         if (AnimationController is { } existing)
@@ -866,9 +901,11 @@ public partial class SKSvg : IDisposable
 
         var retainedSceneReady = TryPrepareRetainedSceneGraphForAnimationFrame(frameState, _lastRenderedAnimationFrameState, out var retainedSceneDocument);
         var rendered = false;
-        if (UsesAnimationLayerCaching || TryInitializeAnimationLayerCaching())
+        if (retainedSceneReady &&
+            retainedSceneDocument is not null &&
+            (UsesAnimationLayerCaching || TryInitializeAnimationLayerCaching(retainedSceneDocument)))
         {
-            rendered = TryRenderAnimationLayerFrame(_animatedDocument, frameState, _lastRenderedAnimationFrameState);
+            rendered = TryRenderAnimationLayerFrame(retainedSceneDocument, frameState, _lastRenderedAnimationFrameState);
             if (!rendered)
             {
                 DisableAnimationLayerCaching();
@@ -884,7 +921,12 @@ public partial class SKSvg : IDisposable
 
         if (!rendered)
         {
-            _ = RenderSvgDocument(_animatedDocument, invalidateRetainedSceneGraph: true);
+            rendered = TryRenderCurrentAnimatedDocumentRetained();
+        }
+
+        if (!rendered)
+        {
+            return false;
         }
 
         _lastRenderedAnimationFrameState = frameState;

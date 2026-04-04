@@ -111,10 +111,15 @@ internal sealed class SvgCompositionVisualScene : IDisposable
 
         public void Update(SvgNativeCompositionLayer layer, bool wireframe)
         {
+            var sourcePictureChanged = !ReferenceEquals(_sourcePicture, layer.Picture);
             _layer = layer;
             _sourcePicture = layer.Picture;
             ApplyVisualState(layer);
-            Visual.SendHandlerMessage(new LayerMessage(CreateRenderPicture(_sourcePicture, wireframe)));
+
+            if (sourcePictureChanged)
+            {
+                Visual.SendHandlerMessage(new LayerMessage(CreateRenderPicture(_sourcePicture, wireframe)));
+            }
         }
 
         public void UpdateWireframe(bool wireframe)

@@ -22,14 +22,14 @@ public class SvgAnimationFrameBenchmarks
 
     private SKSvg? _layeredAdvanceSvg;
     private SKSvg? _layeredDrawSvg;
-    private SKSvg? _fallbackAdvanceSvg;
-    private SKSvg? _fallbackDrawSvg;
+    private SKSvg? _resourceAdvanceSvg;
+    private SKSvg? _resourceDrawSvg;
     private SKBitmap? _bitmap;
     private SKCanvas? _canvas;
     private int _layeredAdvanceFrameIndex;
     private int _layeredDrawFrameIndex;
-    private int _fallbackAdvanceFrameIndex;
-    private int _fallbackDrawFrameIndex;
+    private int _resourceAdvanceFrameIndex;
+    private int _resourceDrawFrameIndex;
 
     [Params(64, 256)]
     public int StaticElementCount { get; set; }
@@ -41,12 +41,12 @@ public class SvgAnimationFrameBenchmarks
     public void GlobalSetup()
     {
         var layeredSvg = BuildLayeredSvg(StaticElementCount, AnimatedElementCount);
-        var fallbackSvg = BuildPaintServerFallbackSvg(StaticElementCount, AnimatedElementCount);
+        var resourceSvg = BuildPaintServerFallbackSvg(StaticElementCount, AnimatedElementCount);
 
         _layeredAdvanceSvg = CreateSvg(layeredSvg, shouldUseLayerCaching: true);
         _layeredDrawSvg = CreateSvg(layeredSvg, shouldUseLayerCaching: true);
-        _fallbackAdvanceSvg = CreateSvg(fallbackSvg, shouldUseLayerCaching: false);
-        _fallbackDrawSvg = CreateSvg(fallbackSvg, shouldUseLayerCaching: false);
+        _resourceAdvanceSvg = CreateSvg(resourceSvg, shouldUseLayerCaching: true);
+        _resourceDrawSvg = CreateSvg(resourceSvg, shouldUseLayerCaching: true);
 
         _bitmap = new SKBitmap(512, 512);
         _canvas = new SKCanvas(_bitmap);
@@ -59,8 +59,8 @@ public class SvgAnimationFrameBenchmarks
         _bitmap?.Dispose();
         _layeredAdvanceSvg?.Dispose();
         _layeredDrawSvg?.Dispose();
-        _fallbackAdvanceSvg?.Dispose();
-        _fallbackDrawSvg?.Dispose();
+        _resourceAdvanceSvg?.Dispose();
+        _resourceDrawSvg?.Dispose();
     }
 
     [Benchmark(Baseline = true)]
@@ -70,9 +70,9 @@ public class SvgAnimationFrameBenchmarks
     }
 
     [Benchmark]
-    public int AdvanceFallbackFrame()
+    public int AdvanceResourceFrame()
     {
-        return AdvanceFrame(_fallbackAdvanceSvg!, ref _fallbackAdvanceFrameIndex);
+        return AdvanceFrame(_resourceAdvanceSvg!, ref _resourceAdvanceFrameIndex);
     }
 
     [Benchmark]
@@ -82,9 +82,9 @@ public class SvgAnimationFrameBenchmarks
     }
 
     [Benchmark]
-    public int AdvanceAndDrawFallbackFrame()
+    public int AdvanceAndDrawResourceFrame()
     {
-        return AdvanceFrameAndDraw(_fallbackDrawSvg!, ref _fallbackDrawFrameIndex);
+        return AdvanceFrameAndDraw(_resourceDrawSvg!, ref _resourceDrawFrameIndex);
     }
 
     private int AdvanceFrame(SKSvg svg, ref int frameIndex)
@@ -112,7 +112,7 @@ public class SvgAnimationFrameBenchmarks
             throw new InvalidOperationException(
                 shouldUseLayerCaching
                     ? "The layered benchmark document did not enable animation layer caching."
-                    : "The fallback benchmark document unexpectedly enabled animation layer caching.");
+                    : "The resource-backed benchmark document did not enable animation layer caching.");
         }
 
         return svg;

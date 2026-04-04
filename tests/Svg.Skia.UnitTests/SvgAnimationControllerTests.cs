@@ -2,9 +2,9 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using ShimSkiaSharp;
 using Svg;
-using Svg.Model.Drawables;
 using Svg.Model.Services;
 using Svg.Transforms;
 using Xunit;
@@ -111,7 +111,7 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
-    public void SetAnimationTime_ReusesUnchangedAnimatedSubtreePictures()
+    public void SetAnimationTime_PreservesEquivalentUnchangedAnimatedSubtreeContent()
     {
         using var svg = new SKSvg();
         svg.FromSvg(SubtreeLayeredAnimationSvg);
@@ -126,8 +126,8 @@ public class SvgAnimationControllerTests
         var updatedPictures = GetAnimatedSubtreePictures(svg);
         Assert.Equal(2, initialPictures.Count);
         Assert.Equal(2, updatedPictures.Count);
-        Assert.Same(initialPictures[0], updatedPictures[0]);
-        Assert.NotSame(initialPictures[1], updatedPictures[1]);
+        Assert.Equal(GetPictureSignature(initialPictures[0]), GetPictureSignature(updatedPictures[0]));
+        Assert.NotEqual(GetPictureSignature(initialPictures[1]), GetPictureSignature(updatedPictures[1]));
     }
 
     [Fact]
@@ -148,20 +148,20 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
-    public void SetAnimationTime_FallsBackFromAnimationLayerCachingForPaintServerTargets()
+    public void SetAnimationTime_UsesAnimationLayerCachingForPaintServerTargets()
     {
         using var svg = new SKSvg();
         svg.FromSvg(PaintServerAnimationSvg);
 
         Assert.True(svg.HasAnimations);
-        Assert.False(svg.UsesAnimationLayerCaching);
-        Assert.Equal("SvgSceneDrawableProxy", svg.Drawable?.GetType().Name);
+        Assert.True(svg.UsesAnimationLayerCaching);
+        Assert.NotNull(svg.RetainedSceneGraph);
 
         svg.SetAnimationTime(TimeSpan.FromSeconds(1));
 
-        Assert.False(svg.UsesAnimationLayerCaching);
+        Assert.True(svg.UsesAnimationLayerCaching);
         Assert.NotNull(svg.Picture);
-        Assert.Equal("SvgSceneDrawableProxy", svg.Drawable?.GetType().Name);
+        Assert.NotNull(svg.RetainedSceneGraph);
 
         using var retainedPicture = svg.CreateRetainedSceneGraphPicture();
         Assert.NotNull(retainedPicture);
@@ -661,8 +661,9 @@ public class SvgAnimationControllerTests
 
     private static SvgDocument GetRenderedDocument(SKSvg svg)
     {
-        var drawable = Assert.IsAssignableFrom<DrawableBase>(svg.Drawable);
-        return Assert.IsType<SvgDocument>(drawable.Element);
+        var sceneDocument = svg.RetainedSceneGraph;
+        Assert.NotNull(sceneDocument);
+        return Assert.IsType<SvgDocument>(sceneDocument!.SourceDocument);
     }
 
     private const string AnimationRuntimeSvg = """
@@ -1042,6 +1043,39 @@ public class SvgAnimationControllerTests
         }
 
         return leafPictures;
+    }
+
+    private static string GetPictureSignature(ShimSkiaSharp.SKPicture picture)
+    {
+        var builder = new StringBuilder();
+        AppendPictureSignature(builder, picture);
+        return builder.ToString();
+    }
+
+    private static void AppendPictureSignature(StringBuilder builder, ShimSkiaSharp.SKPicture picture)
+    {
+        builder
+            .Append('[')
+            .Append(picture.CullRect.Left).Append(',')
+            .Append(picture.CullRect.Top).Append(',')
+            .Append(picture.CullRect.Right).Append(',')
+            .Append(picture.CullRect.Bottom)
+            .Append(']');
+
+        if (picture.Commands is not { Count: > 0 } commands)
+        {
+            return;
+        }
+
+        for (var i = 0; i < commands.Count; i++)
+        {
+            var command = commands[i];
+            builder.Append('|').Append(command.GetType().Name);
+            if (command is DrawPictureCanvasCommand drawPicture && drawPicture.Picture is { } nestedPicture)
+            {
+                AppendPictureSignature(builder, nestedPicture);
+            }
+        }
     }
 
     private static SkiaBitmap RenderBitmap(SKSvg svg)

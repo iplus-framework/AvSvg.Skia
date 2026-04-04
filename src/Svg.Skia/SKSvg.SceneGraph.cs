@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using ShimSkiaSharp;
 using Svg;
 using Svg.Model.Drawables;
@@ -202,6 +204,26 @@ public partial class SKSvg
         return model is null ? null : SkiaModel.ToSKPicture(model);
     }
 
+    public SKPicture? CreateRetainedSceneModel(SvgElement element, SKRect? clip = null)
+    {
+        if (element is null)
+        {
+            throw new ArgumentNullException(nameof(element));
+        }
+
+        return TryGetRetainedSceneNode(element, out var node) && node is not null
+            ? CreateRetainedSceneNodeModel(node, clip)
+            : null;
+    }
+
+    public SkiaSharp.SKPicture? CreateRetainedScenePicture(SvgElement element, SKRect? clip = null)
+    {
+        var model = CreateRetainedSceneModel(element, clip);
+        return model is null ? null : SkiaModel.ToSKPicture(model);
+    }
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [Obsolete("Use CreateRetainedSceneNodeModel or CreateRetainedSceneNodePicture to work directly with retained scene state.")]
     public DrawableBase? CreateRetainedSceneNodeDrawable(SvgSceneNode node)
     {
         if (node is null)
@@ -214,6 +236,8 @@ public partial class SKSvg
             : null;
     }
 
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [Obsolete("Use CreateRetainedSceneModel or CreateRetainedScenePicture to work directly with retained scene state.")]
     public DrawableBase? CreateRetainedSceneDrawable(SvgElement element)
     {
         if (element is null)
@@ -226,33 +250,31 @@ public partial class SKSvg
             : null;
     }
 
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [Obsolete("Use HitTestSceneNodes instead.")]
     public IEnumerable<SvgSceneNode> HitTestRetainedSceneNodes(SKPoint point)
     {
-        if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
+        foreach (var node in HitTestSceneNodes(point))
         {
-            foreach (var node in sceneDocument.HitTest(point))
-            {
-                yield return node;
-            }
+            yield return node;
         }
     }
 
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [Obsolete("Use HitTestSceneNodes instead.")]
     public IEnumerable<SvgSceneNode> HitTestRetainedSceneNodes(SKRect rect)
     {
-        if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
+        foreach (var node in HitTestSceneNodes(rect))
         {
-            foreach (var node in sceneDocument.HitTest(rect))
-            {
-                yield return node;
-            }
+            yield return node;
         }
     }
 
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [Obsolete("Use HitTestTopmostSceneNode instead.")]
     public SvgSceneNode? HitTestTopmostRetainedSceneNode(SKPoint point)
     {
-        return TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null
-            ? sceneDocument.HitTestTopmostNode(point)
-            : null;
+        return HitTestTopmostSceneNode(point);
     }
 
     private void InvalidateRetainedSceneGraph()

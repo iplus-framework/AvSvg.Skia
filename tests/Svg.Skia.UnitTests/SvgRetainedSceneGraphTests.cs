@@ -651,12 +651,23 @@ public class SvgRetainedSceneGraphTests
         Assert.Equal("layer-a", layerNode!.ElementId);
         Assert.Equal("rect-a", rectNode!.ElementId);
 
-        var hitNodes = svg.HitTestRetainedSceneNodes(new SKPoint(16, 12)).ToList();
+        using var retainedElementPicture = svg.CreateRetainedScenePicture(rectElement);
+        Assert.NotNull(retainedElementPicture);
+
+        var hitNodes = svg.HitTestSceneNodes(new SKPoint(16, 12)).ToList();
         Assert.Contains(hitNodes, static node => node.ElementId == "rect-a");
 
-        var topmostNode = svg.HitTestTopmostRetainedSceneNode(new SKPoint(16, 12));
+        var topmostNode = svg.HitTestTopmostSceneNode(new SKPoint(16, 12));
         Assert.NotNull(topmostNode);
         Assert.Equal("rect-a", topmostNode!.ElementId);
+
+        var canvasMatrix = SKMatrix.CreateTranslation(4f, 3f);
+        var transformedHitNodes = svg.HitTestSceneNodes(new SKPoint(20, 15), canvasMatrix).ToList();
+        Assert.Contains(transformedHitNodes, static node => node.ElementId == "rect-a");
+
+        var transformedTopmostNode = svg.HitTestTopmostSceneNode(new SKPoint(20, 15), canvasMatrix);
+        Assert.NotNull(transformedTopmostNode);
+        Assert.Equal("rect-a", transformedTopmostNode!.ElementId);
     }
 
     [Theory]
