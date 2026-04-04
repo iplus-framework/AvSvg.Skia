@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using ShimSkiaSharp;
 using Svg;
 using Svg.Model.Drawables;
@@ -352,6 +353,69 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void CreateAnimatedDocument_ParsesEventTimingWithDottedIds()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(DottedIdEventBeginSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.NotNull(svg.AnimationController);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+
+        var dispatcher = new SvgInteractionDispatcher();
+        var moveInput = new SvgPointerInput(
+            new SKPoint(20, 20),
+            SvgPointerDeviceType.Mouse,
+            SvgMouseButton.None,
+            0,
+            0,
+            false,
+            false,
+            false,
+            "pointer-1");
+
+        _ = dispatcher.DispatchPointerMoved(svg, moveInput);
+
+        var animated = svg.AnimationController!.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(5f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void RecordPointerEvent_PrunesObsoletePointerEventInstances()
+    {
+        var document = SvgService.FromSvg(MoveTriggeredAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var trigger = document!.GetElementById("trigger");
+        Assert.NotNull(trigger);
+
+        for (var second = 0; second < 20; second++)
+        {
+            controller.Clock.Seek(TimeSpan.FromSeconds(second));
+            Assert.True(controller.RecordPointerEvent(trigger, SvgPointerEventType.Move));
+        }
+
+        controller.Clock.Seek(TimeSpan.FromSeconds(19.5));
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(19.5));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(5f, target!.X.Value, 3);
+
+        var instancesField = typeof(SvgAnimationController).GetField("_pointerEventInstances", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(instancesField);
+        var instances = Assert.IsAssignableFrom<System.Collections.IDictionary>(instancesField!.GetValue(controller));
+        Assert.Single(instances.Keys);
+
+        var eventTimes = Assert.IsAssignableFrom<System.Collections.IList>(instances.Values.Cast<object>().Single());
+        Assert.Single(eventTimes);
+    }
+
+    [Fact]
     public void CreateAnimatedDocument_RespectsEventBasedEndTiming()
     {
         var document = SvgService.FromSvg(EventEndSvg);
@@ -648,6 +712,30 @@ public class SvgAnimationControllerTests
              viewBox="0 0 40 40">
           <rect id="target" x="0" y="0" width="5" height="5" fill="red">
             <animate attributeName="x" from="0" to="10" begin="trigger.click+1s" dur="2s" fill="freeze" />
+          </rect>
+          <circle id="trigger" cx="20" cy="20" r="4" fill="blue" />
+        </svg>
+        """;
+
+    private const string DottedIdEventBeginSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="40"
+             viewBox="0 0 40 40">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="10" begin="trigger.dot.mousemove" dur="2s" fill="freeze" />
+          </rect>
+          <circle id="trigger.dot" cx="20" cy="20" r="4" fill="blue" />
+        </svg>
+        """;
+
+    private const string MoveTriggeredAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="40"
+             viewBox="0 0 40 40">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="10" begin="trigger.mousemove" dur="1s" fill="freeze" />
           </rect>
           <circle id="trigger" cx="20" cy="20" r="4" fill="blue" />
         </svg>
