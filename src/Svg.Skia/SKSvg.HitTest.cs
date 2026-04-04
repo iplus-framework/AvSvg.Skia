@@ -2,50 +2,12 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using ShimSkiaSharp;
-using Svg.Model.Drawables;
 
 namespace Svg.Skia;
 
 public partial class SKSvg
 {
-    /// <summary>
-    /// Returns drawables that hit-test against a point in picture coordinates.
-    /// </summary>
-    /// <param name="point">Point in picture coordinate space.</param>
-    /// <returns>Enumerable of drawables containing the point.</returns>
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    [Obsolete("Use HitTestSceneNodes or HitTestElements to work directly with retained scene state.")]
-    public IEnumerable<DrawableBase> HitTestDrawables(SKPoint point)
-    {
-        foreach (var node in HitTestSceneNodes(point))
-        {
-            if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
-            {
-                yield return new SvgSceneDrawableProxy(sceneDocument, node);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Returns drawables that intersect with a rectangle in picture coordinates.
-    /// </summary>
-    /// <param name="rect">Rectangle in picture coordinate space.</param>
-    /// <returns>Enumerable of drawables intersecting the rectangle.</returns>
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    [Obsolete("Use HitTestSceneNodes or HitTestElements to work directly with retained scene state.")]
-    public IEnumerable<DrawableBase> HitTestDrawables(SKRect rect)
-    {
-        foreach (var node in HitTestSceneNodes(rect))
-        {
-            if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
-            {
-                yield return new SvgSceneDrawableProxy(sceneDocument, node);
-            }
-        }
-    }
-
     /// <summary>
     /// Returns SVG elements that hit-test against a point in picture coordinates.
     /// </summary>
@@ -155,44 +117,6 @@ public partial class SKSvg
         pictureRect = rect;
         inverse.MapRect(ref pictureRect);
         return true;
-    }
-
-    /// <summary>
-    /// Returns drawables that hit-test against a point in canvas coordinates.
-    /// </summary>
-    /// <param name="point">Point in canvas coordinate space.</param>
-    /// <param name="canvasMatrix">Current canvas transform.</param>
-    /// <returns>Enumerable of drawables containing the point.</returns>
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    [Obsolete("Use HitTestSceneNodes or HitTestElements to work directly with retained scene state.")]
-    public IEnumerable<DrawableBase> HitTestDrawables(SKPoint point, SKMatrix canvasMatrix)
-    {
-        if (TryGetPicturePoint(point, canvasMatrix, out var pp))
-        {
-            foreach (var d in HitTestDrawables(pp))
-            {
-                yield return d;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Returns drawables that intersect with a rectangle in canvas coordinates.
-    /// </summary>
-    /// <param name="rect">Rectangle in canvas coordinate space.</param>
-    /// <param name="canvasMatrix">Current canvas transform.</param>
-    /// <returns>Enumerable of drawables intersecting the rectangle.</returns>
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    [Obsolete("Use HitTestSceneNodes or HitTestElements to work directly with retained scene state.")]
-    public IEnumerable<DrawableBase> HitTestDrawables(SKRect rect, SKMatrix canvasMatrix)
-    {
-        if (TryGetPictureRect(rect, canvasMatrix, out var pr))
-        {
-            foreach (var d in HitTestDrawables(pr))
-            {
-                yield return d;
-            }
-        }
     }
 
     /// <summary>

@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using ShimSkiaSharp;
-using Svg.Model.Drawables;
 
 namespace Svg.Skia;
 
@@ -47,33 +45,9 @@ public partial class SKSvg
             : null;
     }
 
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    [Obsolete("Use HitTestTopmostSceneNode or HitTestTopmostElement to work directly with retained scene state.")]
-    public DrawableBase? HitTestTopmostDrawable(SKPoint point)
-    {
-        if (!TryEnsureRetainedSceneGraph(out var sceneDocument) || sceneDocument is null)
-        {
-            return null;
-        }
-
-        var node = sceneDocument.HitTestTopmostNode(point);
-        return node is null || node.HitTestTargetElement is null
-            ? null
-            : new SvgSceneDrawableProxy(sceneDocument, node);
-    }
-
     public SvgElement? HitTestTopmostElement(SKPoint point)
     {
         return HitTestTopmostSceneNode(point)?.HitTestTargetElement;
-    }
-
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    [Obsolete("Use HitTestTopmostSceneNode or HitTestTopmostElement to work directly with retained scene state.")]
-    public DrawableBase? HitTestTopmostDrawable(SKPoint point, SKMatrix canvasMatrix)
-    {
-        return TryGetPicturePoint(point, canvasMatrix, out var picturePoint)
-            ? HitTestTopmostDrawable(picturePoint)
-            : null;
     }
 
     public SvgElement? HitTestTopmostElement(SKPoint point, SKMatrix canvasMatrix)
