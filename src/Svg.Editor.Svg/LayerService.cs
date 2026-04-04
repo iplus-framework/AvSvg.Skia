@@ -3,7 +3,6 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using Svg;
 using Svg.Editor.Svg.Models;
-using Svg.Model.Drawables;
 using Svg.Skia;
 
 namespace Svg.Editor.Svg;
@@ -12,12 +11,12 @@ public class LayerService
 {
     public ObservableCollection<LayerEntry> Layers { get; } = new();
 
-    public void Load(SvgDocument? document, DrawableBase? root = null)
+    public void Load(SvgDocument? document)
     {
-        Load(document, sceneDocument: null, root);
+        Load(document, sceneDocument: null);
     }
 
-    public void Load(SvgDocument? document, SvgSceneDocument? sceneDocument, DrawableBase? root = null)
+    public void Load(SvgDocument? document, SvgSceneDocument? sceneDocument)
     {
         Layers.Clear();
         if (document is null)
@@ -26,7 +25,7 @@ public class LayerService
         foreach (var g in document.Children.OfType<SvgGroup>())
         {
             if (IsLayerGroup(g))
-                Layers.Add(CreateEntry(g, sceneDocument, root, ref index));
+                Layers.Add(CreateEntry(g, sceneDocument, ref index));
         }
     }
 
@@ -77,7 +76,7 @@ public class LayerService
         => group.CustomAttributes.TryGetValue("data-layer", out var flag) &&
            string.Equals(flag, "true", StringComparison.OrdinalIgnoreCase);
 
-    private static LayerEntry CreateEntry(SvgGroup group, SvgSceneDocument? sceneDocument, DrawableBase? root, ref int index)
+    private static LayerEntry CreateEntry(SvgGroup group, SvgSceneDocument? sceneDocument, ref int index)
     {
         group.CustomAttributes.TryGetValue("data-name", out var name);
         var entry = new LayerEntry(group, string.IsNullOrEmpty(name) ? $"Layer {index++}" : name);
@@ -87,27 +86,9 @@ public class LayerService
             entry.SceneNode = sceneNode;
         }
 
-        if (root is not null)
-            entry.Drawable = FindDrawable(root, group);
         foreach (var child in group.Children.OfType<SvgGroup>())
             if (IsLayerGroup(child))
-                entry.Sublayers.Add(CreateEntry(child, sceneDocument, root, ref index));
+                entry.Sublayers.Add(CreateEntry(child, sceneDocument, ref index));
         return entry;
-    }
-
-    private static DrawableBase? FindDrawable(DrawableBase drawable, SvgElement element)
-    {
-        if (drawable.Element == element)
-            return drawable;
-        if (drawable is DrawableContainer container)
-        {
-            foreach (var child in container.ChildrenDrawables)
-            {
-                var found = FindDrawable(child, element);
-                if (found is not null)
-                    return found;
-            }
-        }
-        return null;
     }
 }

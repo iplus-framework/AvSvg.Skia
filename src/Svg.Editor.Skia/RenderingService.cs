@@ -59,10 +59,10 @@ public class RenderingService
         double gridSize,
         IEnumerable<LayerEntry> layers,
         LayerEntry? selectedLayer,
-        IList<DrawableBase> selectedDrawables,
-        System.Func<DrawableBase, BoundsInfo> getBounds,
+        IList<SelectionVisualInfo> selectedVisuals,
+        System.Func<SelectionVisualInfo, BoundsInfo> getBounds,
         bool polyEditing,
-        DrawableBase? editPolyDrawable,
+        SelectionVisualInfo? editPolyVisual,
         bool editPolyline,
         IList<Shim.SKPoint> polyPoints,
         Shim.SKMatrix polyMatrix)
@@ -132,12 +132,6 @@ public class RenderingService
                             new SK.SKRect(retainedBounds.Left, retainedBounds.Top, retainedBounds.Right, retainedBounds.Bottom),
                             info == selectedLayer ? selectedPaint : layerPaint);
                     }
-                    else if (info.Drawable is { })
-                    {
-                        var r = info.Drawable.TransformedBounds;
-                        var rect = new SK.SKRect(r.Left, r.Top, r.Right, r.Bottom);
-                        canvas.DrawRect(rect, info == selectedLayer ? selectedPaint : layerPaint);
-                    }
                     foreach (var child in info.Sublayers)
                         DrawLayer(child);
                 }
@@ -145,7 +139,7 @@ public class RenderingService
                     DrawLayer(layer);
             }
 
-            if (selectedDrawables is null || selectedDrawables.Count == 0)
+            if (selectedVisuals is null || selectedVisuals.Count == 0)
                 return;
 
             using var paint = new SK.SKPaint
@@ -158,9 +152,9 @@ public class RenderingService
             var hs = HandleSize / 2f / scale;
             var size = HandleSize / scale;
             using var fill = new SK.SKPaint { IsAntialias = true, Style = SK.SKPaintStyle.Fill, Color = SK.SKColors.White };
-            foreach (var selectedDrawable in selectedDrawables)
+            foreach (var selectedVisual in selectedVisuals)
             {
-                var info = getBounds(selectedDrawable);
+                var info = getBounds(selectedVisual);
 
                 if (_toolService.CurrentTool != ToolService.Tool.PathSelect &&
                     _toolService.CurrentTool != ToolService.Tool.PolygonSelect &&
@@ -188,8 +182,8 @@ public class RenderingService
                     canvas.DrawCircle(info.RotHandle, hs, paint);
                 }
 
-                if (selectedDrawable.Element is SvgVisualElement vis &&
-                    vis.CustomAttributes.TryGetValue("stroke-profile", out var prof))
+                var vis = selectedVisual.Element;
+                if (vis.CustomAttributes.TryGetValue("stroke-profile", out var prof))
                 {
                     var profile = StrokeProfile.Parse(prof);
                     var skPath = PathService.ElementToPath(vis);
@@ -200,7 +194,10 @@ public class RenderingService
                     }
                 }
 
-                if (_pathService.IsEditing && _pathService.EditDrawable == selectedDrawable)
+                if (_pathService.IsEditing &&
+                    (ReferenceEquals(_pathService.EditSceneNode, selectedVisual.SceneNode) ||
+                     ReferenceEquals(_pathService.EditDrawable, selectedVisual.Drawable) ||
+                     ReferenceEquals(_pathService.EditPath, selectedVisual.Element)))
                 {
                     using var segPaint = new SK.SKPaint
                     {
@@ -300,7 +297,11 @@ public class RenderingService
                     }
                 }
 
-                if (polyEditing && editPolyDrawable == selectedDrawable)
+                if (polyEditing &&
+                    editPolyVisual is { } activePolyVisual &&
+                    (ReferenceEquals(activePolyVisual.SceneNode, selectedVisual.SceneNode) ||
+                     ReferenceEquals(activePolyVisual.Drawable, selectedVisual.Drawable) ||
+                     ReferenceEquals(activePolyVisual.Element, selectedVisual.Element)))
                 {
                     using var segPaint = new SK.SKPaint
                     {
