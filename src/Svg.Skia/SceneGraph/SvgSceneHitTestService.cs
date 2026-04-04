@@ -225,12 +225,67 @@ internal static class SvgSceneHitTestService
             return true;
         }
 
-        foreach (var _ in HitTest(maskNode, point))
+        return HasRenderedMaskCoverage(maskNode, point);
+    }
+
+    private static bool HasRenderedMaskCoverage(SvgSceneNode node, SKPoint point)
+    {
+        if (node.IsDisplayNone || !node.IsVisible)
         {
-            return true;
+            return false;
         }
 
-        return false;
+        if (!CanRenderAtPoint(node, point))
+        {
+            return false;
+        }
+
+        for (var i = 0; i < node.Children.Count; i++)
+        {
+            if (HasRenderedMaskCoverage(node.Children[i], point))
+            {
+                return true;
+            }
+        }
+
+        return node.IsDrawable &&
+               ((node.SupportsFillHitTest && HitTestFillCore(node, point)) ||
+                (node.SupportsStrokeHitTest && HitTestStrokeCore(node, point)));
+    }
+
+    private static bool CanRenderAtPoint(SvgSceneNode node, SKPoint point)
+    {
+        if (!GetStructuralBounds(node).Contains(point))
+        {
+            return false;
+        }
+
+        if (node.Clip is null && node.ClipPath is null && node.InnerClip is null)
+        {
+            return !HasMask(node) || IsPointInMask(node.MaskNode, point);
+        }
+
+        if (!TryGetLocalPoint(node, point, out var localPoint))
+        {
+            return false;
+        }
+
+        if (node.Clip is { } clip && !clip.Contains(localPoint))
+        {
+            return false;
+        }
+
+        if (node.InnerClip is { } innerClip && !innerClip.Contains(localPoint))
+        {
+            return false;
+        }
+
+        if (node.ClipPath is { } clipPath && !GeometryHitTestService.Contains(clipPath, localPoint))
+        {
+            return false;
+        }
+
+        return !HasMask(node) || IsPointInMask(node.MaskNode, point);
     }
 
     private static bool UsesStructuralBounds(SvgSceneNode node)

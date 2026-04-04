@@ -55,6 +55,17 @@ public class HitTestTests : SvgUnitTest
         </svg>
         """;
 
+    private const string MaskPointerEventsHitTestSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+          <defs>
+            <mask id="half-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="40" height="40">
+              <rect x="0" y="0" width="20" height="40" fill="white" pointer-events="none" />
+            </mask>
+          </defs>
+          <rect id="target" x="0" y="0" width="40" height="40" fill="red" mask="url(#half-mask)" />
+        </svg>
+        """;
+
     private const string UseHitTestSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -208,6 +219,19 @@ public class HitTestTests : SvgUnitTest
     {
         using var svg = new SKSvg();
         svg.FromSvg(MaskHitTestSvg);
+
+        var insideResults = svg.HitTestElements(new SKPoint(10, 20)).Select(e => e.ID).ToList();
+        var outsideResults = svg.HitTestElements(new SKPoint(30, 20)).Select(e => e.ID).ToList();
+
+        Assert.Contains("target", insideResults);
+        Assert.DoesNotContain("target", outsideResults);
+    }
+
+    [Fact]
+    public void HitTest_Point_MaskCoverage_IgnoresPointerEventSemantics()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(MaskPointerEventsHitTestSvg);
 
         var insideResults = svg.HitTestElements(new SKPoint(10, 20)).Select(e => e.ID).ToList();
         var outsideResults = svg.HitTestElements(new SKPoint(30, 20)).Select(e => e.ID).ToList();
