@@ -157,5 +157,15 @@ Primary files:
 - `/Users/wieslawsoltes/GitHub/Svg.Skia/tests/Svg.Skia.UnitTests/SvgRetainedSceneGraphTests.cs`
 
 What remains after this file's original scope:
-- optional Phase 5 work for true host-native animation-object mapping is still future-facing and not required for retained-scene correctness
-- some editor compatibility APIs still expose drawable-shaped values, but they now operate on retained proxies instead of root-drawable tree lookup
+- the deepest future work is broader host-native animation object translation beyond the currently safe retained subset
+- retained-first public APIs are now primary, and drawable-returning helpers are explicit legacy compatibility shims
+
+## Additional Status Update
+
+Completed after the original write-up:
+- editor path/selection APIs no longer keep drawable fallbacks; retained scene nodes are the only geometry/edit source for those workflows
+- retained-node and retained-element picture/model helpers are now the primary public API for fragment extraction
+- drawable-returning public helpers such as drawable hit testing and retained-scene drawable creation are now legacy compatibility shims and are marked obsolete in favor of retained scene node APIs
+- canvas-space retained scene hit testing now has direct scene-node overloads, so callers no longer need drawable proxy APIs for transformed hit tests
+- retained resource-backed animation documents now participate in animation-layer caching, and the benchmark suite reflects resource-backed retained caching instead of the older fallback expectation
+- Avalonia native composition now keeps the existing retained visual content when only layer visual state changes and the picture instance is unchanged, reducing unnecessary compositor content re-submission for the safe retained-native subset
