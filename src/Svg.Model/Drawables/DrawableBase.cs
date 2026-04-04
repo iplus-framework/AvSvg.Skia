@@ -415,9 +415,12 @@ public abstract class DrawableBase : SKDrawable, IFilterSource, IPictureSource
             return true;
         }
 
-        foreach (var _ in HitTestService.HitTest(maskDrawable, point))
+        foreach (var hit in HitTestService.HitTest(maskDrawable, point))
         {
-            return true;
+            if (hit.IsDrawable && hit is not DrawableContainer)
+            {
+                return true;
+            }
         }
 
         return false;
