@@ -93,6 +93,15 @@ public class HitTestTests : SvgUnitTest
         </svg>
         """;
 
+    private const string HiddenContainerHitTestSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="20">
+          <rect id="back" x="0" y="0" width="40" height="20" fill="green" />
+          <g id="hidden-group" display="none">
+            <rect id="hidden-front" x="0" y="0" width="40" height="20" fill="red" />
+          </g>
+        </svg>
+        """;
+
     private static string GetSvgPath(string name)
         => Path.Combine("..", "..", "..", "..", "Tests", name);
 
@@ -272,5 +281,22 @@ public class HitTestTests : SvgUnitTest
 
         var retainedTarget = svg.HitTestTopmostElement(new SKPoint(12, 12));
         Assert.Null(retainedTarget);
+    }
+
+    [Fact]
+    public void HitTest_Point_HiddenContainerDescendants_AreNotInteractable()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(HiddenContainerHitTestSvg);
+
+        var hitElements = svg.HitTestElements(new SKPoint(10, 10)).Select(e => e.ID).ToList();
+        var topmostElement = svg.HitTestTopmostElement(new SKPoint(10, 10));
+        var topmostNode = svg.HitTestTopmostSceneNode(new SKPoint(10, 10));
+
+        Assert.DoesNotContain("hidden-front", hitElements);
+        Assert.NotNull(topmostElement);
+        Assert.Equal("back", topmostElement!.ID);
+        Assert.NotNull(topmostNode);
+        Assert.Equal("back", topmostNode!.ElementId);
     }
 }

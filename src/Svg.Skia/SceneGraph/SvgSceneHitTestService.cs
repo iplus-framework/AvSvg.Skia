@@ -51,6 +51,11 @@ internal static class SvgSceneHitTestService
 
     private static IEnumerable<SvgSceneNode> HitTest(SvgSceneNode node, SKPoint point)
     {
+        if (!CanTraverseSubtree(node, point))
+        {
+            yield break;
+        }
+
         for (var i = 0; i < node.Children.Count; i++)
         {
             foreach (var childHit in HitTest(node.Children[i], point))
@@ -83,6 +88,11 @@ internal static class SvgSceneHitTestService
 
     private static SvgSceneNode? HitTestTopmostNode(SvgSceneNode node, SKPoint point)
     {
+        if (!CanTraverseSubtree(node, point))
+        {
+            return null;
+        }
+
         for (var index = node.Children.Count - 1; index >= 0; index--)
         {
             var childHit = HitTestTopmostNode(node.Children[index], point);
@@ -95,6 +105,11 @@ internal static class SvgSceneHitTestService
         return HitTestPointer(node, point)
             ? node
             : null;
+    }
+
+    private static bool CanTraverseSubtree(SvgSceneNode node, SKPoint point)
+    {
+        return !node.IsDisplayNone && CanHitTestPoint(node, point);
     }
 
     private static bool HitTestNode(SvgSceneNode node, SKPoint point)
