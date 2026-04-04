@@ -147,6 +147,21 @@ public class AnimationElementTests
     }
 
     [Fact]
+    public void SvgElementAnimationValueApi_ReadsWritesAndClearsTypedAttributes()
+    {
+        var rectangle = new SvgRectangle();
+
+        Assert.True(rectangle.TrySetAnimationValue("width", "25"));
+        Assert.True(rectangle.ContainsAttribute("width"));
+
+        var width = Assert.IsType<SvgUnit>(rectangle.GetAnimationValue("width"));
+        Assert.Equal(25f, width.Value);
+
+        Assert.True(rectangle.ClearAnimationValue("width"));
+        Assert.False(rectangle.ContainsAttribute("width"));
+    }
+
+    [Fact]
     public void AnimationElements_DeepCopyPreservesConcreteTypesAndChildren()
     {
         var document = LoadDocument();

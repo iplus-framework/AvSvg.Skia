@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Xml;
@@ -298,6 +299,7 @@ public partial class SKSvg : IDisposable
     /// Creates a deep clone of the current <see cref="SKSvg"/>, including model and reload data.
     /// </summary>
     /// <returns>A new <see cref="SKSvg"/> instance with independent state.</returns>
+    [RequiresUnreferencedCode("Clone may recreate retained scene and animation state that use TypeDescriptor-based converters.")]
     public SKSvg Clone()
     {
         var clone = new SKSvg();
@@ -389,6 +391,7 @@ public partial class SKSvg : IDisposable
         return LoadReader(reader, SourceFormat.VectorDrawable, SvgService.OpenVectorDrawable);
     }
 
+    [RequiresUnreferencedCode("Calls Svg.Skia.SKSvg.LoadSvgDocument(SvgDocument, Uri)")]
     private SkiaSharp.SKPicture? LoadInternal(
         System.IO.Stream stream,
         SvgParameters? parameters,
@@ -429,6 +432,7 @@ public partial class SKSvg : IDisposable
         return LoadSvgDocument(svgDocument, baseUri);
     }
 
+    [RequiresUnreferencedCode("Calls Svg.Skia.SKSvg.LoadSvgDocument(SvgDocument, Uri)")]
     private SkiaSharp.SKPicture? LoadPath(
         string? path,
         SvgParameters? parameters,
@@ -450,6 +454,7 @@ public partial class SKSvg : IDisposable
         return LoadSvgDocument(loader(path, parameters));
     }
 
+    [RequiresUnreferencedCode("Calls Svg.Skia.SKSvg.LoadSvgDocument(SvgDocument, Uri)")]
     private SkiaSharp.SKPicture? LoadReader(
         XmlReader reader,
         SourceFormat sourceFormat,
@@ -465,6 +470,7 @@ public partial class SKSvg : IDisposable
         return LoadSvgDocument(loader(reader));
     }
 
+    [RequiresUnreferencedCode("Calls Svg.Skia.SvgAnimationController.SvgAnimationController(SvgDocument)")]
     private SkiaSharp.SKPicture? LoadSvgDocument(SvgDocument? svgDocument, Uri? baseUri = null)
     {
         if (svgDocument is null)
@@ -532,18 +538,21 @@ public partial class SKSvg : IDisposable
             : LoadInternal(originalStream, parameters, originalBaseUri, SourceFormat.Svg, SvgService.Open);
     }
 
+    [RequiresUnreferencedCode()]
     public SkiaSharp.SKPicture? FromSvg(string svg)
     {
         var svgDocument = SvgService.FromSvg(svg);
         return LoadSvgDocument(svgDocument);
     }
 
+    [RequiresUnreferencedCode()]
     public SkiaSharp.SKPicture? FromVectorDrawable(string xml)
     {
         var svgDocument = SvgService.FromVectorDrawable(xml);
         return LoadSvgDocument(svgDocument);
     }
 
+    [RequiresUnreferencedCode()]
     public SkiaSharp.SKPicture? FromSvgDocument(SvgDocument? svgDocument)
     {
         return LoadSvgDocument(svgDocument);

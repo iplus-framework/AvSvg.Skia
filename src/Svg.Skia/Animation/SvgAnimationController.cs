@@ -1,12 +1,10 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
-using System.Reflection;
 using System.Text.RegularExpressions;
 using SkiaSharp;
 using Svg.Transforms;
@@ -23,6 +21,7 @@ public sealed class SvgAnimationFrameChangedEventArgs : EventArgs
     public TimeSpan Time { get; }
 }
 
+[RequiresUnreferencedCode("Uses TypeDescriptor-based converters for animated SVG values.")]
 public sealed class SvgAnimationController : IDisposable
 {
     private static readonly Regex s_eventTimingRegex = new(
@@ -139,6 +138,7 @@ public sealed class SvgAnimationController : IDisposable
 
     private sealed class AnimationBinding
     {
+        [RequiresUnreferencedCode("Calls Svg.Skia.SvgAnimationController.GetAttributeValue(SvgElement, String)")]
         public AnimationBinding(SvgAnimationElement animation, SvgElement sourceTarget, SvgElementAddress targetAddress, string attributeName)
         {
             Animation = animation;
@@ -250,11 +250,6 @@ public sealed class SvgAnimationController : IDisposable
         public float Y2 { get; }
     }
 
-    private static readonly ConcurrentDictionary<Type, MethodInfo?> s_getValueMethods = new();
-    private static readonly ConcurrentDictionary<Type, MethodInfo?> s_setValueMethods = new();
-    private static readonly PropertyInfo? s_attributesProperty = typeof(SvgElement).GetProperty(
-        "Attributes",
-        BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly SvgNumberCollectionConverter s_numberCollectionConverter = new();
     private static readonly SvgUnitConverter s_unitConverter = new();
     private static readonly TypeConverter s_paintServerConverter = TypeDescriptor.GetConverter(typeof(SvgPaintServer));
@@ -2599,6 +2594,7 @@ public sealed class SvgAnimationController : IDisposable
                (3f * t * t * (1f - control2));
     }
 
+    [RequiresUnreferencedCode("Calls Svg.Skia.SvgAnimationController.TryConvertStringToType(String, Type, out Object)")]
     private static bool TryInterpolateValue(AnimationBinding binding, string fromValue, string toValue, float progress, bool forceColorInterpolation, out string result)
     {
         result = string.Empty;
@@ -2675,6 +2671,7 @@ public sealed class SvgAnimationController : IDisposable
         return true;
     }
 
+    [RequiresUnreferencedCode("Calls Svg.Skia.SvgAnimationController.TryConvertStringToType(String, Type, out Object)")]
     private static bool TryInterpolateSvgUnit(string fromValue, string toValue, float progress, out string result)
     {
         result = string.Empty;
@@ -2783,6 +2780,7 @@ public sealed class SvgAnimationController : IDisposable
         return false;
     }
 
+    [RequiresUnreferencedCode("Calls Svg.Skia.SvgAnimationController.TryConvertStringToType(String, Type, out Object)")]
     private static bool TryAddValue(AnimationBinding binding, string baseValue, string byValue, out string result)
     {
         result = string.Empty;
@@ -2826,6 +2824,7 @@ public sealed class SvgAnimationController : IDisposable
         return false;
     }
 
+    [RequiresUnreferencedCode("Calls Svg.Skia.SvgAnimationController.TryConvertStringToType(String, Type, out Object)")]
     private static bool TrySubtractValue(AnimationBinding binding, string endValue, string startValue, bool forceColorInterpolation, out string result)
     {
         result = string.Empty;
@@ -2858,6 +2857,7 @@ public sealed class SvgAnimationController : IDisposable
         return false;
     }
 
+    [RequiresUnreferencedCode("Calls Svg.Skia.SvgAnimationController.TryConvertStringToType(String, Type, out Object)")]
     private static bool TryScaleValue(AnimationBinding binding, string value, int factor, bool forceColorInterpolation, out string result)
     {
         result = string.Empty;
@@ -3054,26 +3054,17 @@ public sealed class SvgAnimationController : IDisposable
 
     private static object? GetAttributeValue(SvgElement element, string attributeName)
     {
-        var method = GetGetValueMethod(element.GetType());
-        return method?.Invoke(element, new object[] { attributeName });
+        return element.GetAnimationValue(attributeName);
     }
 
     private static bool SetAttributeValue(SvgElement element, string attributeName, string value)
     {
-        var method = GetSetValueMethod(element.GetType());
-        if (method is null)
-        {
-            return false;
-        }
-
-        var result = method.Invoke(element, new object[] { attributeName, element.OwnerDocument, CultureInfo.InvariantCulture, value });
-        return result is bool success && success;
+        return element.TrySetAnimationValue(attributeName, value);
     }
 
     private static bool ClearAttributeValue(SvgElement element, string attributeName)
     {
-        return s_attributesProperty?.GetValue(element) is SvgAttributeCollection attributes &&
-               attributes.Remove(attributeName);
+        return element.ClearAnimationValue(attributeName);
     }
 
     private static string? ConvertAttributeValueToString(object? value)
@@ -3088,30 +3079,6 @@ public sealed class SvgAnimationController : IDisposable
             string stringValue => stringValue,
             _ => value.ToString()
         };
-    }
-
-    private static MethodInfo? GetGetValueMethod(Type type)
-    {
-        return s_getValueMethods.GetOrAdd(
-            type,
-            static currentType => currentType.GetMethod(
-                "GetValue",
-                BindingFlags.Instance | BindingFlags.NonPublic,
-                binder: null,
-                types: new[] { typeof(string) },
-                modifiers: null));
-    }
-
-    private static MethodInfo? GetSetValueMethod(Type type)
-    {
-        return s_setValueMethods.GetOrAdd(
-            type,
-            static currentType => currentType.GetMethod(
-                "SetValue",
-                BindingFlags.Instance | BindingFlags.NonPublic,
-                binder: null,
-                types: new[] { typeof(string), typeof(ITypeDescriptorContext), typeof(CultureInfo), typeof(object) },
-                modifiers: null));
     }
 
     private static bool IsPaintServerType(Type? type)
