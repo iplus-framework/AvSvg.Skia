@@ -603,24 +603,20 @@ public partial class SvgEditorWorkspace : UserControl
 
     public async Task ExportSelectedElementAsync()
     {
-        if (_selectedDrawable is null || SvgView.SkSvg is null)
+        if (SvgView.SkSvg is null)
             return;
 
         var path = await FileDialogService.SaveElementPngAsync(GetOwnerTopLevel(), Session.CurrentFile);
         if (string.IsNullOrEmpty(path))
             return;
 
-        var bounds = _selectedDrawable.TransformedBounds;
-        if (!(bounds.Width > 0) || !(bounds.Height > 0))
+        var sceneNode = _selectedSceneNode ?? (_selectedElement is not null ? ResolveRetainedSceneNode(_selectedElement) : null);
+        if (!TryCreateSelectionExportPicture(sceneNode, _selectedDrawable, out var skPicture) || skPicture is null)
             return;
 
-        var picture = _selectedDrawable.Snapshot(bounds);
-        var skPicture = SvgView.SkSvg.SkiaModel.ToSKPicture(picture);
-        if (skPicture is null)
-            return;
-
-        using var stream = File.OpenWrite(path!);
-        skPicture.ToImage(stream, SK.SKColors.Transparent, SK.SKEncodedImageFormat.Png, 100, 1f, 1f,
+        using var exportPicture = skPicture;
+        using var stream = File.Create(path!);
+        exportPicture.ToImage(stream, SK.SKColors.Transparent, SK.SKEncodedImageFormat.Png, 100, 1f, 1f,
             SK.SKColorType.Rgba8888, SK.SKAlphaType.Premul, SvgView.SkSvg.Settings.Srgb);
     }
 
@@ -1682,6 +1678,49 @@ public partial class SvgEditorWorkspace : UserControl
         return SvgView.SkSvg.TryGetRetainedSceneNode(element, out var sceneNode)
             ? sceneNode
             : null;
+    }
+
+    private bool TryGetSelectionBounds(SvgVisualElement element, DrawableBase? drawable, SvgSceneNode? sceneNode, out SK.SKRect bounds)
+    {
+        sceneNode ??= ResolveRetainedSceneNode(element);
+        if (sceneNode is not null && sceneNode.TransformedBounds.Width > 0 && sceneNode.TransformedBounds.Height > 0)
+        {
+            bounds = ToSkRect(sceneNode.TransformedBounds);
+            return true;
+        }
+
+        drawable ??= SvgView.SkSvg?.Drawable is DrawableBase root ? FindDrawable(root, element) : null;
+        if (drawable is not null && drawable.TransformedBounds.Width > 0 && drawable.TransformedBounds.Height > 0)
+        {
+            bounds = ToSkRect(drawable.TransformedBounds);
+            return true;
+        }
+
+        bounds = SK.SKRect.Empty;
+        return false;
+    }
+
+    private bool TryCreateSelectionExportPicture(SvgSceneNode? sceneNode, DrawableBase? drawable, out SkiaSharp.SKPicture? skPicture)
+    {
+        skPicture = null;
+        if (SvgView.SkSvg is null)
+            return false;
+
+        if (sceneNode is not null && sceneNode.TransformedBounds.Width > 0 && sceneNode.TransformedBounds.Height > 0)
+        {
+            skPicture = SvgView.SkSvg.CreateRetainedSceneNodePicture(sceneNode, sceneNode.TransformedBounds);
+            if (skPicture is not null)
+                return true;
+        }
+
+        if (drawable is not null && drawable.TransformedBounds.Width > 0 && drawable.TransformedBounds.Height > 0)
+        {
+            var picture = drawable.Snapshot(drawable.TransformedBounds);
+            skPicture = SvgView.SkSvg.SkiaModel.ToSKPicture(picture);
+            return skPicture is not null;
+        }
+
+        return false;
     }
 
     private BoundsInfo GetBoundsInfo(DrawableBase drawable)
@@ -3586,18 +3625,26 @@ public partial class SvgEditorWorkspace : UserControl
     {
         if (_document is null)
             return;
-        var list = new List<(SvgVisualElement Element, DrawableBase Drawable)>();
+
+        var list = new List<(SvgVisualElement Element, SK.SKRect Bounds)>();
         if (_multiSelected.Count >= 2)
         {
-            for (int i = 0; i < _multiSelected.Count && i < _multiDrawables.Count; i++)
-                list.Add((_multiSelected[i], _multiDrawables[i]));
+            for (int i = 0; i < _multiSelected.Count; i++)
+            {
+                var element = _multiSelected[i];
+                var sceneNode = i < _multiSceneNodes.Count ? _multiSceneNodes[i] : ResolveRetainedSceneNode(element);
+                if (TryGetSelectionBounds(element, null, sceneNode, out var bounds))
+                    list.Add((element, bounds));
+            }
         }
-        else if (_selectedElement is { } el && _selectedDrawable is { } dr)
+        else if (_selectedElement is { })
         {
             return; // need at least two
         }
+
         if (list.Count < 2)
             return;
+
         SaveUndoState();
         _alignService.Align(list, type);
         SvgView.SkSvg!.FromSvgDocument(_document);
@@ -3609,16 +3656,26 @@ public partial class SvgEditorWorkspace : UserControl
     {
         if (_document is null)
             return;
-        var list = new List<(SvgVisualElement Element, DrawableBase Drawable)>();
+
+        var list = new List<(SvgVisualElement Element, SK.SKRect Bounds)>();
         if (_multiSelected.Count >= 3)
         {
-            for (int i = 0; i < _multiSelected.Count && i < _multiDrawables.Count; i++)
-                list.Add((_multiSelected[i], _multiDrawables[i]));
+            for (int i = 0; i < _multiSelected.Count; i++)
+            {
+                var element = _multiSelected[i];
+                var sceneNode = i < _multiSceneNodes.Count ? _multiSceneNodes[i] : ResolveRetainedSceneNode(element);
+                if (TryGetSelectionBounds(element, null, sceneNode, out var bounds))
+                    list.Add((element, bounds));
+            }
         }
         else
         {
             return; // need at least three
         }
+
+        if (list.Count < 3)
+            return;
+
         SaveUndoState();
         _alignService.Distribute(list, type);
         SvgView.SkSvg!.FromSvgDocument(_document);
@@ -3631,24 +3688,34 @@ public partial class SvgEditorWorkspace : UserControl
         if (_document is null || SvgView.SkSvg is null)
             return;
 
-        var list = new List<(SvgVisualElement Element, DrawableBase Drawable)>();
+        var list = new List<(SvgVisualElement Element, SvgSceneNode? SceneNode, DrawableBase? Drawable)>();
         if (_multiSelected.Count > 0)
         {
-            for (int i = 0; i < _multiSelected.Count && i < _multiDrawables.Count; i++)
-                list.Add((_multiSelected[i], _multiDrawables[i]));
+            for (int i = 0; i < _multiSelected.Count; i++)
+            {
+                var element = _multiSelected[i];
+                var sceneNode = i < _multiSceneNodes.Count ? _multiSceneNodes[i] : ResolveRetainedSceneNode(element);
+                DrawableBase? drawable = null;
+                if (sceneNode is null && SvgView.SkSvg.Drawable is DrawableBase root)
+                    drawable = FindDrawable(root, element);
+
+                if (sceneNode is not null || drawable is not null)
+                    list.Add((element, sceneNode, drawable));
+            }
         }
-        else if (_selectedElement is { } el && _selectedDrawable is { } dr)
+        else if (_selectedElement is { } el)
         {
-            list.Add((el, dr));
+            var sceneNode = _selectedSceneNode ?? ResolveRetainedSceneNode(el);
+            list.Add((el, sceneNode, _selectedDrawable));
         }
 
         if (list.Count == 0)
             return;
 
         SaveUndoState();
-        foreach (var (el, drawable) in list)
+        foreach (var (el, sceneNode, drawable) in list)
         {
-            var center = GetBoundsInfo(el, drawable, ResolveRetainedSceneNode(el)).Center;
+            var center = GetBoundsInfo(el, drawable, sceneNode).Center;
             if (horizontal)
                 _selectionService.FlipHorizontal(el, center);
             else

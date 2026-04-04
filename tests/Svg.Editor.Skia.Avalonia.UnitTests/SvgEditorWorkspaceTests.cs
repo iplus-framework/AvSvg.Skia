@@ -11,7 +11,9 @@ using Svg;
 using Svg.Editor.Avalonia;
 using Svg.Editor.Skia;
 using Svg.Editor.Skia.Avalonia;
+using Svg.Model.Drawables;
 using Svg.Skia;
+using Svg.Transforms;
 using Xunit;
 
 namespace Svg.Editor.Skia.Avalonia.UnitTests;
@@ -327,9 +329,169 @@ public class SvgEditorWorkspaceTests
         }
     }
 
+    [AvaloniaFact]
+    public async Task SvgEditorWorkspace_ExportSelectedElementAsync_UsesRetainedSceneNodeWhenDrawableIsMissing()
+    {
+        const string svg = "<svg width=\"64\" height=\"64\"><g transform=\"translate(12,8)\"><rect id=\"rect1\" x=\"1\" y=\"2\" width=\"10\" height=\"6\" fill=\"red\" /></g></svg>";
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.svg");
+        var exportPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.png");
+        File.WriteAllText(path, svg);
+
+        try
+        {
+            var workspace = new SvgEditorWorkspace
+            {
+                FileDialogService = new FakeFileDialogService { SaveElementPngPath = exportPath }
+            };
+            var host = new Window
+            {
+                Width = 1024,
+                Height = 768,
+                Content = workspace
+            };
+
+            host.Show();
+            workspace.LoadDocument(path);
+
+            var element = Assert.IsType<SvgRectangle>(workspace.Document!.Children.OfType<SvgGroup>().Single().Children.Single());
+            SetPrivateField(workspace, "_selectedSvgElement", element);
+            SetPrivateField(workspace, "_selectedElement", element);
+
+            var updateSelectedDrawable = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedDrawable", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(updateSelectedDrawable);
+            updateSelectedDrawable!.Invoke(workspace, null);
+
+            var selectedSceneNode = GetPrivateField<SvgSceneNode?>(workspace, "_selectedSceneNode");
+            Assert.NotNull(selectedSceneNode);
+
+            SetPrivateField<DrawableBase?>(workspace, "_selectedDrawable", null);
+
+            await workspace.ExportSelectedElementAsync();
+
+            Assert.True(File.Exists(exportPath));
+            Assert.True(new FileInfo(exportPath).Length > 0);
+
+            host.Close();
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+
+            if (File.Exists(exportPath))
+                File.Delete(exportPath);
+        }
+    }
+
+    [AvaloniaFact]
+    public void SvgEditorWorkspace_AlignSelected_UsesRetainedSceneBoundsWhenDrawablesAreMissing()
+    {
+        const string svg = "<svg width=\"64\" height=\"64\">" +
+                           "<rect id=\"rect1\" x=\"10\" y=\"10\" width=\"10\" height=\"10\" fill=\"red\" />" +
+                           "<rect id=\"rect2\" x=\"30\" y=\"10\" width=\"10\" height=\"10\" fill=\"blue\" />" +
+                           "</svg>";
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.svg");
+        File.WriteAllText(path, svg);
+
+        try
+        {
+            var workspace = new SvgEditorWorkspace();
+            var host = new Window
+            {
+                Width = 1024,
+                Height = 768,
+                Content = workspace
+            };
+
+            host.Show();
+            workspace.LoadDocument(path);
+
+            var elements = workspace.Document!.Children.OfType<SvgRectangle>().Cast<SvgVisualElement>().ToArray();
+            Assert.Equal(2, elements.Length);
+
+            var multiSelected = GetPrivateField<IList>(workspace, "_multiSelected");
+            multiSelected.Add(elements[0]);
+            multiSelected.Add(elements[1]);
+
+            var updateSelectedDrawable = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedDrawable", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(updateSelectedDrawable);
+            updateSelectedDrawable!.Invoke(workspace, null);
+
+            var multiSceneNodes = GetPrivateField<IList>(workspace, "_multiSceneNodes");
+            Assert.Equal(2, multiSceneNodes.Count);
+
+            var multiDrawables = GetPrivateField<IList>(workspace, "_multiDrawables");
+            multiDrawables.Clear();
+
+            InvokePrivateMenuHandler(workspace, "AlignLeftMenuItem_Click");
+
+            var translation = Assert.Single(elements[1].Transforms!.OfType<SvgTranslate>());
+            Assert.Equal(-20f, translation.X);
+            Assert.Equal(0f, translation.Y);
+
+            host.Close();
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
+    public void SvgEditorWorkspace_FlipSelected_UsesRetainedSceneBoundsWhenDrawablesAreMissing()
+    {
+        const string svg = "<svg width=\"64\" height=\"64\"><rect id=\"rect1\" x=\"10\" y=\"10\" width=\"10\" height=\"10\" fill=\"red\" /></svg>";
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.svg");
+        File.WriteAllText(path, svg);
+
+        try
+        {
+            var workspace = new SvgEditorWorkspace();
+            var host = new Window
+            {
+                Width = 1024,
+                Height = 768,
+                Content = workspace
+            };
+
+            host.Show();
+            workspace.LoadDocument(path);
+
+            var element = Assert.IsType<SvgRectangle>(workspace.Document!.Children.Single());
+            SetPrivateField(workspace, "_selectedSvgElement", element);
+            SetPrivateField(workspace, "_selectedElement", element);
+
+            var updateSelectedDrawable = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedDrawable", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(updateSelectedDrawable);
+            updateSelectedDrawable!.Invoke(workspace, null);
+
+            var selectedSceneNode = GetPrivateField<SvgSceneNode?>(workspace, "_selectedSceneNode");
+            Assert.NotNull(selectedSceneNode);
+
+            SetPrivateField<DrawableBase?>(workspace, "_selectedDrawable", null);
+
+            InvokePrivateMenuHandler(workspace, "FlipHMenuItem_Click");
+
+            var transforms = element.Transforms;
+            Assert.NotNull(transforms);
+            Assert.Contains(transforms, transform => transform is SvgTranslate translate && translate.X == 15f && translate.Y == 15f);
+            Assert.Contains(transforms, transform => transform is SvgScale scale && scale.X == -1f && scale.Y == 1f);
+            Assert.Contains(transforms, transform => transform is SvgTranslate translate && translate.X == -15f && translate.Y == -15f);
+
+            host.Close();
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
     private sealed class FakeFileDialogService : ISvgEditorFileDialogService
     {
         public string? OpenSvgDocumentPath { get; init; }
+        public string? SaveElementPngPath { get; init; }
 
         public Task<string?> OpenSvgDocumentAsync(TopLevel? owner)
             => Task.FromResult(OpenSvgDocumentPath);
@@ -338,7 +500,7 @@ public class SvgEditorWorkspaceTests
             => Task.FromResult<string?>(null);
 
         public Task<string?> SaveElementPngAsync(TopLevel? owner, string? currentFile)
-            => Task.FromResult<string?>(null);
+            => Task.FromResult(SaveElementPngPath);
 
         public Task<string?> SavePdfAsync(TopLevel? owner, string? currentFile)
             => Task.FromResult<string?>(null);
