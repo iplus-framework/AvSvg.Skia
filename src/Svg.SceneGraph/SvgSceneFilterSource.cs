@@ -3,12 +3,11 @@ using System.Collections.Generic;
 using System.Globalization;
 using ShimSkiaSharp;
 using Svg.Model;
-using Svg.Model.Drawables;
 using Svg.Model.Services;
 
 namespace Svg.Skia;
 
-internal sealed class SvgSceneFilterSource : IFilterSource
+internal sealed class SvgSceneFilterSource : ISvgSceneFilterSource
 {
     private const DrawAttributes FilterBackgroundInput =
         DrawAttributes.ClipPath

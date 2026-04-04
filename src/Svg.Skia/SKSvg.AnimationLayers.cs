@@ -317,7 +317,7 @@ public partial class SKSvg
             {
                 WaitForDrawsLocked();
 
-                Drawable = new SvgSceneDrawableProxy(sceneDocument, sceneDocument.Root);
+                Drawable = null;
                 Model = compositeModel;
 
                 ReplaceRegisteredPicture(

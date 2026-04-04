@@ -5,7 +5,7 @@ namespace Svg.Skia;
 
 internal sealed class SvgAnimationFrameAttributeState
 {
-    public SvgAnimationFrameAttributeState(string key, SvgAnimationController.SvgElementAddress targetAddress, string attributeName, string value)
+    public SvgAnimationFrameAttributeState(string key, SvgElementAddress targetAddress, string attributeName, string value)
     {
         Key = key;
         TargetAddress = targetAddress;
@@ -15,7 +15,7 @@ internal sealed class SvgAnimationFrameAttributeState
 
     public string Key { get; }
 
-    public SvgAnimationController.SvgElementAddress TargetAddress { get; }
+    public SvgElementAddress TargetAddress { get; }
 
     public string AttributeName { get; }
 

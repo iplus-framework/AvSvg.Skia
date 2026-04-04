@@ -11,8 +11,6 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using ShimSkiaSharp;
 using SkiaSharp;
-using Svg.Model.Drawables;
-using Svg.Model.Services;
 using Svg.Skia;
 using TestApp.ViewModels;
 
@@ -249,7 +247,7 @@ public partial class MainView : UserControl
 
     private void SkSvg_OnDraw(object? sender, SKSvgDrawEventArgs e)
     {
-        if (sender is not SKSvg skSvg || skSvg.Drawable is not DrawableBase drawable)
+        if (sender is not SKSvg skSvg)
         {
             return;
         }
@@ -259,21 +257,21 @@ public partial class MainView : UserControl
             return;
         }
 
-        var hits = new HashSet<DrawableBase>();
+        var hits = new HashSet<SvgSceneNode>();
 
         foreach (var pt in _hitTestPoints)
         {
-            foreach (var d in HitTestService.HitTest(drawable, pt))
+            foreach (var node in skSvg.HitTestSceneNodes(pt))
             {
-                hits.Add(d);
+                hits.Add(node);
             }
         }
 
         foreach (var r in _hitTestRects)
         {
-            foreach (var d in HitTestService.HitTest(drawable, r))
+            foreach (var node in skSvg.HitTestSceneNodes(r))
             {
-                hits.Add(d);
+                hits.Add(node);
             }
         }
 

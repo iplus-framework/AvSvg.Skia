@@ -196,7 +196,7 @@ public static class SvgSceneCompiler
             return null;
         }
 
-        var address = SvgAnimationController.SvgElementAddress.Create(element);
+        var address = SvgElementAddress.Create(element);
         if (address.ChildIndexes.Length == 0)
         {
             return null;

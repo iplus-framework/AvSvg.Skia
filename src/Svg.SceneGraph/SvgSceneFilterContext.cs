@@ -7,7 +7,6 @@ using ShimSkiaSharp;
 using Svg.DataTypes;
 using Svg.FilterEffects;
 using Svg.Model;
-using Svg.Model.Drawables;
 using Svg.Model.Services;
 
 namespace Svg.Skia;
@@ -56,7 +55,7 @@ internal sealed class SvgSceneFilterContext
     private readonly SKRect _skBounds;
     private readonly SKRect _skViewport;
     private readonly SvgSceneDocument _sceneDocument;
-    private readonly IFilterSource _filterSource;
+    private readonly ISvgSceneFilterSource _filterSource;
     private readonly ISvgAssetLoader _assetLoader;
     private readonly HashSet<Uri>? _references;
     private SKRect _skFilterRegion;
@@ -72,7 +71,7 @@ internal sealed class SvgSceneFilterContext
 
     public SKPaint? FilterPaint { get; private set; }
 
-    public SvgSceneFilterContext(SvgSceneDocument sceneDocument, SvgVisualElement svgVisualElement, SKRect skBounds, SKRect skViewport, IFilterSource filterSource, ISvgAssetLoader assetLoader, HashSet<Uri>? references)
+    public SvgSceneFilterContext(SvgSceneDocument sceneDocument, SvgVisualElement svgVisualElement, SKRect skBounds, SKRect skViewport, ISvgSceneFilterSource filterSource, ISvgAssetLoader assetLoader, HashSet<Uri>? references)
     {
         _sceneDocument = sceneDocument;
         _svgVisualElement = svgVisualElement;

@@ -81,6 +81,7 @@
     <Project Path="src/Svg.Controls.Skia.Uno/Svg.Controls.Skia.Uno.csproj" />
     <Project Path="src/Svg.Controls.Skia.Avalonia/Svg.Controls.Skia.Avalonia.csproj" />
     <Project Path="src/Svg.Model/Svg.Model.csproj" />
+    <Project Path="src/Svg.SceneGraph/Svg.SceneGraph.csproj" />
     <Project Path="src/Svg.Skia/Svg.Skia.csproj" />
     <Project Path="src/Svg.SourceGenerator.Skia/Svg.SourceGenerator.Skia.csproj" />
   </Folder>

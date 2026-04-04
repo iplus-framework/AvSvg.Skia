@@ -1,6 +1,4 @@
 using Svg;
-using Svg.Model.Drawables;
-using Svg.Model.Drawables.Elements;
 
 namespace Svg.Skia;
 
@@ -23,24 +21,6 @@ public enum SvgSceneNodeKind
 
 internal static class SvgSceneNodeKindExtensions
 {
-    public static SvgSceneNodeKind FromDrawable(DrawableBase drawable)
-    {
-        return drawable switch
-        {
-            FragmentDrawable => SvgSceneNodeKind.Fragment,
-            GroupDrawable => SvgSceneNodeKind.Group,
-            AnchorDrawable => SvgSceneNodeKind.Anchor,
-            UseDrawable => SvgSceneNodeKind.Use,
-            SwitchDrawable => SvgSceneNodeKind.Switch,
-            ImageDrawable => SvgSceneNodeKind.Image,
-            TextDrawable => SvgSceneNodeKind.Text,
-            MarkerDrawable => SvgSceneNodeKind.Marker,
-            DrawablePath path => path.Path is { } ? SvgSceneNodeKind.Path : SvgSceneNodeKind.Shape,
-            DrawableContainer => SvgSceneNodeKind.Container,
-            _ => SvgSceneNodeKind.Unknown
-        };
-    }
-
     public static SvgSceneNodeKind FromElement(SvgElement element)
     {
         return element switch
