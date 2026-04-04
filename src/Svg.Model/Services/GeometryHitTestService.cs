@@ -87,17 +87,25 @@ internal static class GeometryHitTestService
             }
         }
 
-        if (HasClipGeometry(clipPath.Clip) && !ContainsClipPath(clipPath.Clip, localPoint))
+        var hasReferencedGeometry = HasClipGeometry(clipPath.Clip);
+        if (hasReferencedGeometry && !ContainsClipPath(clipPath.Clip, localPoint))
         {
             return false;
         }
 
-        if (clipPath.Clips is null || clipPath.Clips.Count == 0)
+        var hasLocalGeometry = HasLocalClipGeometry(clipPath);
+        if (!hasLocalGeometry)
+        {
+            return hasReferencedGeometry;
+        }
+
+        var localClips = clipPath.Clips;
+        if (localClips is null)
         {
             return false;
         }
 
-        foreach (var clip in clipPath.Clips)
+        foreach (var clip in localClips)
         {
             if (ContainsPathClip(clip, localPoint))
             {
@@ -110,7 +118,7 @@ internal static class GeometryHitTestService
 
     private static bool ContainsPathClip(PathClip? clip, SKPoint point)
     {
-        if (clip?.Path is null)
+        if (clip is null)
         {
             return false;
         }
@@ -124,9 +132,15 @@ internal static class GeometryHitTestService
             }
         }
 
-        if (HasClipGeometry(clip.Clip) && !ContainsClipPath(clip.Clip, localPoint))
+        var hasNestedGeometry = HasClipGeometry(clip.Clip);
+        if (hasNestedGeometry && !ContainsClipPath(clip.Clip, localPoint))
         {
             return false;
+        }
+
+        if (clip.Path?.Commands is not { Count: > 0 })
+        {
+            return hasNestedGeometry;
         }
 
         return ContainsFillLocal(clip.Path, localPoint);
@@ -278,12 +292,45 @@ internal static class GeometryHitTestService
             return false;
         }
 
-        if (clipPath.Clips is { Count: > 0 })
+        if (HasLocalClipGeometry(clipPath))
         {
             return true;
         }
 
         return HasClipGeometry(clipPath.Clip);
+    }
+
+    private static bool HasLocalClipGeometry(ClipPath clipPath)
+    {
+        if (clipPath.Clips is not { Count: > 0 })
+        {
+            return false;
+        }
+
+        foreach (var clip in clipPath.Clips)
+        {
+            if (HasPathClipGeometry(clip))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasPathClipGeometry(PathClip? clip)
+    {
+        if (clip is null)
+        {
+            return false;
+        }
+
+        if (clip.Path?.Commands is { Count: > 0 })
+        {
+            return true;
+        }
+
+        return HasClipGeometry(clip.Clip);
     }
 
     private static List<FlattenedContour> FlattenPath(SKPath path)

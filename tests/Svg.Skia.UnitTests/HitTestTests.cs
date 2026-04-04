@@ -30,6 +30,20 @@ public class HitTestTests : SvgUnitTest
         </svg>
         """;
 
+    private const string ReferencedClipPathHitTestSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <defs>
+            <clipPath id="clip-base">
+              <circle cx="50" cy="50" r="20" />
+            </clipPath>
+            <clipPath id="clip-ref" clip-path="url(#clip-base)">
+            </clipPath>
+          </defs>
+          <rect id="back" x="0" y="0" width="100" height="100" fill="green" />
+          <rect id="front" x="0" y="0" width="100" height="100" fill="red" clip-path="url(#clip-ref)" />
+        </svg>
+        """;
+
     private const string UseHitTestSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -162,6 +176,20 @@ public class HitTestTests : SvgUnitTest
 
         Assert.DoesNotContain("front", results);
         Assert.Contains("back", results);
+    }
+
+    [Fact]
+    public void HitTest_Point_ReferencedClipPath_UsesReferencedGeometry()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(ReferencedClipPathHitTestSvg);
+
+        var insideResults = svg.HitTestElements(new SKPoint(50, 50)).Select(e => e.ID).ToList();
+        var outsideResults = svg.HitTestElements(new SKPoint(10, 10)).Select(e => e.ID).ToList();
+
+        Assert.Contains("front", insideResults);
+        Assert.DoesNotContain("front", outsideResults);
+        Assert.Contains("back", outsideResults);
     }
 
     [Fact]
