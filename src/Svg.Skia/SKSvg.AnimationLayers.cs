@@ -793,138 +793,147 @@ public partial class SKSvg
 
         var deferredDisposals = new List<SkiaSharp.SKPicture>();
         var references = new HashSet<Uri> { animatedDocument.BaseUri };
+        var completed = false;
 
-        for (var i = 0; i < layerEntries.Length; i++)
-        {
-            var entry = layerEntries[i];
-            if (entry.DocumentChildIndex < 0 || entry.DocumentChildIndex >= animatedDocument.Children.Count)
-            {
-                return false;
-            }
-
-            if (entry.DrawableChildIndex < 0 || entry.DrawableChildIndex >= rootDrawable.ChildrenDrawables.Count)
-            {
-                return false;
-            }
-
-            var animatedChild = animatedDocument.Children[entry.DocumentChildIndex];
-            var replacement = Svg.Model.Drawables.Factories.DrawableFactory.Create(
-                animatedChild,
-                rootDrawable.OwnerViewport,
-                rootDrawable,
-                AssetLoader,
-                references,
-                _ignoreAttributes);
-
-            if (replacement is null)
-            {
-                return false;
-            }
-
-            rootDrawable.ChildrenDrawables[entry.DrawableChildIndex] = replacement;
-            entry.SyncRoot(this, replacement, deferredDisposals);
-        }
-
-        rootDrawable.Element = animatedDocument;
-        rootDrawable.PostProcess(cullRect, SKMatrix.Identity);
-
-        var entriesByTargetKey = new Dictionary<string, List<AnimationLayerEntry>>(StringComparer.Ordinal);
-        for (var i = 0; i < layerEntries.Length; i++)
-        {
-            var entry = layerEntries[i];
-            entry.RefreshAfterPostProcess();
-
-            foreach (var addressKey in entry.AnimatedTargetKeys)
-            {
-                if (!entriesByTargetKey.TryGetValue(addressKey, out var scopedEntries))
-                {
-                    scopedEntries = new List<AnimationLayerEntry>();
-                    entriesByTargetKey.Add(addressKey, scopedEntries);
-                }
-
-                scopedEntries.Add(entry);
-            }
-        }
-
-        if (previousState is null)
+        try
         {
             for (var i = 0; i < layerEntries.Length; i++)
             {
-                layerEntries[i].MarkAllDirty();
-            }
-        }
-        else
-        {
-            foreach (var attribute in frameState.EnumerateDirtyAttributes(previousState))
-            {
-                if (!entriesByTargetKey.TryGetValue(attribute.TargetAddress.Key, out var scopedEntries))
+                var entry = layerEntries[i];
+                if (entry.DocumentChildIndex < 0 || entry.DocumentChildIndex >= animatedDocument.Children.Count)
                 {
                     return false;
                 }
 
-                var includeDescendantCacheRoots = IsInheritedAnimationAttribute(attribute.AttributeName);
-                for (var i = 0; i < scopedEntries.Count; i++)
-                {
-                    if (!scopedEntries[i].TryMarkDirty(attribute.TargetAddress.Key, includeDescendantCacheRoots))
-                    {
-                        return false;
-                    }
-                }
-            }
-
-            foreach (var removedAttribute in frameState.EnumerateRemovedAttributes(previousState))
-            {
-                if (!TryGetAddressKey(removedAttribute.Key, out var addressKey) ||
-                    !entriesByTargetKey.TryGetValue(addressKey, out var scopedEntries))
+                if (entry.DrawableChildIndex < 0 || entry.DrawableChildIndex >= rootDrawable.ChildrenDrawables.Count)
                 {
                     return false;
                 }
 
-                var includeDescendantCacheRoots = IsInheritedAnimationAttribute(removedAttribute.AttributeName);
-                for (var i = 0; i < scopedEntries.Count; i++)
+                var animatedChild = animatedDocument.Children[entry.DocumentChildIndex];
+                var replacement = Svg.Model.Drawables.Factories.DrawableFactory.Create(
+                    animatedChild,
+                    rootDrawable.OwnerViewport,
+                    rootDrawable,
+                    AssetLoader,
+                    references,
+                    _ignoreAttributes);
+
+                if (replacement is null)
                 {
-                    if (!scopedEntries[i].TryMarkDirty(addressKey, includeDescendantCacheRoots))
+                    return false;
+                }
+
+                rootDrawable.ChildrenDrawables[entry.DrawableChildIndex] = replacement;
+                entry.SyncRoot(this, replacement, deferredDisposals);
+            }
+
+            rootDrawable.Element = animatedDocument;
+            rootDrawable.PostProcess(cullRect, SKMatrix.Identity);
+
+            var entriesByTargetKey = new Dictionary<string, List<AnimationLayerEntry>>(StringComparer.Ordinal);
+            for (var i = 0; i < layerEntries.Length; i++)
+            {
+                var entry = layerEntries[i];
+                entry.RefreshAfterPostProcess();
+
+                foreach (var addressKey in entry.AnimatedTargetKeys)
+                {
+                    if (!entriesByTargetKey.TryGetValue(addressKey, out var scopedEntries))
+                    {
+                        scopedEntries = new List<AnimationLayerEntry>();
+                        entriesByTargetKey.Add(addressKey, scopedEntries);
+                    }
+
+                    scopedEntries.Add(entry);
+                }
+            }
+
+            if (previousState is null)
+            {
+                for (var i = 0; i < layerEntries.Length; i++)
+                {
+                    layerEntries[i].MarkAllDirty();
+                }
+            }
+            else
+            {
+                foreach (var attribute in frameState.EnumerateDirtyAttributes(previousState))
+                {
+                    if (!entriesByTargetKey.TryGetValue(attribute.TargetAddress.Key, out var scopedEntries))
                     {
                         return false;
                     }
+
+                    var includeDescendantCacheRoots = IsInheritedAnimationAttribute(attribute.AttributeName);
+                    for (var i = 0; i < scopedEntries.Count; i++)
+                    {
+                        if (!scopedEntries[i].TryMarkDirty(attribute.TargetAddress.Key, includeDescendantCacheRoots))
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                foreach (var removedAttribute in frameState.EnumerateRemovedAttributes(previousState))
+                {
+                    if (!TryGetAddressKey(removedAttribute.Key, out var addressKey) ||
+                        !entriesByTargetKey.TryGetValue(addressKey, out var scopedEntries))
+                    {
+                        return false;
+                    }
+
+                    var includeDescendantCacheRoots = IsInheritedAnimationAttribute(removedAttribute.AttributeName);
+                    for (var i = 0; i < scopedEntries.Count; i++)
+                    {
+                        if (!scopedEntries[i].TryMarkDirty(addressKey, includeDescendantCacheRoots))
+                        {
+                            return false;
+                        }
+                    }
                 }
             }
-        }
 
-        for (var i = 0; i < layerEntries.Length; i++)
-        {
-            layerEntries[i].RebuildDirtyEntries(this, deferredDisposals);
-            layerEntries[i].RebuildCompositeModel();
-        }
-
-        var dynamicLayerModel = RecordAnimationLayerModel(layerEntries, cullRect);
-        var dynamicLayerPicture = SkiaModel.ToSKPicture(dynamicLayerModel);
-        var compositeModel = ComposeAnimationLayerModel(_staticAnimationLayerModel, dynamicLayerModel, cullRect);
-
-        lock (Sync)
-        {
-            WaitForDrawsLocked();
-
-            Drawable = rootDrawable;
-            Model = compositeModel;
-            _dynamicAnimationLayerModel = dynamicLayerModel;
-
-            _dynamicAnimationLayerPicture?.Dispose();
-            _dynamicAnimationLayerPicture = dynamicLayerPicture;
-
-            _picture?.Dispose();
-            _picture = null;
-
-            WireframePicture?.Dispose();
-            WireframePicture = null;
-
-            for (var i = 0; i < deferredDisposals.Count; i++)
+            for (var i = 0; i < layerEntries.Length; i++)
             {
-                deferredDisposals[i].Dispose();
+                layerEntries[i].RebuildDirtyEntries(this, deferredDisposals);
+                layerEntries[i].RebuildCompositeModel();
+            }
+
+            var dynamicLayerModel = RecordAnimationLayerModel(layerEntries, cullRect);
+            var dynamicLayerPicture = SkiaModel.ToSKPicture(dynamicLayerModel);
+            var compositeModel = ComposeAnimationLayerModel(_staticAnimationLayerModel, dynamicLayerModel, cullRect);
+
+            lock (Sync)
+            {
+                WaitForDrawsLocked();
+
+                Drawable = rootDrawable;
+                Model = compositeModel;
+                _dynamicAnimationLayerModel = dynamicLayerModel;
+
+                _dynamicAnimationLayerPicture?.Dispose();
+                _dynamicAnimationLayerPicture = dynamicLayerPicture;
+
+                _picture?.Dispose();
+                _picture = null;
+
+                WireframePicture?.Dispose();
+                WireframePicture = null;
+
+                DisposeDeferredPictures(deferredDisposals);
+            }
+
+            completed = true;
+            return true;
+        }
+        finally
+        {
+            if (!completed)
+            {
+                DisposeDeferredPictures(deferredDisposals);
             }
         }
-
-        return true;
     }
 
     private bool TryDrawAnimationLayers(SkiaSharp.SKCanvas canvas)
@@ -995,6 +1004,16 @@ public partial class SKSvg
         {
             deferredDisposals.Add(picture);
         }
+    }
+
+    private static void DisposeDeferredPictures(List<SkiaSharp.SKPicture> deferredDisposals)
+    {
+        for (var i = 0; i < deferredDisposals.Count; i++)
+        {
+            deferredDisposals[i].Dispose();
+        }
+
+        deferredDisposals.Clear();
     }
 
     private static bool CanReuseNode(AnimationSubtreeNode node, DrawableBase drawable, string? elementKey)
