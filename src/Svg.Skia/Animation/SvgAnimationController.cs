@@ -1715,14 +1715,39 @@ public sealed class SvgAnimationController : IDisposable
             case SvgUnitType.Point:
                 return (unit.Value / 72f) * ppi;
             case SvgUnitType.Percentage:
-                var viewBox = owner.OwnerDocument?.ViewBox;
+                var document = owner.OwnerDocument;
+                var viewBox = document?.ViewBox;
                 var dimension = renderingType == UnitRenderingType.Horizontal
                     ? (viewBox?.Width ?? 0f)
                     : (viewBox?.Height ?? 0f);
+
+                if (dimension == 0f && document is not null)
+                {
+                    dimension = renderingType == UnitRenderingType.Horizontal
+                        ? ToViewportDimension(document.Width, document)
+                        : ToViewportDimension(document.Height, document);
+                }
+
                 return dimension == 0f ? unit.Value : (dimension * unit.Value / 100f);
             default:
                 return unit.Value;
         }
+    }
+
+    private static float ToViewportDimension(SvgUnit unit, SvgElement owner)
+    {
+        var ppi = owner.OwnerDocument?.Ppi ?? SvgDocument.PointsPerInch;
+
+        return unit.Type switch
+        {
+            SvgUnitType.Inch => unit.Value * ppi,
+            SvgUnitType.Centimeter => (unit.Value / 2.54f) * ppi,
+            SvgUnitType.Millimeter => (unit.Value / 25.4f) * ppi,
+            SvgUnitType.Pica => ((unit.Value * 12f) / 72f) * ppi,
+            SvgUnitType.Point => (unit.Value / 72f) * ppi,
+            SvgUnitType.Percentage => 0f,
+            _ => unit.Value
+        };
     }
 
     private static string CreateMotionPathData(IReadOnlyList<SKPoint> points)

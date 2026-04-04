@@ -354,6 +354,22 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void CreateAnimatedDocument_ResolvesAnimateMotionPercentagesAgainstViewportWithoutViewBox()
+    {
+        var document = SvgService.FromSvg(MotionViewportPercentageSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var motion = animated.GetElementById<SvgCircle>("motion");
+        Assert.NotNull(motion);
+        var translate = Assert.IsType<SvgTranslate>(Assert.Single(motion!.Transforms));
+        Assert.Equal(100f, translate.X, 3);
+        Assert.Equal(50f, translate.Y, 3);
+    }
+
+    [Fact]
     public void CreateAnimatedDocument_AppliesAdditiveAndAccumulateSemantics()
     {
         var document = SvgService.FromSvg(AdditiveAndAccumulateSvg);
@@ -734,6 +750,16 @@ public class SvgAnimationControllerTests
              viewBox="0 0 30 30">
           <circle id="motion" cx="0" cy="0" r="2" fill="purple">
             <animateMotion values="0,0;10,0;10,10" calcMode="linear" keyTimes="0;0.5;1" dur="2s" fill="freeze" />
+          </circle>
+        </svg>
+        """;
+
+    private const string MotionViewportPercentageSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="200"
+             height="100">
+          <circle id="motion" cx="0" cy="0" r="2" fill="purple">
+            <animateMotion values="0%,0%;50%,50%" dur="2s" fill="freeze" />
           </circle>
         </svg>
         """;
