@@ -256,6 +256,27 @@ public class SvgRetainedSceneGraphTests
         AssertNoDrawableBridge(complexSvg.RetainedSceneGraph);
     }
 
+    [Fact]
+    public void RetainedSceneGraph_CompilesNonRenderingContainersWithoutDrawableBridge()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(NonRenderingContainerSvg);
+
+        var scene = svg.RetainedSceneGraph;
+        Assert.NotNull(scene);
+        AssertNoDrawableBridge(scene);
+
+        Assert.True(scene!.TryGetNodeById("sym", out var symbolNode));
+        Assert.NotNull(symbolNode);
+        Assert.Equal(SvgSceneNodeKind.Fragment, symbolNode!.Kind);
+        Assert.False(symbolNode.IsDrawable);
+
+        Assert.True(scene.TryGetNodeById("fo", out var foreignObjectNode));
+        Assert.NotNull(foreignObjectNode);
+        Assert.Equal(SvgSceneNodeKind.Container, foreignObjectNode!.Kind);
+        Assert.False(foreignObjectNode.IsDrawable);
+    }
+
     [Theory]
     [InlineData("animate-elem-32-t.svg")]
     [InlineData("animate-elem-88-t.svg")]
@@ -952,6 +973,25 @@ public class SvgRetainedSceneGraphTests
           <g id="marker-group" marker-end="url(#arrow)">
             <path id="marker-line" d="M4,12 L28,12" stroke="#0055aa" stroke-width="2" fill="none" />
           </g>
+        </svg>
+        """;
+
+    private const string NonRenderingContainerSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="40"
+             height="20"
+             viewBox="0 0 40 20">
+          <defs>
+            <linearGradient id="grad">
+              <stop offset="0%" stop-color="red" />
+            </linearGradient>
+          </defs>
+          <symbol id="sym" viewBox="0 0 10 10">
+            <rect id="symbol-rect" x="0" y="0" width="10" height="10" fill="url(#grad)" />
+          </symbol>
+          <foreignObject id="fo" x="0" y="0" width="10" height="10" />
+          <use id="instance" xlink:href="#sym" x="10" y="0" />
         </svg>
         """;
 

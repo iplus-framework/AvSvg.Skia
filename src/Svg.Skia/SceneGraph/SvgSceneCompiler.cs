@@ -7,21 +7,12 @@ using ShimSkiaSharp;
 using Svg;
 using Svg.DataTypes;
 using Svg.Model;
-using Svg.Model.Drawables;
-using Svg.Model.Drawables.Elements;
-using Svg.Model.Drawables.Factories;
 using Svg.Model.Services;
 
 namespace Svg.Skia;
 
 public static class SvgSceneCompiler
 {
-    private const DrawAttributes LocalModelIgnoreAttributes =
-        DrawAttributes.ClipPath |
-        DrawAttributes.Mask |
-        DrawAttributes.Opacity |
-        DrawAttributes.Filter;
-
     private static readonly FieldInfo? s_svgElementParentField = typeof(SvgElement).GetField("_parent", BindingFlags.NonPublic | BindingFlags.Instance);
 
     public static bool TryCompile(
@@ -234,7 +225,6 @@ public static class SvgSceneCompiler
         string? compilationRootKey,
         bool createOwnCompilationRootBoundary)
     {
-        DrawableBase? drawable = null;
         SvgSceneNode? node = null;
 
         if (TryCompileDirectElementNode(
@@ -260,31 +250,18 @@ public static class SvgSceneCompiler
         {
             node = structuralNode;
         }
+        else if (TryCompileDirectNonRenderingNode(
+                     element,
+                     parentTotalTransform,
+                     compilationRootKey,
+                     createOwnCompilationRootBoundary,
+                     out var nonRenderingNode))
+        {
+            node = nonRenderingNode;
+        }
         else
         {
-            drawable = CreateDrawable(element, viewport, parentTotalTransform, assetLoader, ignoreAttributes);
-            if (drawable is null && element is not SvgDocument)
-            {
-                return null;
-            }
-
-            var elementAddressKey = TryGetElementAddressKey(element);
-            var effectiveCompilationRootKey = createOwnCompilationRootBoundary
-                ? elementAddressKey
-                : compilationRootKey;
-
-            node = new SvgSceneNode(
-                drawable is { } ? SvgSceneNodeKindExtensions.FromDrawable(drawable) : SvgSceneNodeKindExtensions.FromElement(element),
-                element,
-                elementAddressKey,
-                element.GetType().Name,
-                effectiveCompilationRootKey,
-                createOwnCompilationRootBoundary && !string.IsNullOrWhiteSpace(effectiveCompilationRootKey));
-
-            if (drawable is { })
-            {
-                PopulateNodeFromDrawable(node, drawable);
-            }
+            return null;
         }
 
         if (node is null)
@@ -324,51 +301,71 @@ public static class SvgSceneCompiler
         {
             node.AddChild(directSwitchChildNode);
         }
-        else if (drawable is SwitchDrawable switchDrawable)
-        {
-            if (switchDrawable.FirstChild?.Element is { } activeElement)
-            {
-                if (CompileElementNode(
-                        activeElement,
-                        viewport,
-                        node.TotalTransform.IsIdentity ? parentTotalTransform : node.TotalTransform,
-                        assetLoader,
-                        ignoreAttributes,
-                        compilationRootKey: null,
-                        createOwnCompilationRootBoundary: true) is { } activeChildNode)
-                {
-                    node.AddChild(activeChildNode);
-                }
-            }
-            else if (switchDrawable.FirstChild is { } activeDrawable)
-            {
-                node.AddChild(CompileDrawableNode(
-                    activeDrawable,
-                    viewport,
-                    node.TotalTransform.IsIdentity ? parentTotalTransform : node.TotalTransform,
-                    node.CompilationRootKey,
-                    assetLoader,
-                    ignoreAttributes));
-            }
-        }
 
         if (node.CompilationStrategy == SvgSceneCompilationStrategy.DirectRetained)
         {
             FinalizeDirectStructuralNode(node, element, viewport, parentTotalTransform, ignoreAttributes);
         }
 
-        if (drawable is { } supplementalDrawable)
+        return node;
+    }
+
+    private static bool TryCompileDirectNonRenderingNode(
+        SvgElement element,
+        SKMatrix parentTotalTransform,
+        string? compilationRootKey,
+        bool createOwnCompilationRootBoundary,
+        out SvgSceneNode? node)
+    {
+        node = null;
+
+        var isForeignObject = element is SvgForeignObject;
+        var isSymbol = element is SvgSymbol;
+        var isNonRenderingElement = element is not SvgVisualElement &&
+                                    element is not SvgDocument &&
+                                    element is not SvgFragment &&
+                                    element is not SvgGroup &&
+                                    element is not SvgAnchor &&
+                                    element is not SvgSwitch;
+        if (!isForeignObject && !isSymbol && !isNonRenderingElement)
         {
-            AppendGeneratedChildren(
-                node,
-                supplementalDrawable,
-                viewport,
-                node.TotalTransform.IsIdentity ? parentTotalTransform : node.TotalTransform,
-                assetLoader,
-                ignoreAttributes);
+            return false;
         }
 
-        return node;
+        var elementAddressKey = TryGetElementAddressKey(element);
+        var effectiveCompilationRootKey = createOwnCompilationRootBoundary
+            ? elementAddressKey
+            : compilationRootKey;
+        var kind = element switch
+        {
+            SvgMask => SvgSceneNodeKind.Mask,
+            SvgSymbol => SvgSceneNodeKind.Fragment,
+            SvgMarker => SvgSceneNodeKind.Marker,
+            _ => SvgSceneNodeKind.Container
+        };
+        var transform = element is SvgVisualElement visualElement
+            ? TransformsService.ToMatrix(visualElement.Transforms)
+            : SKMatrix.Identity;
+
+        node = new SvgSceneNode(
+            kind,
+            element,
+            elementAddressKey,
+            element.GetType().Name,
+            effectiveCompilationRootKey,
+            createOwnCompilationRootBoundary && !string.IsNullOrWhiteSpace(effectiveCompilationRootKey))
+        {
+            CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
+            IsDrawable = false,
+            IsAntialias = element is SvgVisualElement visual ? PaintingService.IsAntialias(visual) : true,
+            Transform = transform,
+            TotalTransform = parentTotalTransform.PreConcat(transform),
+            HitTestTargetElement = null
+        };
+        AssignRetainedVisualState(node, element);
+        AssignRetainedResourceKeys(node, element);
+
+        return true;
     }
 
     private static bool TryCompileDirectStructuralNode(
@@ -447,11 +444,6 @@ public static class SvgSceneCompiler
                 }
             case SvgGroup svgGroup:
                 {
-                    if (RequiresDrawableBridge(svgGroup))
-                    {
-                        return false;
-                    }
-
                     var hasFeatures = HasFeatures(svgGroup, ignoreAttributes);
                     var canDraw = MaskingService.CanDraw(svgGroup, ignoreAttributes);
                     node = CreateDirectStructuralNode(
@@ -528,113 +520,6 @@ public static class SvgSceneCompiler
             default:
                 return false;
         }
-    }
-
-    private static SvgSceneNode CompileDrawableNode(
-        DrawableBase drawable,
-        SKRect viewport,
-        SKMatrix parentTotalTransform,
-        string? compilationRootKey,
-        ISvgAssetLoader assetLoader,
-        DrawAttributes ignoreAttributes)
-    {
-        if (drawable.Element is { } directElement &&
-            TryCompileDirectElementNode(
-                directElement,
-                viewport,
-                parentTotalTransform,
-                assetLoader,
-                ignoreAttributes,
-                compilationRootKey,
-                createOwnCompilationRootBoundary: false,
-                out var directNode))
-        {
-            return directNode!;
-        }
-
-        if (drawable.TotalTransform.IsIdentity && !parentTotalTransform.IsIdentity)
-        {
-            drawable.PostProcess(viewport, parentTotalTransform);
-        }
-
-        var element = drawable.Element;
-        var node = new SvgSceneNode(
-            SvgSceneNodeKindExtensions.FromDrawable(drawable),
-            element,
-            TryGetElementAddressKey(element),
-            element?.GetType().Name ?? drawable.GetType().Name,
-            compilationRootKey,
-            isCompilationRootBoundary: false);
-
-        PopulateNodeFromDrawable(node, drawable);
-
-        foreach (var childDrawable in EnumerateDrawableChildren(drawable))
-        {
-            var childNode = CompileDrawableNode(
-                childDrawable,
-                viewport,
-                node.TotalTransform.IsIdentity ? parentTotalTransform : node.TotalTransform,
-                compilationRootKey,
-                assetLoader,
-                ignoreAttributes);
-
-            if (ShouldPropagateGeneratedHitTarget(drawable))
-            {
-                AssignGeneratedHitTestTarget(childNode, node.HitTestTargetElement ?? node.Element);
-            }
-
-            node.AddChild(childNode);
-        }
-
-        if (drawable.MaskDrawable is { } maskDrawable)
-        {
-            node.SetMask(CompileDrawableNode(
-                maskDrawable,
-                viewport,
-                node.TotalTransform.IsIdentity ? parentTotalTransform : node.TotalTransform,
-                compilationRootKey,
-                assetLoader,
-                ignoreAttributes));
-        }
-
-        return node;
-    }
-
-    private static void PopulateNodeFromDrawable(SvgSceneNode node, DrawableBase drawable)
-    {
-        node.CompilationStrategy = SvgSceneCompilationStrategy.DrawableBridge;
-        node.IsDrawable = drawable.IsDrawable;
-        node.IsAntialias = drawable.IsAntialias;
-        node.GeometryBounds = drawable.GeometryBounds;
-        node.TransformedBounds = drawable.TransformedBounds;
-        node.Transform = drawable.Transform;
-        node.TotalTransform = drawable.TotalTransform;
-        node.Overflow = drawable.Overflow;
-        node.Clip = drawable.Clip;
-        node.ClipPath = drawable.ClipPath?.DeepClone();
-        node.MaskPaint = drawable.Mask?.DeepClone();
-        node.MaskDstIn = drawable.MaskDstIn?.DeepClone();
-        node.Opacity = drawable.Opacity?.DeepClone();
-        node.OpacityValue = drawable.Element is { } opacityElement
-            ? SvgScenePaintingService.AdjustSvgOpacity(opacityElement.Opacity)
-            : (node.Opacity is { } opacityPaint ? opacityPaint.Color.GetValueOrDefault().Alpha : (byte)255) / 255f;
-        node.Filter = drawable.Filter?.DeepClone();
-        node.FilterClip = drawable.FilterClip;
-        node.Fill = drawable.Fill?.DeepClone();
-        node.Stroke = drawable.Stroke?.DeepClone();
-        node.SupportsFillHitTest = drawable.SupportsPaintedFillHitTest;
-        node.SupportsStrokeHitTest = drawable.SupportsPaintedStrokeHitTest;
-        node.StrokeWidth = drawable.GetHitTestStrokeWidth();
-        node.InnerClip = drawable is MarkerDrawable markerDrawable ? markerDrawable.MarkerClipRect : null;
-        node.LocalModel = CreateLocalModel(drawable);
-        if (drawable is DrawablePath drawablePath && drawablePath.Path is { } path)
-        {
-            node.HitTestPath = path.DeepClone();
-        }
-
-        node.HitTestTargetElement = GetDefaultHitTestTargetElement(node, drawable.Element);
-        AssignRetainedVisualState(node, drawable.Element);
-        AssignRetainedResourceKeys(node, drawable.Element);
     }
 
     private static SvgSceneNode CreateDirectStructuralNode(
@@ -889,8 +774,7 @@ public static class SvgSceneCompiler
         }
 
         if (!TryGetDirectVisualElement(element, out var visualElement) ||
-            visualElement is null ||
-            RequiresDrawableBridge(visualElement))
+            visualElement is null)
         {
             return false;
         }
@@ -1398,55 +1282,6 @@ public static class SvgSceneCompiler
         }
     }
 
-    private static void AppendGeneratedChildren(
-        SvgSceneNode node,
-        DrawableBase drawable,
-        SKRect viewport,
-        SKMatrix parentTotalTransform,
-        ISvgAssetLoader assetLoader,
-        DrawAttributes ignoreAttributes)
-    {
-        if (drawable is UseDrawable useDrawable && useDrawable.ReferencedDrawable is { } referencedDrawable)
-        {
-            var referencedNode = CompileDrawableNode(
-                referencedDrawable,
-                viewport,
-                parentTotalTransform,
-                node.CompilationRootKey,
-                assetLoader,
-                ignoreAttributes);
-            AssignGeneratedHitTestTarget(referencedNode, node.HitTestTargetElement ?? node.Element);
-            node.AddChild(referencedNode);
-        }
-
-        if (drawable is DrawablePath pathDrawable && pathDrawable.MarkerDrawables is { Count: > 0 })
-        {
-            for (var i = 0; i < pathDrawable.MarkerDrawables.Count; i++)
-            {
-                var markerNode = CompileDrawableNode(
-                    pathDrawable.MarkerDrawables[i],
-                    viewport,
-                    parentTotalTransform,
-                    node.CompilationRootKey,
-                    assetLoader,
-                    ignoreAttributes);
-                AssignGeneratedHitTestTarget(markerNode, node.HitTestTargetElement ?? node.Element);
-                node.AddChild(markerNode);
-            }
-        }
-
-        if (drawable.MaskDrawable is { } maskDrawable)
-        {
-            node.SetMask(CompileDrawableNode(
-                maskDrawable,
-                viewport,
-                parentTotalTransform,
-                node.CompilationRootKey,
-                assetLoader,
-                ignoreAttributes));
-        }
-    }
-
     private static void AppendDirectMarkers(
         SvgSceneNode node,
         SvgMarkerElement markerElement,
@@ -1813,37 +1648,12 @@ public static class SvgSceneCompiler
         return null;
     }
 
-    private static DrawableBase? CreateDrawable(
-        SvgElement element,
-        SKRect viewport,
-        SKMatrix parentTotalTransform,
-        ISvgAssetLoader assetLoader,
-        DrawAttributes ignoreAttributes)
-    {
-        var references = element.OwnerDocument?.BaseUri is { } baseUri
-            ? new HashSet<Uri> { baseUri }
-            : null;
-        var drawable = DrawableFactory.Create(element, viewport, null, assetLoader, references, ignoreAttributes);
-        if (drawable is null)
-        {
-            return null;
-        }
-
-        drawable.PostProcess(viewport, parentTotalTransform);
-        return drawable;
-    }
-
     private static bool HasFeatures(SvgElement element, DrawAttributes ignoreAttributes)
     {
         var hasRequiredFeatures = ignoreAttributes.HasFlag(DrawAttributes.RequiredFeatures) || element.HasRequiredFeatures();
         var hasRequiredExtensions = ignoreAttributes.HasFlag(DrawAttributes.RequiredExtensions) || element.HasRequiredExtensions();
         var hasSystemLanguage = ignoreAttributes.HasFlag(DrawAttributes.SystemLanguage) || element.HasSystemLanguage();
         return hasRequiredFeatures && hasRequiredExtensions && hasSystemLanguage;
-    }
-
-    private static bool RequiresDrawableBridge(SvgVisualElement element)
-    {
-        return false;
     }
 
     internal static SvgSceneDocument? CompileTemporaryChildrenScene(
@@ -2007,42 +1817,9 @@ public static class SvgSceneCompiler
         return picture.Commands is { Count: > 0 } ? picture : null;
     }
 
-    private static IEnumerable<DrawableBase> EnumerateDrawableChildren(DrawableBase drawable)
-    {
-        switch (drawable)
-        {
-            case DrawableContainer container:
-                for (var i = 0; i < container.ChildrenDrawables.Count; i++)
-                {
-                    yield return container.ChildrenDrawables[i];
-                }
-                break;
-            case DrawablePath pathDrawable when pathDrawable.MarkerDrawables is { Count: > 0 }:
-                for (var i = 0; i < pathDrawable.MarkerDrawables.Count; i++)
-                {
-                    yield return pathDrawable.MarkerDrawables[i];
-                }
-                break;
-            case UseDrawable useDrawable when useDrawable.ReferencedDrawable is { } referencedDrawable:
-                yield return referencedDrawable;
-                break;
-            case SwitchDrawable switchDrawable when switchDrawable.FirstChild is { } firstChild:
-                yield return firstChild;
-                break;
-            case MarkerDrawable markerDrawable when markerDrawable.MarkerElementDrawable is { } markerElementDrawable:
-                yield return markerElementDrawable;
-                break;
-        }
-    }
-
     private static bool ShouldCompileDomChildren(SvgElement element)
     {
         return element is SvgFragment or SvgGroup or SvgAnchor;
-    }
-
-    private static bool ShouldPropagateGeneratedHitTarget(DrawableBase drawable)
-    {
-        return drawable is UseDrawable or MarkerDrawable or DrawablePath;
     }
 
     private static void AssignGeneratedHitTestTarget(SvgSceneNode node, SvgElement? hitTestTargetElement)
@@ -2291,53 +2068,6 @@ public static class SvgSceneCompiler
         }
 
         return depth;
-    }
-
-    private static SKPicture? CreateLocalModel(DrawableBase drawable)
-    {
-        var localDrawable = CreateLocalDrawable(drawable);
-        var cullRect = CreateLocalCullRect(localDrawable.GeometryBounds);
-        if (cullRect.IsEmpty)
-        {
-            return null;
-        }
-
-        var recorder = new SKPictureRecorder();
-        var canvas = recorder.BeginRecording(cullRect);
-        localDrawable.Draw(canvas, LocalModelIgnoreAttributes, null, enableTransform: false);
-        var picture = recorder.EndRecording();
-        if (picture.Commands is not { Count: > 0 })
-        {
-            return null;
-        }
-
-        return picture;
-    }
-
-    private static DrawableBase CreateLocalDrawable(DrawableBase drawable)
-    {
-        var clone = (DrawableBase)drawable.DeepClone();
-
-        switch (clone)
-        {
-            case DrawableContainer container:
-                container.ChildrenDrawables.Clear();
-                break;
-            case DrawablePath pathDrawable:
-                pathDrawable.MarkerDrawables = null;
-                break;
-            case UseDrawable useDrawable:
-                useDrawable.ReferencedDrawable = null;
-                break;
-            case SwitchDrawable switchDrawable:
-                switchDrawable.FirstChild = null;
-                break;
-            case MarkerDrawable markerDrawable:
-                markerDrawable.MarkerElementDrawable = null;
-                break;
-        }
-
-        return clone;
     }
 
     private static SKRect CreateLocalCullRect(SKRect bounds)

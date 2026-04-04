@@ -123,9 +123,11 @@ Exit criteria:
 
 ## Current Implementation Target
 
-This turn should implement Phase 1, items 1 and 2:
-- retained-scene-first selected-element export
-- retained-bounds-first align/distribute helpers
+This turn should finish the remaining Phases 1 through 4:
+- remove the remaining editor root-drawable seams and keep retained nodes as the primary editor selection/render source
+- delete the retained compiler's dead drawable-bridge path
+- move the remaining animation fallback render path onto retained scene state
+- update validation and status documentation to match the retained-scene-first runtime
 
 Validation for this slice:
 - `dotnet format Svg.Skia.slnx --no-restore`
@@ -134,19 +136,26 @@ Validation for this slice:
 
 ## Implementation Status
 
-Phase 1 items 1 and 2 are now implemented in the current working tree.
+Phases 1 through 4 are now effectively implemented in the current working tree for the shared runtime and editor workflows.
 
 Completed:
 - selected-element export now prefers retained scene node rendering and falls back to drawable snapshot export only if no retained node export is available
-- align/distribute workspace commands now gather explicit bounds from retained scene nodes first instead of depending on `_multiDrawables`
-- editor regression tests now cover retained-node-only selected-element export and retained-bounds alignment when drawable mirrors are absent
-- direct unit coverage exists for the new bounds-driven `AlignService` overloads
+- align/distribute and additional editor selection workflows now gather bounds and transforms from retained scene nodes first instead of depending on root drawable lookup
+- layer loading no longer walks the root drawable tree to resolve editor layer metadata; retained scene nodes are the authoritative layer geometry source
+- the retained compiler no longer keeps the drawable-bridge compilation path alive for unsupported element fallback; non-rendering containers compile directly as retained nodes
+- dead drawable-bridge helper code has been removed from the retained compiler, reducing load-time duplication and eliminating the last internal drawable extraction path there
+- animation frames that fall outside animation-layer caching now render from the retained scene document instead of calling the older drawable-first `RenderSvgDocument(...)` path
+- regression coverage now proves retained-scene animation fallback for paint-server-backed animation targets and direct retained compilation for non-rendering container nodes
 
 Primary files:
 - `/Users/wieslawsoltes/GitHub/Svg.Skia/src/Svg.Editor.Skia.Avalonia/SvgEditorWorkspace.axaml.cs`
-- `/Users/wieslawsoltes/GitHub/Svg.Skia/src/Svg.Editor.Skia/AlignService.cs`
-- `/Users/wieslawsoltes/GitHub/Svg.Skia/tests/Svg.Editor.Skia.Avalonia.UnitTests/SvgEditorWorkspaceTests.cs`
-- `/Users/wieslawsoltes/GitHub/Svg.Skia/tests/Svg.Editor.Skia.UnitTests/AlignServiceTests.cs`
+- `/Users/wieslawsoltes/GitHub/Svg.Skia/src/Svg.Editor.Svg/LayerService.cs`
+- `/Users/wieslawsoltes/GitHub/Svg.Skia/src/Svg.Skia/SKSvg.Model.cs`
+- `/Users/wieslawsoltes/GitHub/Svg.Skia/src/Svg.Skia/SKSvg.SceneGraph.cs`
+- `/Users/wieslawsoltes/GitHub/Svg.Skia/src/Svg.Skia/SceneGraph/SvgSceneCompiler.cs`
+- `/Users/wieslawsoltes/GitHub/Svg.Skia/tests/Svg.Skia.UnitTests/SvgAnimationControllerTests.cs`
+- `/Users/wieslawsoltes/GitHub/Svg.Skia/tests/Svg.Skia.UnitTests/SvgRetainedSceneGraphTests.cs`
 
-Next recommended step:
-- continue Phase 1 item 3 by auditing the remaining editor commands that still read drawable geometry/order directly
+What remains after this file's original scope:
+- optional Phase 5 work for true host-native animation-object mapping is still future-facing and not required for retained-scene correctness
+- some editor compatibility APIs still expose drawable-shaped values, but they now operate on retained proxies instead of root-drawable tree lookup
