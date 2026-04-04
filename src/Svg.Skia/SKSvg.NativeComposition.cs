@@ -342,13 +342,14 @@ public partial class SKSvg
             canvas.SetMatrix(SKMatrix.CreateTranslation(-drawBounds.Left, -drawBounds.Top));
         }
 
-        var ignoreAttributes = _ignoreAttributes;
-        if (extractOpacity)
-        {
-            ignoreAttributes |= DrawAttributes.Opacity;
-        }
-
-        SvgSceneRenderer.RenderNodeToCanvas(sceneDocument, node, canvas, ignoreAttributes, until: null, enableTransform: !extractTranslation);
+        SvgSceneRenderer.RenderNodeToCanvas(
+            sceneDocument,
+            node,
+            canvas,
+            _ignoreAttributes,
+            until: null,
+            enableTransform: !extractTranslation,
+            ignoreCurrentOpacity: extractOpacity);
         return recorder.EndRecording();
     }
 

@@ -135,12 +135,52 @@ public class SKSvgNativeCompositionTests
         Assert.Equal(0.5f, animatedLayer.Opacity, 3);
     }
 
+    [Fact]
+    public void TryCreateNativeCompositionScene_PreservesDescendantOpacityLayersWhenRootOpacityIsExtracted()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(NativeCompositionNestedOpacitySvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.True(svg.SupportsNativeComposition);
+        Assert.True(svg.TryCreateNativeCompositionScene(out var scene));
+        Assert.NotNull(scene);
+
+        var animatedLayer = Assert.Single(scene!.Layers);
+        Assert.Equal(0.5f, animatedLayer.Opacity, 3);
+        Assert.NotNull(animatedLayer.Picture);
+
+        using var renderedPicture = svg.SkiaModel.ToSKPicture(animatedLayer.Picture!);
+        Assert.NotNull(renderedPicture);
+
+        using var surface = SkiaSharp.SKSurface.Create(new SkiaSharp.SKImageInfo(40, 30));
+        Assert.NotNull(surface);
+
+        surface!.Canvas.Clear(SkiaSharp.SKColors.Transparent);
+        surface.Canvas.DrawPicture(renderedPicture);
+
+        using var image = surface.Snapshot();
+        using var bitmap = SkiaSharp.SKBitmap.FromImage(image);
+        var pixel = bitmap.GetPixel(6, 12);
+        Assert.InRange(pixel.Alpha, (byte)120, (byte)136);
+    }
+
     private const string NativeCompositionSceneSvg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="30">
           <rect id="static" x="0" y="0" width="4" height="4" fill="red" />
           <rect id="animated" x="1" y="2" width="10" height="20" fill="blue" opacity="0.5" transform="translate(3,4)">
             <animate attributeName="x" from="1" to="11" dur="2s" fill="freeze" />
           </rect>
+        </svg>
+        """;
+
+    private const string NativeCompositionNestedOpacitySvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="30">
+          <g id="animated-root" opacity="0.5">
+            <rect id="child" x="1" y="2" width="10" height="20" fill="blue" opacity="0.5">
+              <animate attributeName="x" from="1" to="11" dur="2s" fill="freeze" />
+            </rect>
+          </g>
         </svg>
         """;
 

@@ -36,7 +36,8 @@ public static class SvgSceneRenderer
         SKRect? clip = null,
         DrawAttributes ignoreAttributes = DrawAttributes.None,
         SvgSceneNode? until = null,
-        bool enableRootTransform = true)
+        bool enableRootTransform = true,
+        bool ignoreRootOpacity = false)
     {
         var cullRect = clip ?? SvgSceneNodeBoundsService.GetRenderableBounds(node);
         if (cullRect.IsEmpty)
@@ -46,7 +47,7 @@ public static class SvgSceneRenderer
 
         var recorder = new SKPictureRecorder();
         var canvas = recorder.BeginRecording(cullRect);
-        RenderNodeToCanvas(sceneDocument, node, canvas, ignoreAttributes, until, enableRootTransform);
+        RenderNodeToCanvas(sceneDocument, node, canvas, ignoreAttributes, until, enableRootTransform, ignoreRootOpacity);
         return recorder.EndRecording();
     }
 
@@ -56,7 +57,8 @@ public static class SvgSceneRenderer
         SKCanvas canvas,
         DrawAttributes ignoreAttributes = DrawAttributes.None,
         SvgSceneNode? until = null,
-        bool enableTransform = true)
+        bool enableTransform = true,
+        bool ignoreCurrentOpacity = false)
     {
         if (until is not null && ReferenceEquals(node, until))
         {
@@ -97,7 +99,7 @@ public static class SvgSceneRenderer
         }
 
         var enableMask = !ignoreAttributes.HasFlag(DrawAttributes.Mask);
-        var enableOpacity = !ignoreAttributes.HasFlag(DrawAttributes.Opacity);
+        var enableOpacity = !ignoreAttributes.HasFlag(DrawAttributes.Opacity) && !ignoreCurrentOpacity;
         var enableFilter = !ignoreAttributes.HasFlag(DrawAttributes.Filter);
 
         if (node.MaskPaint is { } maskPaint && node.MaskNode is not null && enableMask)
