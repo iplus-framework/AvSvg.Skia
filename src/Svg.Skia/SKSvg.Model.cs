@@ -346,6 +346,7 @@ public partial class SKSvg : IDisposable
             }
         }
 
+        clone.InvalidateRetainedSceneGraph();
         return clone;
     }
 
@@ -478,6 +479,7 @@ public partial class SKSvg : IDisposable
 
         SourceDocument = svgDocument;
         ClearAnimationRenderState();
+        InvalidateRetainedSceneGraph();
 
         var animationController = new SvgAnimationController(svgDocument);
         if (animationController.HasAnimations)
@@ -672,6 +674,8 @@ public partial class SKSvg : IDisposable
             WireframePicture?.Dispose();
             WireframePicture = null;
         }
+
+        InvalidateRetainedSceneGraph();
     }
 
     public void Dispose()
@@ -707,7 +711,7 @@ public partial class SKSvg : IDisposable
         }
     }
 
-    private SkiaSharp.SKPicture? RenderSvgDocument(SvgDocument svgDocument)
+    private SkiaSharp.SKPicture? RenderSvgDocument(SvgDocument svgDocument, bool invalidateRetainedSceneGraph = true)
     {
         DisableAnimationLayerCaching();
 
@@ -726,6 +730,11 @@ public partial class SKSvg : IDisposable
 
             WireframePicture?.Dispose();
             WireframePicture = null;
+        }
+
+        if (invalidateRetainedSceneGraph)
+        {
+            InvalidateRetainedSceneGraph();
         }
 
         return picture;
@@ -836,9 +845,10 @@ public partial class SKSvg : IDisposable
 
         if (!rendered)
         {
-            _ = RenderSvgDocument(_animatedDocument);
+            _ = RenderSvgDocument(_animatedDocument, invalidateRetainedSceneGraph: false);
         }
 
+        RefreshRetainedSceneGraphForAnimationFrame(frameState, _lastRenderedAnimationFrameState);
         _lastRenderedAnimationFrameState = frameState;
         _lastRenderedAnimationTime = frameState.Time;
         _pendingAnimationFrameState = null;
