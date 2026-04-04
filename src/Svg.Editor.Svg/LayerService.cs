@@ -4,6 +4,7 @@ using System.Linq;
 using Svg;
 using Svg.Editor.Svg.Models;
 using Svg.Model.Drawables;
+using Svg.Skia;
 
 namespace Svg.Editor.Svg;
 
@@ -13,6 +14,11 @@ public class LayerService
 
     public void Load(SvgDocument? document, DrawableBase? root = null)
     {
+        Load(document, sceneDocument: null, root);
+    }
+
+    public void Load(SvgDocument? document, SvgSceneDocument? sceneDocument, DrawableBase? root = null)
+    {
         Layers.Clear();
         if (document is null)
             return;
@@ -20,7 +26,7 @@ public class LayerService
         foreach (var g in document.Children.OfType<SvgGroup>())
         {
             if (IsLayerGroup(g))
-                Layers.Add(CreateEntry(g, root, ref index));
+                Layers.Add(CreateEntry(g, sceneDocument, root, ref index));
         }
     }
 
@@ -71,15 +77,21 @@ public class LayerService
         => group.CustomAttributes.TryGetValue("data-layer", out var flag) &&
            string.Equals(flag, "true", StringComparison.OrdinalIgnoreCase);
 
-    private static LayerEntry CreateEntry(SvgGroup group, DrawableBase? root, ref int index)
+    private static LayerEntry CreateEntry(SvgGroup group, SvgSceneDocument? sceneDocument, DrawableBase? root, ref int index)
     {
         group.CustomAttributes.TryGetValue("data-name", out var name);
         var entry = new LayerEntry(group, string.IsNullOrEmpty(name) ? $"Layer {index++}" : name);
+        if (sceneDocument is not null &&
+            sceneDocument.TryGetNode(group, out var sceneNode))
+        {
+            entry.SceneNode = sceneNode;
+        }
+
         if (root is not null)
             entry.Drawable = FindDrawable(root, group);
         foreach (var child in group.Children.OfType<SvgGroup>())
             if (IsLayerGroup(child))
-                entry.Sublayers.Add(CreateEntry(child, root, ref index));
+                entry.Sublayers.Add(CreateEntry(child, sceneDocument, root, ref index));
         return entry;
     }
 

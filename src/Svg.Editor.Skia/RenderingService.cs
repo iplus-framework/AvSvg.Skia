@@ -125,7 +125,14 @@ public class RenderingService
                 };
                 void DrawLayer(LayerEntry info)
                 {
-                    if (info.Drawable is { })
+                    var sceneBounds = info.SceneNode?.TransformedBounds;
+                    if (sceneBounds is { } retainedBounds && !retainedBounds.IsEmpty)
+                    {
+                        canvas.DrawRect(
+                            new SK.SKRect(retainedBounds.Left, retainedBounds.Top, retainedBounds.Right, retainedBounds.Bottom),
+                            info == selectedLayer ? selectedPaint : layerPaint);
+                    }
+                    else if (info.Drawable is { })
                     {
                         var r = info.Drawable.TransformedBounds;
                         var rect = new SK.SKRect(r.Left, r.Top, r.Right, r.Bottom);

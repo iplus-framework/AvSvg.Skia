@@ -9,7 +9,9 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Interactivity;
 using Svg;
 using Svg.Editor.Avalonia;
+using Svg.Editor.Skia;
 using Svg.Editor.Skia.Avalonia;
+using Svg.Skia;
 using Xunit;
 
 namespace Svg.Editor.Skia.Avalonia.UnitTests;
@@ -231,6 +233,90 @@ public class SvgEditorWorkspaceTests
             Assert.NotNull(workspace.Document);
             Assert.Equal(path, workspace.CurrentFile);
             Assert.NotEmpty(workspace.Session.Nodes);
+
+            host.Close();
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
+    public void SvgEditorWorkspace_LoadDocument_PopulatesLayersWithRetainedSceneNodes()
+    {
+        const string svg = "<svg width=\"64\" height=\"32\">" +
+                           "<g id=\"layer-a\" data-layer=\"true\" data-name=\"Layer A\">" +
+                           "<rect id=\"rect1\" x=\"4\" y=\"5\" width=\"20\" height=\"10\" fill=\"red\" />" +
+                           "</g>" +
+                           "</svg>";
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.svg");
+        File.WriteAllText(path, svg);
+
+        try
+        {
+            var workspace = new SvgEditorWorkspace();
+            var host = new Window
+            {
+                Width = 1024,
+                Height = 768,
+                Content = workspace
+            };
+
+            host.Show();
+            workspace.LoadDocument(path);
+
+            var layer = Assert.Single(workspace.Layers);
+            var sceneNode = Assert.IsType<SvgSceneNode>(layer.SceneNode);
+            Assert.Equal("layer-a", sceneNode.ElementId);
+            Assert.True(sceneNode.TransformedBounds.Width > 0);
+
+            host.Close();
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
+    public void SvgEditorWorkspace_PathTool_UsesRetainedSceneNodeForEditContext()
+    {
+        const string svg = "<svg width=\"64\" height=\"64\"><g transform=\"translate(12,8)\"><path id=\"path1\" d=\"M 0 0 L 10 0\" /></g></svg>";
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.svg");
+        File.WriteAllText(path, svg);
+
+        try
+        {
+            var workspace = new SvgEditorWorkspace();
+            var host = new Window
+            {
+                Width = 1024,
+                Height = 768,
+                Content = workspace
+            };
+
+            host.Show();
+            workspace.LoadDocument(path);
+
+            var element = Assert.IsType<SvgPath>(workspace.Document!.Children.OfType<SvgGroup>().Single().Children.Single());
+            SetPrivateField(workspace, "_selectedSvgElement", element);
+            SetPrivateField(workspace, "_selectedElement", element);
+
+            var updateSelectedDrawable = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedDrawable", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(updateSelectedDrawable);
+            updateSelectedDrawable!.Invoke(workspace, null);
+
+            InvokePrivateMenuHandler(workspace, "PathToolButton_Click");
+
+            var selectedSceneNode = GetPrivateField<SvgSceneNode?>(workspace, "_selectedSceneNode");
+            var pathService = GetPrivateField<PathService>(workspace, "_pathService");
+
+            Assert.NotNull(selectedSceneNode);
+            Assert.Same(selectedSceneNode, pathService.EditSceneNode);
+            Assert.Equal(new ShimSkiaSharp.SKPoint(12, 8), pathService.PathMatrix.MapPoint(new ShimSkiaSharp.SKPoint(0, 0)));
 
             host.Close();
         }

@@ -45,6 +45,12 @@ public class SvgEditorInteractionController
         set => PathService.EditDrawable = value;
     }
 
+    public SvgSceneNode? EditSceneNode
+    {
+        get => PathService.EditSceneNode;
+        set => PathService.EditSceneNode = value;
+    }
+
     public IReadOnlyList<PathPoint> PathPoints => PathService.PathPoints;
 
     public int ActivePathPoint
@@ -64,6 +70,9 @@ public class SvgEditorInteractionController
 
     public BoundsInfo GetBoundsInfo(DrawableBase drawable, SKSvg skSvg, Func<float> getScale)
         => SelectionService.GetBoundsInfo(drawable, skSvg, getScale);
+
+    public BoundsInfo GetBoundsInfo(SvgSceneNode sceneNode, Func<float> getScale)
+        => SelectionService.GetBoundsInfo(sceneNode, getScale);
 
     public int HitHandle(BoundsInfo bounds, SK.SKPoint point, float scale, out SK.SKPoint center)
         => SelectionService.HitHandle(bounds, point, scale, out center);
@@ -128,8 +137,14 @@ public class SvgEditorInteractionController
     public void StartPathEditing(SvgPath path, DrawableBase drawable)
         => PathService.Start(path, drawable);
 
+    public void StartPathEditing(SvgPath path, SvgSceneNode sceneNode, DrawableBase? drawable = null)
+        => PathService.Start(path, sceneNode, drawable);
+
     public void StopPathEditing()
         => PathService.Stop();
+
+    public void SetPathEditTransform(Shim.SKMatrix matrix)
+        => PathService.SetEditTransform(matrix);
 
     public void AddPathPoint(Shim.SKPoint point)
         => PathService.AddPoint(point);

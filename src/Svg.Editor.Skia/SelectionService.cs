@@ -18,14 +18,26 @@ public class SelectionService
 
     public static SK.SKPoint Mid(SK.SKPoint a, SK.SKPoint b) => new((a.X + b.X) / 2f, (a.Y + b.Y) / 2f);
 
+    private static SK.SKPoint ToSkPoint(Shim.SKPoint point) => new(point.X, point.Y);
+
     public BoundsInfo GetBoundsInfo(DrawableBase drawable, SKSvg skSvg, Func<float> getScale)
     {
         var rect = drawable.GeometryBounds;
         var m = drawable.TotalTransform;
-        var tl = skSvg.SkiaModel.ToSKPoint(m.MapPoint(new Shim.SKPoint(rect.Left, rect.Top)));
-        var tr = skSvg.SkiaModel.ToSKPoint(m.MapPoint(new Shim.SKPoint(rect.Right, rect.Top)));
-        var br = skSvg.SkiaModel.ToSKPoint(m.MapPoint(new Shim.SKPoint(rect.Right, rect.Bottom)));
-        var bl = skSvg.SkiaModel.ToSKPoint(m.MapPoint(new Shim.SKPoint(rect.Left, rect.Bottom)));
+        return GetBoundsInfo(rect, m, getScale);
+    }
+
+    public BoundsInfo GetBoundsInfo(SvgSceneNode sceneNode, Func<float> getScale)
+    {
+        return GetBoundsInfo(sceneNode.GeometryBounds, sceneNode.TotalTransform, getScale);
+    }
+
+    private BoundsInfo GetBoundsInfo(Shim.SKRect rect, Shim.SKMatrix matrix, Func<float> getScale)
+    {
+        var tl = ToSkPoint(matrix.MapPoint(new Shim.SKPoint(rect.Left, rect.Top)));
+        var tr = ToSkPoint(matrix.MapPoint(new Shim.SKPoint(rect.Right, rect.Top)));
+        var br = ToSkPoint(matrix.MapPoint(new Shim.SKPoint(rect.Right, rect.Bottom)));
+        var bl = ToSkPoint(matrix.MapPoint(new Shim.SKPoint(rect.Left, rect.Bottom)));
         var topMid = Mid(tl, tr);
         var rightMid = Mid(tr, br);
         var bottomMid = Mid(br, bl);
