@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg;
+using Svg.Model.Drawables;
 using Svg.Model.Services;
 
 namespace Svg.Skia;
@@ -201,6 +202,30 @@ public partial class SKSvg
         return model is null ? null : SkiaModel.ToSKPicture(model);
     }
 
+    public DrawableBase? CreateRetainedSceneNodeDrawable(SvgSceneNode node)
+    {
+        if (node is null)
+        {
+            throw new System.ArgumentNullException(nameof(node));
+        }
+
+        return TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null
+            ? new SvgSceneDrawableProxy(sceneDocument, node)
+            : null;
+    }
+
+    public DrawableBase? CreateRetainedSceneDrawable(SvgElement element)
+    {
+        if (element is null)
+        {
+            throw new System.ArgumentNullException(nameof(element));
+        }
+
+        return TryGetRetainedSceneNode(element, out var node) && node is not null
+            ? CreateRetainedSceneNodeDrawable(node)
+            : null;
+    }
+
     public IEnumerable<SvgSceneNode> HitTestRetainedSceneNodes(SKPoint point)
     {
         if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
@@ -239,40 +264,42 @@ public partial class SKSvg
         }
     }
 
-    private void RefreshRetainedSceneGraphForAnimationFrame(SvgAnimationFrameState frameState, SvgAnimationFrameState? previousFrameState)
+    private bool TryPrepareRetainedSceneGraphForAnimationFrame(SvgAnimationFrameState frameState, SvgAnimationFrameState? previousFrameState, out SvgSceneDocument? sceneDocument)
     {
-        SvgSceneDocument? sceneDocument;
         SvgDocument? currentDocument;
 
         lock (Sync)
         {
-            sceneDocument = _retainedSceneGraph;
             currentDocument = _animatedDocument ?? SourceDocument;
-            if (_retainedSceneGraphDirty || sceneDocument is null || currentDocument is null)
-            {
-                return;
-            }
+        }
+
+        sceneDocument = null;
+        if (currentDocument is null)
+        {
+            return false;
+        }
+
+        if (!TryEnsureRetainedSceneGraph(out sceneDocument) || sceneDocument is null)
+        {
+            return false;
         }
 
         if (!ReferenceEquals(sceneDocument.SourceDocument, currentDocument))
         {
-            InvalidateRetainedSceneGraph();
-            return;
+            return TryRebuildRetainedSceneGraphForCurrentDocument(currentDocument, out sceneDocument);
         }
 
         foreach (var dirtyAttribute in frameState.EnumerateDirtyAttributes(previousFrameState))
         {
             if (!sceneDocument.TryResolveElement(dirtyAttribute.TargetAddress.Key, out var targetElement) || targetElement is null)
             {
-                InvalidateRetainedSceneGraph();
-                return;
+                return TryRebuildRetainedSceneGraphForCurrentDocument(currentDocument, out sceneDocument);
             }
 
             var result = sceneDocument.ApplyMutation(targetElement, new[] { dirtyAttribute.AttributeName });
             if (!result.Succeeded)
             {
-                InvalidateRetainedSceneGraph();
-                return;
+                return TryRebuildRetainedSceneGraphForCurrentDocument(currentDocument, out sceneDocument);
             }
         }
 
@@ -280,16 +307,34 @@ public partial class SKSvg
         {
             if (!sceneDocument.TryResolveElement(removedAttribute.TargetAddress.Key, out var targetElement) || targetElement is null)
             {
-                InvalidateRetainedSceneGraph();
-                return;
+                return TryRebuildRetainedSceneGraphForCurrentDocument(currentDocument, out sceneDocument);
             }
 
             var result = sceneDocument.ApplyMutation(targetElement, new[] { removedAttribute.AttributeName });
             if (!result.Succeeded)
             {
-                InvalidateRetainedSceneGraph();
-                return;
+                return TryRebuildRetainedSceneGraphForCurrentDocument(currentDocument, out sceneDocument);
             }
         }
+
+        return true;
+    }
+
+    private bool TryRebuildRetainedSceneGraphForCurrentDocument(SvgDocument currentDocument, out SvgSceneDocument? sceneDocument)
+    {
+        InvalidateRetainedSceneGraph();
+        if (!TryEnsureRetainedSceneGraph(out sceneDocument) || sceneDocument is null)
+        {
+            return false;
+        }
+
+        if (!ReferenceEquals(sceneDocument.SourceDocument, currentDocument))
+        {
+            InvalidateRetainedSceneGraph();
+            sceneDocument = null;
+            return false;
+        }
+
+        return true;
     }
 }

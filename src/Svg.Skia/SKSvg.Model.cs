@@ -740,6 +740,37 @@ public partial class SKSvg : IDisposable
         return picture;
     }
 
+    private bool RenderRetainedSceneDocument(SvgSceneDocument sceneDocument)
+    {
+        var model = sceneDocument.CreateModel();
+        if (model is null)
+        {
+            return false;
+        }
+
+        var picture = SkiaModel.ToSKPicture(model);
+        if (picture is null)
+        {
+            return false;
+        }
+
+        lock (Sync)
+        {
+            WaitForDrawsLocked();
+
+            Model = model;
+            Drawable = new SvgSceneDrawableProxy(sceneDocument, sceneDocument.Root);
+
+            _picture?.Dispose();
+            _picture = picture;
+
+            WireframePicture?.Dispose();
+            WireframePicture = null;
+        }
+
+        return true;
+    }
+
     private void ReplaceAnimationController(SvgAnimationController? controller)
     {
         if (AnimationController is { } existing)
@@ -833,6 +864,7 @@ public partial class SKSvg : IDisposable
             AnimationController.ApplyFrameState(_animatedDocument, frameState, _lastRenderedAnimationFrameState);
         }
 
+        var retainedSceneReady = TryPrepareRetainedSceneGraphForAnimationFrame(frameState, _lastRenderedAnimationFrameState, out var retainedSceneDocument);
         var rendered = false;
         if (UsesAnimationLayerCaching || TryInitializeAnimationLayerCaching())
         {
@@ -845,10 +877,16 @@ public partial class SKSvg : IDisposable
 
         if (!rendered)
         {
-            _ = RenderSvgDocument(_animatedDocument, invalidateRetainedSceneGraph: false);
+            rendered = retainedSceneReady &&
+                       retainedSceneDocument is not null &&
+                       RenderRetainedSceneDocument(retainedSceneDocument);
         }
 
-        RefreshRetainedSceneGraphForAnimationFrame(frameState, _lastRenderedAnimationFrameState);
+        if (!rendered)
+        {
+            _ = RenderSvgDocument(_animatedDocument, invalidateRetainedSceneGraph: true);
+        }
+
         _lastRenderedAnimationFrameState = frameState;
         _lastRenderedAnimationTime = frameState.Time;
         _pendingAnimationFrameState = null;

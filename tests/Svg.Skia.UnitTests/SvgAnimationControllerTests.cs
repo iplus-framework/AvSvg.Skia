@@ -154,11 +154,16 @@ public class SvgAnimationControllerTests
 
         Assert.True(svg.HasAnimations);
         Assert.False(svg.UsesAnimationLayerCaching);
+        Assert.Equal("SvgSceneDrawableProxy", svg.Drawable?.GetType().Name);
 
         svg.SetAnimationTime(TimeSpan.FromSeconds(1));
 
         Assert.False(svg.UsesAnimationLayerCaching);
         Assert.NotNull(svg.Picture);
+        Assert.Equal("SvgSceneDrawableProxy", svg.Drawable?.GetType().Name);
+
+        using var retainedPicture = svg.CreateRetainedSceneGraphPicture();
+        Assert.NotNull(retainedPicture);
     }
 
     [Fact]

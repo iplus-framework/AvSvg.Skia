@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using ShimSkiaSharp;
 using Svg;
 using Svg.Model;
@@ -120,8 +121,7 @@ public partial class SKSvg
 
         if (SourceDocument is not { } currentSourceDocument ||
             AnimationController is not { } animationController ||
-            !animationController.TryGetAnimatedTopLevelChildIndexes(out var candidateAnimatedChildIndexes) ||
-            candidateAnimatedChildIndexes.Count == 0 ||
+            AnimationController.GetAnimatedTargetAddressKeys() is not { Count: > 0 } animatedTargetKeys ||
             !TryGetNativeCompositionSourceBounds(out sourceBounds))
         {
             return false;
@@ -132,24 +132,49 @@ public partial class SKSvg
             return false;
         }
 
-        var renderableIndexes = new int[candidateAnimatedChildIndexes.Count];
-        for (var i = 0; i < candidateAnimatedChildIndexes.Count; i++)
+        var renderableIndexes = new SortedSet<int>();
+        for (var i = 0; i < animatedTargetKeys.Count; i++)
         {
-            var animatedChildIndex = candidateAnimatedChildIndexes[i];
-            if (animatedChildIndex < 0 ||
-                animatedChildIndex >= sourceScene.Root.Children.Count ||
-                !TryGetNativeCompositionRootNode(sourceScene, animatedChildIndex, out var layerNode) ||
-                layerNode is null ||
-                !CanRenderNativeCompositionRoot(layerNode))
+            if (!TryAddRenderableNativeCompositionAnimatedChildIndexes(sourceScene, animatedTargetKeys[i], renderableIndexes))
             {
                 return false;
             }
-
-            renderableIndexes[i] = animatedChildIndex;
         }
 
-        animatedChildIndexes = renderableIndexes;
+        if (renderableIndexes.Count == 0)
+        {
+            return false;
+        }
+
+        animatedChildIndexes = renderableIndexes.ToArray();
         return true;
+    }
+
+    private static bool TryAddRenderableNativeCompositionAnimatedChildIndexes(
+        SvgSceneDocument sceneDocument,
+        string addressKey,
+        ISet<int> renderableIndexes)
+    {
+        if (!sceneDocument.TryGetNodes(addressKey, out var nodes) || nodes.Count == 0)
+        {
+            return false;
+        }
+
+        var foundRenderableRoot = false;
+        for (var i = 0; i < nodes.Count; i++)
+        {
+            if (!TryGetNativeCompositionRootNode(sceneDocument, nodes[i], out var rootNode, out var documentChildIndex) ||
+                rootNode is null ||
+                !CanRenderNativeCompositionRoot(rootNode))
+            {
+                continue;
+            }
+
+            renderableIndexes.Add(documentChildIndex);
+            foundRenderableRoot = true;
+        }
+
+        return foundRenderableRoot;
     }
 
     private bool TryGetRetainedSceneForDocument(SvgDocument document, SKRect sourceBounds, out SvgSceneDocument sceneDocument)
@@ -182,6 +207,47 @@ public partial class SKSvg
         }
 
         node = sceneDocument.Root.Children[documentChildIndex];
+        return true;
+    }
+
+    private static bool TryGetNativeCompositionRootNode(
+        SvgSceneDocument sceneDocument,
+        SvgSceneNode node,
+        out SvgSceneNode? rootNode,
+        out int documentChildIndex)
+    {
+        rootNode = null;
+        documentChildIndex = -1;
+
+        var current = node;
+        while (current.Parent is { } parent && !ReferenceEquals(parent, sceneDocument.Root))
+        {
+            current = parent;
+        }
+
+        if (!ReferenceEquals(current.Parent, sceneDocument.Root))
+        {
+            return false;
+        }
+
+        documentChildIndex = -1;
+        for (var i = 0; i < sceneDocument.Root.Children.Count; i++)
+        {
+            if (!ReferenceEquals(sceneDocument.Root.Children[i], current))
+            {
+                continue;
+            }
+
+            documentChildIndex = i;
+            break;
+        }
+
+        if (documentChildIndex < 0)
+        {
+            return false;
+        }
+
+        rootNode = current;
         return true;
     }
 
