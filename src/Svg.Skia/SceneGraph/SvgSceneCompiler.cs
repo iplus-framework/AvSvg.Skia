@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Reflection;
 using ShimSkiaSharp;
 using Svg;
 using Svg.DataTypes;
@@ -13,8 +12,6 @@ namespace Svg.Skia;
 
 public static class SvgSceneCompiler
 {
-    private static readonly FieldInfo? s_svgElementParentField = typeof(SvgElement).GetField("_parent", BindingFlags.NonPublic | BindingFlags.Instance);
-
     public static bool TryCompile(
         SvgDocument? sourceDocument,
         SKRect cullRect,
@@ -1265,21 +1262,7 @@ public static class SvgSceneCompiler
 
     private static T WithTemporaryParent<T>(SvgElement element, SvgElement temporaryParent, Func<T> factory)
     {
-        if (s_svgElementParentField is null)
-        {
-            return factory();
-        }
-
-        var originalParent = element.Parent;
-        try
-        {
-            s_svgElementParentField.SetValue(element, temporaryParent);
-            return factory();
-        }
-        finally
-        {
-            s_svgElementParentField.SetValue(element, originalParent);
-        }
+        return element.WithTemporaryParent(temporaryParent, factory);
     }
 
     private static void AppendDirectMarkers(
