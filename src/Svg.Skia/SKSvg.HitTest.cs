@@ -3,7 +3,6 @@
 using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg.Model.Drawables;
-using Svg.Model.Services;
 
 namespace Svg.Skia;
 
@@ -16,11 +15,11 @@ public partial class SKSvg
     /// <returns>Enumerable of drawables containing the point.</returns>
     public IEnumerable<DrawableBase> HitTestDrawables(SKPoint point)
     {
-        if (Drawable is DrawableBase drawable)
+        if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
         {
-            foreach (var d in HitTestService.HitTest(drawable, point))
+            foreach (var node in SvgSceneHitTestService.HitTest(sceneDocument, point))
             {
-                yield return d;
+                yield return new SvgSceneDrawableProxy(sceneDocument, node);
             }
         }
     }
@@ -32,11 +31,11 @@ public partial class SKSvg
     /// <returns>Enumerable of drawables intersecting the rectangle.</returns>
     public IEnumerable<DrawableBase> HitTestDrawables(SKRect rect)
     {
-        if (Drawable is DrawableBase drawable)
+        if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
         {
-            foreach (var d in HitTestService.HitTest(drawable, rect))
+            foreach (var node in SvgSceneHitTestService.HitTest(sceneDocument, rect))
             {
-                yield return d;
+                yield return new SvgSceneDrawableProxy(sceneDocument, node);
             }
         }
     }
@@ -48,11 +47,14 @@ public partial class SKSvg
     /// <returns>Enumerable of elements containing the point.</returns>
     public IEnumerable<SvgElement> HitTestElements(SKPoint point)
     {
-        if (Drawable is DrawableBase drawable)
+        if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
         {
-            foreach (var e in HitTestService.HitTestElements(drawable, point))
+            foreach (var node in SvgSceneHitTestService.HitTest(sceneDocument, point))
             {
-                yield return e;
+                if (node.HitTestTargetElement is { } element)
+                {
+                    yield return element;
+                }
             }
         }
     }
@@ -64,11 +66,14 @@ public partial class SKSvg
     /// <returns>Enumerable of elements intersecting the rectangle.</returns>
     public IEnumerable<SvgElement> HitTestElements(SKRect rect)
     {
-        if (Drawable is DrawableBase drawable)
+        if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
         {
-            foreach (var e in HitTestService.HitTestElements(drawable, rect))
+            foreach (var node in SvgSceneHitTestService.HitTest(sceneDocument, rect))
             {
-                yield return e;
+                if (node.HitTestTargetElement is { } element)
+                {
+                    yield return element;
+                }
             }
         }
     }

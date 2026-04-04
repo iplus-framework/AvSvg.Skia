@@ -66,6 +66,24 @@ public class SvgInteractionDispatcherTests : SvgUnitTest
         </svg>
         """;
 
+    private const string UseInstanceSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="40"
+             height="20">
+          <defs>
+            <rect id="template" x="0" y="0" width="10" height="8" fill="forestgreen" />
+          </defs>
+          <use id="instance" xlink:href="#template" />
+        </svg>
+        """;
+
+    private const string SparseHitSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="20">
+          <rect id="target" x="10" y="2" width="10" height="8" fill="forestgreen" />
+        </svg>
+        """;
+
     [Fact]
     public void HitTestTopmostElement_ReturnsTopmostLeaf()
     {
@@ -125,6 +143,28 @@ public class SvgInteractionDispatcherTests : SvgUnitTest
 
         Assert.Equal("back", clippedElement?.ID);
         Assert.Equal("front", visibleElement?.ID);
+    }
+
+    [Fact]
+    public void HitTestTopmostElement_DoesNotReturnStructuralRootForEmptySpace()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(SparseHitSvg);
+
+        var element = svg.HitTestTopmostElement(new SKPoint(2, 2));
+
+        Assert.Null(element);
+    }
+
+    [Fact]
+    public void HitTestTopmostElement_UsesOwningUseElementForGeneratedContent()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(UseInstanceSvg);
+
+        var element = svg.HitTestTopmostElement(new SKPoint(2, 2));
+
+        Assert.Equal("instance", element?.ID);
     }
 
     [Fact]

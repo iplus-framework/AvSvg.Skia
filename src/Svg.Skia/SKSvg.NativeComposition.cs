@@ -3,9 +3,6 @@ using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg;
 using Svg.Model;
-using Svg.Model.Drawables;
-using Svg.Model.Drawables.Factories;
-using Svg.Transforms;
 
 namespace Svg.Skia;
 
@@ -23,18 +20,29 @@ public partial class SKSvg
     {
         scene = null;
 
-        if (!TryGetNativeCompositionState(out var sourceDocument, out var currentDocument, out var animatedChildIndexes, out var sourceBounds))
+        if (!TryGetNativeCompositionState(
+                out var sourceScene,
+                out var currentScene,
+                out var animatedChildIndexes,
+                out var sourceBounds))
         {
             return false;
         }
 
         var animatedChildIndexSet = new HashSet<int>(animatedChildIndexes);
-        var layers = new List<SvgNativeCompositionLayer>(sourceDocument.Children.Count);
+        var layers = new List<SvgNativeCompositionLayer>(sourceScene.Root.Children.Count);
 
-        for (var i = 0; i < sourceDocument.Children.Count; i++)
+        for (var i = 0; i < sourceScene.Root.Children.Count; i++)
         {
-            var element = animatedChildIndexSet.Contains(i) ? currentDocument.Children[i] : sourceDocument.Children[i];
-            layers.Add(CreateNativeCompositionLayer(element, i, animatedChildIndexSet.Contains(i), sourceBounds));
+            var isAnimated = animatedChildIndexSet.Contains(i);
+            var layerScene = isAnimated ? currentScene : sourceScene;
+            if (!TryGetNativeCompositionRootNode(layerScene, i, out var layerNode) || layerNode is null)
+            {
+                layers.Add(CreateHiddenNativeCompositionLayer(i, isAnimated));
+                continue;
+            }
+
+            layers.Add(CreateNativeCompositionLayer(layerScene, layerNode, i, isAnimated));
         }
 
         scene = new SvgNativeCompositionScene(sourceBounds, layers);
@@ -45,7 +53,11 @@ public partial class SKSvg
     {
         frame = null;
 
-        if (!TryGetNativeCompositionState(out _, out var currentDocument, out var animatedChildIndexes, out var sourceBounds))
+        if (!TryGetNativeCompositionState(
+                out _,
+                out var currentScene,
+                out var animatedChildIndexes,
+                out var sourceBounds))
         {
             return false;
         }
@@ -53,12 +65,18 @@ public partial class SKSvg
         var layers = new List<SvgNativeCompositionLayer>(animatedChildIndexes.Count);
         foreach (var animatedChildIndex in animatedChildIndexes)
         {
-            if (animatedChildIndex < 0 || animatedChildIndex >= currentDocument.Children.Count)
+            if (animatedChildIndex < 0 || animatedChildIndex >= currentScene.Root.Children.Count)
             {
                 return false;
             }
 
-            layers.Add(CreateNativeCompositionLayer(currentDocument.Children[animatedChildIndex], animatedChildIndex, isAnimated: true, sourceBounds));
+            if (!TryGetNativeCompositionRootNode(currentScene, animatedChildIndex, out var layerNode) || layerNode is null)
+            {
+                layers.Add(CreateHiddenNativeCompositionLayer(animatedChildIndex, isAnimated: true));
+                continue;
+            }
+
+            layers.Add(CreateNativeCompositionLayer(currentScene, layerNode, animatedChildIndex, isAnimated: true));
         }
 
         frame = new SvgNativeCompositionFrame(sourceBounds, layers);
@@ -66,33 +84,37 @@ public partial class SKSvg
     }
 
     private bool TryGetNativeCompositionState(
-        out SvgDocument sourceDocument,
-        out SvgDocument currentDocument,
+        out SvgSceneDocument sourceScene,
+        out SvgSceneDocument currentScene,
         out IReadOnlyList<int> animatedChildIndexes,
         out SKRect sourceBounds)
     {
-        sourceDocument = null!;
-        currentDocument = null!;
+        sourceScene = null!;
+        currentScene = null!;
         animatedChildIndexes = Array.Empty<int>();
         sourceBounds = SKRect.Empty;
 
-        if (!TryGetRenderableNativeCompositionAnimatedChildIndexes(out sourceDocument, out var renderableAnimatedChildIndexes, out sourceBounds) ||
+        if (!TryGetRenderableNativeCompositionAnimatedChildIndexes(out sourceScene, out var renderableAnimatedChildIndexes, out sourceBounds) ||
             AnimationController is not { } animationController)
         {
             return false;
         }
 
         animatedChildIndexes = renderableAnimatedChildIndexes;
-        currentDocument = GetNativeCompositionDocument(animationController);
+        if (!TryGetRetainedSceneForDocument(GetNativeCompositionDocument(animationController), sourceBounds, out currentScene))
+        {
+            return false;
+        }
+
         return true;
     }
 
     private bool TryGetRenderableNativeCompositionAnimatedChildIndexes(
-        out SvgDocument sourceDocument,
+        out SvgSceneDocument sourceScene,
         out int[] animatedChildIndexes,
         out SKRect sourceBounds)
     {
-        sourceDocument = null!;
+        sourceScene = null!;
         animatedChildIndexes = Array.Empty<int>();
         sourceBounds = SKRect.Empty;
 
@@ -105,13 +127,20 @@ public partial class SKSvg
             return false;
         }
 
+        if (!TryGetRetainedSceneForDocument(currentSourceDocument, sourceBounds, out sourceScene))
+        {
+            return false;
+        }
+
         var renderableIndexes = new int[candidateAnimatedChildIndexes.Count];
         for (var i = 0; i < candidateAnimatedChildIndexes.Count; i++)
         {
             var animatedChildIndex = candidateAnimatedChildIndexes[i];
             if (animatedChildIndex < 0 ||
-                animatedChildIndex >= currentSourceDocument.Children.Count ||
-                !CanRenderNativeCompositionRoot(currentSourceDocument.Children[animatedChildIndex], sourceBounds))
+                animatedChildIndex >= sourceScene.Root.Children.Count ||
+                !TryGetNativeCompositionRootNode(sourceScene, animatedChildIndex, out var layerNode) ||
+                layerNode is null ||
+                !CanRenderNativeCompositionRoot(layerNode))
             {
                 return false;
             }
@@ -119,8 +148,40 @@ public partial class SKSvg
             renderableIndexes[i] = animatedChildIndex;
         }
 
-        sourceDocument = currentSourceDocument;
         animatedChildIndexes = renderableIndexes;
+        return true;
+    }
+
+    private bool TryGetRetainedSceneForDocument(SvgDocument document, SKRect sourceBounds, out SvgSceneDocument sceneDocument)
+    {
+        if (TryEnsureRetainedSceneGraph(out var retainedSceneDocument) &&
+            retainedSceneDocument is not null &&
+            ReferenceEquals(retainedSceneDocument.SourceDocument, document))
+        {
+            sceneDocument = retainedSceneDocument;
+            return true;
+        }
+
+        if (SvgSceneCompiler.TryCompile(document, sourceBounds, AssetLoader, IgnoreAttributes, out var compiledSceneDocument) &&
+            compiledSceneDocument is not null)
+        {
+            sceneDocument = compiledSceneDocument;
+            return true;
+        }
+
+        sceneDocument = null!;
+        return false;
+    }
+
+    private static bool TryGetNativeCompositionRootNode(SvgSceneDocument sceneDocument, int documentChildIndex, out SvgSceneNode? node)
+    {
+        node = null;
+        if (documentChildIndex < 0 || documentChildIndex >= sceneDocument.Root.Children.Count)
+        {
+            return false;
+        }
+
+        node = sceneDocument.Root.Children[documentChildIndex];
         return true;
     }
 
@@ -164,24 +225,20 @@ public partial class SKSvg
     }
 
     private SvgNativeCompositionLayer CreateNativeCompositionLayer(
-        SvgElement element,
+        SvgSceneDocument sceneDocument,
+        SvgSceneNode node,
         int documentChildIndex,
-        bool isAnimated,
-        SKRect sourceBounds)
+        bool isAnimated)
     {
-        var references = new HashSet<Uri> { element.OwnerDocument.BaseUri };
-        var drawable = DrawableFactory.Create(element, sourceBounds, null, AssetLoader, references, _ignoreAttributes);
-        if (drawable is null)
+        if (!node.IsDrawable)
         {
             return CreateHiddenNativeCompositionLayer(documentChildIndex, isAnimated);
         }
 
-        drawable.PostProcess(sourceBounds, SKMatrix.Identity);
-
-        var canExtractTranslation = TryGetNativeCompositionTranslation(element, out var nativeTranslation);
-        var opacity = TryGetNativeCompositionOpacity(element);
+        var canExtractTranslation = TryGetNativeCompositionTranslation(node, out var nativeTranslation);
+        var opacity = TryGetNativeCompositionOpacity(node);
         var canExtractOpacity = opacity < 1f;
-        var drawBounds = GetNativeCompositionRenderBounds(drawable);
+        var drawBounds = SvgSceneNodeBoundsService.GetRenderableBounds(node);
         if (canExtractTranslation)
         {
             drawBounds = OffsetRect(drawBounds, -nativeTranslation.X, -nativeTranslation.Y);
@@ -193,7 +250,8 @@ public partial class SKSvg
         }
 
         var picture = RecordNativeCompositionPicture(
-            drawable,
+            sceneDocument,
+            node,
             drawBounds,
             extractOpacity: canExtractOpacity,
             extractTranslation: canExtractTranslation);
@@ -203,7 +261,7 @@ public partial class SKSvg
             drawBounds.Top + nativeTranslation.Y);
 
         return new SvgNativeCompositionLayer(
-            documentChildIndex,
+            GetNativeCompositionDocumentChildIndex(node, documentChildIndex),
             isAnimated,
             picture,
             offset,
@@ -212,47 +270,20 @@ public partial class SKSvg
             isVisible: true);
     }
 
-    private bool CanRenderNativeCompositionRoot(SvgElement element, SKRect sourceBounds)
+    private static bool CanRenderNativeCompositionRoot(SvgSceneNode node)
     {
-        var references = new HashSet<Uri> { element.OwnerDocument.BaseUri };
-        var drawable = DrawableFactory.Create(element, sourceBounds, null, AssetLoader, references, _ignoreAttributes);
-        if (drawable is null)
+        if (!node.IsDrawable)
         {
             return false;
         }
 
-        drawable.PostProcess(sourceBounds, SKMatrix.Identity);
-
-        var drawBounds = GetNativeCompositionRenderBounds(drawable);
-        if (TryGetNativeCompositionTranslation(element, out var nativeTranslation))
+        var drawBounds = SvgSceneNodeBoundsService.GetRenderableBounds(node);
+        if (TryGetNativeCompositionTranslation(node, out var nativeTranslation))
         {
             drawBounds = OffsetRect(drawBounds, -nativeTranslation.X, -nativeTranslation.Y);
         }
 
         return !drawBounds.IsEmpty && drawBounds.Width > 0 && drawBounds.Height > 0;
-    }
-
-    private static SKRect GetNativeCompositionRenderBounds(DrawableBase drawable)
-    {
-        var bounds = drawable.TransformedBounds;
-
-        if (drawable is DrawableContainer container)
-        {
-            foreach (var child in container.ChildrenDrawables)
-            {
-                var childBounds = GetNativeCompositionRenderBounds(child);
-                if (childBounds.IsEmpty)
-                {
-                    continue;
-                }
-
-                bounds = bounds.IsEmpty
-                    ? childBounds
-                    : SKRect.Union(bounds, childBounds);
-            }
-        }
-
-        return bounds;
     }
 
     private static SKRect OffsetRect(SKRect rect, float dx, float dy)
@@ -277,8 +308,28 @@ public partial class SKSvg
             isVisible: false);
     }
 
+    private static int GetNativeCompositionDocumentChildIndex(SvgSceneNode node, int fallbackIndex)
+    {
+        var elementAddressKey = node.ElementAddressKey;
+        if (string.IsNullOrWhiteSpace(elementAddressKey))
+        {
+            return fallbackIndex;
+        }
+
+        var resolvedElementAddressKey = elementAddressKey!;
+        var separatorIndex = resolvedElementAddressKey.IndexOf('/');
+        var topLevelIndexText = separatorIndex >= 0
+            ? resolvedElementAddressKey.Substring(0, separatorIndex)
+            : resolvedElementAddressKey;
+
+        return int.TryParse(topLevelIndexText, out var topLevelIndex)
+            ? topLevelIndex
+            : fallbackIndex;
+    }
+
     private SKPicture RecordNativeCompositionPicture(
-        DrawableBase drawable,
+        SvgSceneDocument sceneDocument,
+        SvgSceneNode node,
         SKRect drawBounds,
         bool extractOpacity,
         bool extractTranslation)
@@ -297,49 +348,39 @@ public partial class SKSvg
             ignoreAttributes |= DrawAttributes.Opacity;
         }
 
-        drawable.Draw(canvas, ignoreAttributes, until: null, enableTransform: !extractTranslation);
+        SvgSceneRenderer.RenderNodeToCanvas(sceneDocument, node, canvas, ignoreAttributes, until: null, enableTransform: !extractTranslation);
         return recorder.EndRecording();
     }
 
-    private static bool TryGetNativeCompositionTranslation(SvgElement element, out SKPoint translation)
+    private static bool TryGetNativeCompositionTranslation(SvgSceneNode node, out SKPoint translation)
     {
         translation = SKPoint.Empty;
 
-        if (element.Transforms is not { Count: > 0 } transforms)
+        var transform = node.Transform;
+        if (transform.ScaleX != 1f ||
+            transform.ScaleY != 1f ||
+            transform.SkewX != 0f ||
+            transform.SkewY != 0f ||
+            transform.Persp0 != 0f ||
+            transform.Persp1 != 0f ||
+            transform.Persp2 != 1f ||
+            (transform.TransX == 0f && transform.TransY == 0f))
         {
             return false;
         }
 
-        float x = 0f;
-        float y = 0f;
-        foreach (var transform in transforms)
-        {
-            if (transform is not SvgTranslate translate)
-            {
-                return false;
-            }
-
-            x += translate.X;
-            y += translate.Y;
-        }
-
-        if (x == 0f && y == 0f)
-        {
-            return false;
-        }
-
-        translation = new SKPoint(x, y);
+        translation = new SKPoint(transform.TransX, transform.TransY);
         return true;
     }
 
-    private static float TryGetNativeCompositionOpacity(SvgElement element)
+    private static float TryGetNativeCompositionOpacity(SvgSceneNode node)
     {
-        if (element is not ISvgStylable stylable)
+        var opacity = node.OpacityValue;
+        if (opacity >= 1f)
         {
             return 1f;
         }
 
-        var opacity = stylable.Opacity;
         if (opacity <= 0f)
         {
             return 0f;

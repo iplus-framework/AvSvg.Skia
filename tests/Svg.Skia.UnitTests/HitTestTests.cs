@@ -1,6 +1,7 @@
 using System.IO;
 using System.Linq;
 using ShimSkiaSharp;
+using Svg;
 using Svg.Model.Services;
 using Svg.Skia;
 using Svg.Skia.UnitTests.Common;
@@ -29,6 +30,33 @@ public class HitTestTests : SvgUnitTest
         </svg>
         """;
 
+    private const string UseHitTestSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <defs>
+            <rect id="template" x="0" y="0" width="10" height="10" fill="red" />
+          </defs>
+          <use id="instance" xlink:href="#template" />
+        </svg>
+        """;
+
+    private const string RetainedPointerEventsSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+          <rect id="target"
+                x="2"
+                y="2"
+                width="20"
+                height="20"
+                fill="red"
+                stroke="black"
+                stroke-width="2"
+                pointer-events="none" />
+        </svg>
+        """;
+
     private static string GetSvgPath(string name)
         => Path.Combine("..", "..", "..", "..", "Tests", name);
 
@@ -49,7 +77,7 @@ public class HitTestTests : SvgUnitTest
         using var _ = svg.Load(GetSvgPath("HitTest.svg"));
 
         var results = svg.HitTestElements(new SKPoint(10, 10)).Select(e => e.ID).ToList();
-        Assert.Equal(new[] { "outer", null }, results);
+        Assert.Equal(new[] { "outer" }, results);
     }
 
     [Fact]
@@ -134,5 +162,39 @@ public class HitTestTests : SvgUnitTest
 
         Assert.DoesNotContain("front", results);
         Assert.Contains("back", results);
+    }
+
+    [Fact]
+    public void HitTest_Point_UseElement_ReturnsOwningUseElement()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(UseHitTestSvg);
+
+        var results = svg.HitTestElements(new SKPoint(2, 2)).Select(e => e.ID).ToList();
+
+        Assert.Contains("instance", results);
+        Assert.DoesNotContain("template", results);
+    }
+
+    [Fact]
+    public void HitTest_Point_UsesRetainedPointerEventState_NotLiveDomState()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(RetainedPointerEventsSvg);
+
+        var scene = svg.RetainedSceneGraph;
+        Assert.NotNull(scene);
+
+        var sourceDocument = scene!.SourceDocument;
+        Assert.NotNull(sourceDocument);
+
+        var target = Assert.IsType<SvgRectangle>(sourceDocument.GetElementById("target"));
+        var initialTarget = svg.HitTestTopmostElement(new SKPoint(12, 12));
+        Assert.Null(initialTarget);
+
+        target.PointerEvents = SvgPointerEvents.All;
+
+        var retainedTarget = svg.HitTestTopmostElement(new SKPoint(12, 12));
+        Assert.Null(retainedTarget);
     }
 }

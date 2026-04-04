@@ -1,21 +1,59 @@
+using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg.Model.Drawables;
-using Svg.Model.Services;
 
 namespace Svg.Skia;
 
 public partial class SKSvg
 {
+    public IEnumerable<SvgSceneNode> HitTestSceneNodes(SKPoint point)
+    {
+        if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
+        {
+            foreach (var node in sceneDocument.HitTest(point))
+            {
+                yield return node;
+            }
+        }
+    }
+
+    public IEnumerable<SvgSceneNode> HitTestSceneNodes(SKRect rect)
+    {
+        if (TryEnsureRetainedSceneGraph(out var sceneDocument) && sceneDocument is not null)
+        {
+            foreach (var node in sceneDocument.HitTest(rect))
+            {
+                yield return node;
+            }
+        }
+    }
+
+    public SvgSceneNode? HitTestTopmostSceneNode(SKPoint point)
+    {
+        if (!TryEnsureRetainedSceneGraph(out var sceneDocument) || sceneDocument is null)
+        {
+            return null;
+        }
+
+        return sceneDocument.HitTestTopmostNode(point);
+    }
+
     public DrawableBase? HitTestTopmostDrawable(SKPoint point)
     {
-        return Drawable is DrawableBase drawable
-            ? SvgInteractionHitTest.HitTestTopmostDrawable(drawable, point)
-            : null;
+        if (!TryEnsureRetainedSceneGraph(out var sceneDocument) || sceneDocument is null)
+        {
+            return null;
+        }
+
+        var node = sceneDocument.HitTestTopmostNode(point);
+        return node is null || node.HitTestTargetElement is null
+            ? null
+            : new SvgSceneDrawableProxy(sceneDocument, node);
     }
 
     public SvgElement? HitTestTopmostElement(SKPoint point)
     {
-        return HitTestTopmostDrawable(point)?.Element;
+        return HitTestTopmostSceneNode(point)?.HitTestTargetElement;
     }
 
     public DrawableBase? HitTestTopmostDrawable(SKPoint point, SKMatrix canvasMatrix)
@@ -29,31 +67,6 @@ public partial class SKSvg
     {
         return TryGetPicturePoint(point, canvasMatrix, out var picturePoint)
             ? HitTestTopmostElement(picturePoint)
-            : null;
-    }
-}
-
-internal static class SvgInteractionHitTest
-{
-    public static DrawableBase? HitTestTopmostDrawable(DrawableBase drawable, SKPoint point)
-    {
-        if (drawable is DrawableContainer container)
-        {
-            for (var index = container.ChildrenDrawables.Count - 1; index >= 0; index--)
-            {
-                var child = container.ChildrenDrawables[index];
-                var childHit = HitTestTopmostDrawable(child, point);
-                if (childHit is not null)
-                {
-                    return childHit;
-                }
-            }
-
-            return null;
-        }
-
-        return HitTestService.HitTestPointer(drawable, point)
-            ? drawable
             : null;
     }
 }

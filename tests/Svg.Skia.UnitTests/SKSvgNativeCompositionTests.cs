@@ -1,4 +1,6 @@
 using System;
+using Svg;
+using Svg.Transforms;
 using Xunit;
 
 namespace Svg.Skia.UnitTests;
@@ -84,15 +86,53 @@ public class SKSvgNativeCompositionTests
     }
 
     [Fact]
-    public void SupportsNativeComposition_ReturnsFalseForDefsBackedAnimatedTargets()
+    public void SupportsNativeComposition_SupportsDefsBackedAnimatedUseTargets()
     {
         using var svg = new SKSvg();
         svg.FromSvg(DefsBackedUseAnimationSvg);
 
         Assert.True(svg.HasAnimations);
-        Assert.False(svg.SupportsNativeComposition);
-        Assert.False(svg.TryCreateNativeCompositionScene(out _));
-        Assert.False(svg.TryCreateNativeCompositionFrame(out _));
+        Assert.True(svg.SupportsNativeComposition);
+        Assert.True(svg.TryCreateNativeCompositionScene(out var scene));
+        Assert.NotNull(scene);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+
+        Assert.True(svg.TryCreateNativeCompositionFrame(out var frame));
+        Assert.NotNull(frame);
+        var animatedLayer = Assert.Single(frame!.Layers);
+        Assert.Equal(1, animatedLayer.DocumentChildIndex);
+        Assert.True(animatedLayer.IsAnimated);
+        Assert.True(animatedLayer.IsVisible);
+        Assert.NotNull(animatedLayer.Picture);
+    }
+
+    [Fact]
+    public void TryCreateNativeCompositionScene_UsesRetainedSceneState_NotLiveDomMutation()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(NativeCompositionSceneSvg);
+
+        var retainedScene = svg.RetainedSceneGraph;
+        Assert.NotNull(retainedScene);
+
+        var sourceDocument = retainedScene!.SourceDocument;
+        Assert.NotNull(sourceDocument);
+
+        var animated = Assert.IsType<SvgRectangle>(sourceDocument.GetElementById("animated"));
+        animated.Opacity = 0.9f;
+        animated.Transforms = new SvgTransformCollection
+        {
+            new SvgTranslate(20, 30)
+        };
+
+        Assert.True(svg.TryCreateNativeCompositionScene(out var scene));
+        Assert.NotNull(scene);
+
+        var animatedLayer = scene!.Layers[1];
+        Assert.Equal(4f, animatedLayer.Offset.X, 3);
+        Assert.Equal(6f, animatedLayer.Offset.Y, 3);
+        Assert.Equal(0.5f, animatedLayer.Opacity, 3);
     }
 
     private const string NativeCompositionSceneSvg = """
