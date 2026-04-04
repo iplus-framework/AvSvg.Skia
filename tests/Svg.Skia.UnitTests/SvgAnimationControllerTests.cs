@@ -268,6 +268,20 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void CreateAnimatedDocument_TreatsRepeatDurIndefiniteAsUnbounded()
+    {
+        var document = SvgService.FromSvg(RepeatDurationIndefiniteAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(4.5));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(5f, target!.X.Value, 3);
+    }
+
+    [Fact]
     public void Dispatcher_ClickOffsetEvent_StartsAnimationAtScheduledTime()
     {
         using var svg = new SKSvg();
@@ -686,6 +700,17 @@ public class SvgAnimationControllerTests
           <rect id="target" x="0" y="0" width="4" height="4" fill="red">
             <animate attributeName="x" from="0" to="10" dur="2s" fill="freeze" />
             <animate attributeName="x" from="0" to="5" dur="2s" additive="sum" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string RepeatDurationIndefiniteAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="1s" repeatDur="indefinite" />
           </rect>
         </svg>
         """;

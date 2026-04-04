@@ -182,6 +182,13 @@ public sealed class SvgAnimationController : IDisposable
         Indefinite
     }
 
+    private enum RepeatDurationMode
+    {
+        None,
+        Finite,
+        Indefinite
+    }
+
     private readonly struct AnimationSample
     {
         public AnimationSample(float progress, int iterationIndex)
@@ -1125,9 +1132,14 @@ public sealed class SvgAnimationController : IDisposable
                 break;
         }
 
-        if (TryParseClockValue(animation.RepeatDuration, out var repeatDuration))
+        switch (ParseRepeatDuration(animation.RepeatDuration, out var repeatDuration))
         {
-            totalDuration = MinDuration(totalDuration, repeatDuration);
+            case RepeatDurationMode.Indefinite:
+                totalDuration = null;
+                break;
+            case RepeatDurationMode.Finite:
+                totalDuration = MinDuration(totalDuration, repeatDuration);
+                break;
         }
 
         if (explicitEnd.HasValue && explicitEnd.Value > begin)
@@ -1231,6 +1243,31 @@ public sealed class SvgAnimationController : IDisposable
         }
 
         return false;
+    }
+
+    private static RepeatDurationMode ParseRepeatDuration(string? value, out TimeSpan repeatDuration)
+    {
+        repeatDuration = default;
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return RepeatDurationMode.None;
+        }
+
+        var trimmed = value?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return RepeatDurationMode.None;
+        }
+
+        if (string.Equals(trimmed, "indefinite", StringComparison.OrdinalIgnoreCase))
+        {
+            return RepeatDurationMode.Indefinite;
+        }
+
+        return TryParseClockValue(trimmed, out repeatDuration) && repeatDuration >= TimeSpan.Zero
+            ? RepeatDurationMode.Finite
+            : RepeatDurationMode.None;
     }
 
     private static bool TryParseColonClockValue(string value, out TimeSpan result)
