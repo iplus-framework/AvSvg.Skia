@@ -202,6 +202,25 @@ public sealed class SvgAnimationController : IDisposable
         public int IterationIndex { get; }
     }
 
+    private readonly struct CubicBezierSpline
+    {
+        public CubicBezierSpline(float x1, float y1, float x2, float y2)
+        {
+            X1 = x1;
+            Y1 = y1;
+            X2 = x2;
+            Y2 = y2;
+        }
+
+        public float X1 { get; }
+
+        public float Y1 { get; }
+
+        public float X2 { get; }
+
+        public float Y2 { get; }
+    }
+
     private static readonly ConcurrentDictionary<Type, MethodInfo?> s_getValueMethods = new();
     private static readonly ConcurrentDictionary<Type, MethodInfo?> s_setValueMethods = new();
     private static readonly PropertyInfo? s_attributesProperty = typeof(SvgElement).GetProperty(
@@ -902,7 +921,7 @@ public sealed class SvgAnimationController : IDisposable
         }
 
         var hasDuration = TryParseClockValue(animation.Duration, out var duration);
-        if (!hasDuration || duration <= TimeSpan.Zero)
+        if (!hasDuration)
         {
             if (!allowIndefiniteDiscrete)
             {
@@ -911,6 +930,11 @@ public sealed class SvgAnimationController : IDisposable
 
             sample = new AnimationSample(1f, 0);
             return true;
+        }
+
+        if (duration < TimeSpan.Zero)
+        {
+            return false;
         }
 
         if (duration == TimeSpan.Zero)
@@ -1091,7 +1115,7 @@ public sealed class SvgAnimationController : IDisposable
         }
 
         var hasDuration = TryParseClockValue(animation.Duration, out var duration);
-        if (!hasDuration || duration <= TimeSpan.Zero)
+        if (!hasDuration)
         {
             if (!allowIndefiniteDiscrete)
             {
@@ -1100,6 +1124,11 @@ public sealed class SvgAnimationController : IDisposable
 
             activeEnd = explicitEnd;
             return true;
+        }
+
+        if (duration < TimeSpan.Zero)
+        {
+            return false;
         }
 
         activeEnd = ComputeActiveEnd(animation, begin, duration, explicitEnd);
@@ -1135,7 +1164,11 @@ public sealed class SvgAnimationController : IDisposable
         switch (ParseRepeatDuration(animation.RepeatDuration, out var repeatDuration))
         {
             case RepeatDurationMode.Indefinite:
-                totalDuration = null;
+                if (repeatCountMode != RepeatCountMode.Finite)
+                {
+                    totalDuration = null;
+                }
+
                 break;
             case RepeatDurationMode.Finite:
                 totalDuration = MinDuration(totalDuration, repeatDuration);
@@ -1329,7 +1362,15 @@ public sealed class SvgAnimationController : IDisposable
             return TryApplyAccumulation(binding, animation, values, sample, forceColorInterpolation, ref value);
         }
 
-        ResolveInterpolatedSegment(values.Count, animation.KeyTimes, sample.Progress, out var startIndex, out var endIndex, out var localProgress);
+        ResolveInterpolatedSegment(
+            values.Count,
+            animation.KeyTimes,
+            animation.KeySplines,
+            animation.CalcMode,
+            sample.Progress,
+            out var startIndex,
+            out var endIndex,
+            out var localProgress);
         var fromValue = values[startIndex];
         var toValue = values[endIndex];
 
@@ -1367,7 +1408,15 @@ public sealed class SvgAnimationController : IDisposable
             return TryCreateTransformString(animation.TransformType, discreteValues, out transformValue);
         }
 
-        ResolveInterpolatedSegment(values.Count, animation.KeyTimes, sample.Progress, out var startIndex, out var endIndex, out var localProgress);
+        ResolveInterpolatedSegment(
+            values.Count,
+            animation.KeyTimes,
+            animation.KeySplines,
+            animation.CalcMode,
+            sample.Progress,
+            out var startIndex,
+            out var endIndex,
+            out var localProgress);
         var fromValues = ParseTransformNumbers(values[startIndex]);
         var toValues = ParseTransformNumbers(values[endIndex]);
         var interpolated = InterpolateTransformNumbers(animation.TransformType, fromValues, toValues, localProgress);
@@ -1460,7 +1509,15 @@ public sealed class SvgAnimationController : IDisposable
             return ParseMotionDiscreteProgress(animation.KeyPoints, animation.KeyTimes, progress);
         }
 
-        ResolveInterpolatedSegment(animation.KeyPoints.Count, animation.KeyTimes, progress, out var startIndex, out var endIndex, out var localProgress);
+        ResolveInterpolatedSegment(
+            animation.KeyPoints.Count,
+            animation.KeyTimes,
+            animation.KeySplines,
+            animation.CalcMode,
+            progress,
+            out var startIndex,
+            out var endIndex,
+            out var localProgress);
         return Lerp(animation.KeyPoints[startIndex], animation.KeyPoints[endIndex], localProgress);
     }
 
@@ -1528,7 +1585,15 @@ public sealed class SvgAnimationController : IDisposable
             return true;
         }
 
-        ResolveInterpolatedSegment(points.Count, animation.KeyTimes, progress, out var startIndex, out var endIndex, out var localProgress);
+        ResolveInterpolatedSegment(
+            points.Count,
+            animation.KeyTimes,
+            animation.KeySplines,
+            animation.CalcMode,
+            progress,
+            out var startIndex,
+            out var endIndex,
+            out var localProgress);
         var fromPoint = points[startIndex];
         var toPoint = points[endIndex];
         position = new SKPoint(
@@ -2067,7 +2132,15 @@ public sealed class SvgAnimationController : IDisposable
         return values[Math.Max(0, discreteIndex)];
     }
 
-    private static void ResolveInterpolatedSegment(int valueCount, SvgNumberCollection? keyTimes, float progress, out int startIndex, out int endIndex, out float localProgress)
+    private static void ResolveInterpolatedSegment(
+        int valueCount,
+        SvgNumberCollection? keyTimes,
+        string? keySplines,
+        SvgAnimationCalcMode calcMode,
+        float progress,
+        out int startIndex,
+        out int endIndex,
+        out float localProgress)
     {
         if (valueCount <= 1)
         {
@@ -2091,6 +2164,12 @@ public sealed class SvgAnimationController : IDisposable
                     localProgress = rangeEnd > rangeStart
                         ? Clamp01((progress - rangeStart) / (rangeEnd - rangeStart))
                         : 0f;
+
+                    if (calcMode == SvgAnimationCalcMode.Spline)
+                    {
+                        localProgress = ResolveSplineProgress(keySplines, startIndex, localProgress);
+                    }
+
                     return;
                 }
             }
@@ -2108,6 +2187,127 @@ public sealed class SvgAnimationController : IDisposable
 
         endIndex = startIndex + 1;
         localProgress = Clamp01(scaled - startIndex);
+
+        if (calcMode == SvgAnimationCalcMode.Spline)
+        {
+            localProgress = ResolveSplineProgress(keySplines, startIndex, localProgress);
+        }
+    }
+
+    private static float ResolveSplineProgress(string? keySplines, int segmentIndex, float progress)
+    {
+        if (progress <= 0f || progress >= 1f)
+        {
+            return Clamp01(progress);
+        }
+
+        return TryGetSplineSegment(keySplines, segmentIndex, out var spline)
+            ? EvaluateSplineProgress(spline, progress)
+            : Clamp01(progress);
+    }
+
+    private static bool TryGetSplineSegment(string? keySplines, int segmentIndex, out CubicBezierSpline spline)
+    {
+        spline = default;
+
+        if (string.IsNullOrWhiteSpace(keySplines))
+        {
+            return false;
+        }
+
+        var segments = SplitSemicolonList(keySplines);
+        if (segmentIndex < 0 || segmentIndex >= segments.Count)
+        {
+            return false;
+        }
+
+        try
+        {
+            var values = (SvgNumberCollection)s_numberCollectionConverter.ConvertFrom(
+                null,
+                CultureInfo.InvariantCulture,
+                segments[segmentIndex]);
+            if (values.Count != 4)
+            {
+                return false;
+            }
+
+            spline = new CubicBezierSpline(values[0], values[1], values[2], values[3]);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static float EvaluateSplineProgress(CubicBezierSpline spline, float progress)
+    {
+        var targetX = Clamp01(progress);
+        var t = targetX;
+
+        for (var iteration = 0; iteration < 8; iteration++)
+        {
+            var currentX = EvaluateCubicBezierComponent(spline.X1, spline.X2, t) - targetX;
+            if (Math.Abs(currentX) < 1e-5f)
+            {
+                return Clamp01(EvaluateCubicBezierComponent(spline.Y1, spline.Y2, t));
+            }
+
+            var derivative = EvaluateCubicBezierDerivative(spline.X1, spline.X2, t);
+            if (Math.Abs(derivative) < 1e-6f)
+            {
+                break;
+            }
+
+            t -= currentX / derivative;
+            if (t <= 0f || t >= 1f)
+            {
+                break;
+            }
+        }
+
+        var low = 0f;
+        var high = 1f;
+        t = targetX;
+
+        for (var iteration = 0; iteration < 12; iteration++)
+        {
+            var currentX = EvaluateCubicBezierComponent(spline.X1, spline.X2, t);
+            if (Math.Abs(currentX - targetX) < 1e-5f)
+            {
+                break;
+            }
+
+            if (currentX < targetX)
+            {
+                low = t;
+            }
+            else
+            {
+                high = t;
+            }
+
+            t = (low + high) * 0.5f;
+        }
+
+        return Clamp01(EvaluateCubicBezierComponent(spline.Y1, spline.Y2, t));
+    }
+
+    private static float EvaluateCubicBezierComponent(float control1, float control2, float t)
+    {
+        var inverse = 1f - t;
+        return (3f * inverse * inverse * t * control1) +
+               (3f * inverse * t * t * control2) +
+               (t * t * t);
+    }
+
+    private static float EvaluateCubicBezierDerivative(float control1, float control2, float t)
+    {
+        var inverse = 1f - t;
+        return (3f * inverse * inverse * control1) +
+               (6f * inverse * t * (control2 - control1)) +
+               (3f * t * t * (1f - control2));
     }
 
     private static bool TryInterpolateValue(AnimationBinding binding, string fromValue, string toValue, float progress, bool forceColorInterpolation, out string result)

@@ -287,6 +287,34 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void CreateAnimatedDocument_PreservesFiniteRepeatCountWhenRepeatDurIsIndefinite()
+    {
+        var document = SvgService.FromSvg(FiniteRepeatCountWithIndefiniteRepeatDurationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2.5));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(10f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AppliesZeroDurationAnimateImmediately()
+    {
+        var document = SvgService.FromSvg(ZeroDurationAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.Zero);
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(10f, target!.X.Value, 3);
+    }
+
+    [Fact]
     public void Dispatcher_ClickOffsetEvent_StartsAnimationAtScheduledTime()
     {
         using var svg = new SKSvg();
@@ -356,6 +384,33 @@ public class SvgAnimationControllerTests
         var translate = Assert.IsType<SvgTranslate>(Assert.Single(motion!.Transforms));
         Assert.Equal(10f, translate.X, 3);
         Assert.Equal(5f, translate.Y, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_HonorsSplineCalcMode()
+    {
+        var document = SvgService.FromSvg(SplineAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+
+        var linear = animated.GetElementById<SvgRectangle>("linear");
+        var spline = animated.GetElementById<SvgRectangle>("spline");
+        Assert.NotNull(linear);
+        Assert.NotNull(spline);
+        Assert.Equal(5f, linear!.X.Value, 3);
+        Assert.True(spline!.X.Value > linear.X.Value + 1f);
+
+        var motionLinear = animated.GetElementById<SvgCircle>("motion-linear");
+        var motionSpline = animated.GetElementById<SvgCircle>("motion-spline");
+        Assert.NotNull(motionLinear);
+        Assert.NotNull(motionSpline);
+
+        var motionLinearTranslate = Assert.IsType<SvgTranslate>(Assert.Single(motionLinear!.Transforms));
+        var motionSplineTranslate = Assert.IsType<SvgTranslate>(Assert.Single(motionSpline!.Transforms));
+        Assert.Equal(5f, motionLinearTranslate.X, 3);
+        Assert.True(motionSplineTranslate.X > motionLinearTranslate.X + 1f);
     }
 
     [Fact]
@@ -736,6 +791,28 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
+    private const string FiniteRepeatCountWithIndefiniteRepeatDurationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="1s" repeatCount="2" repeatDur="indefinite" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string ZeroDurationAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="0s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
     private const string EventEndSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              width="40"
@@ -755,6 +832,26 @@ public class SvgAnimationControllerTests
              viewBox="0 0 30 30">
           <circle id="motion" cx="0" cy="0" r="2" fill="purple">
             <animateMotion values="0,0;10,0;10,10" calcMode="linear" keyTimes="0;0.5;1" dur="2s" fill="freeze" />
+          </circle>
+        </svg>
+        """;
+
+    private const string SplineAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="30"
+             height="30"
+             viewBox="0 0 30 30">
+          <rect id="linear" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" values="0;10" calcMode="linear" dur="2s" fill="freeze" />
+          </rect>
+          <rect id="spline" x="0" y="8" width="4" height="4" fill="blue">
+            <animate attributeName="x" values="0;10" calcMode="spline" keyTimes="0;1" keySplines="0.25 1 0.75 1" dur="2s" fill="freeze" />
+          </rect>
+          <circle id="motion-linear" cx="0" cy="20" r="2" fill="purple">
+            <animateMotion values="0,0;10,0" calcMode="linear" dur="2s" fill="freeze" />
+          </circle>
+          <circle id="motion-spline" cx="0" cy="26" r="2" fill="green">
+            <animateMotion values="0,0;10,0" calcMode="spline" keyTimes="0;1" keySplines="0.25 1 0.75 1" dur="2s" fill="freeze" />
           </circle>
         </svg>
         """;
