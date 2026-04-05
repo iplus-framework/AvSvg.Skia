@@ -346,8 +346,15 @@ internal static class SvgAnimationParser
             return Array.Empty<float>();
         }
 
-        var numbers = SvgNumberCollectionConverter.Parse(trimmed.AsSpan());
-        return numbers.ToArray();
+        try
+        {
+            var numbers = SvgNumberCollectionConverter.Parse(trimmed.AsSpan());
+            return numbers.ToArray();
+        }
+        catch
+        {
+            return Array.Empty<float>();
+        }
     }
 
     internal static bool TryParseNumberListSegment(string? value, int segmentIndex, out float[] values)
@@ -358,8 +365,16 @@ internal static class SvgAnimationParser
             return false;
         }
 
-        values = SvgNumberCollectionConverter.Parse(segment.AsSpan()).ToArray();
-        return values.Length > 0;
+        try
+        {
+            values = SvgNumberCollectionConverter.Parse(segment.AsSpan()).ToArray();
+            return values.Length > 0;
+        }
+        catch
+        {
+            values = Array.Empty<float>();
+            return false;
+        }
     }
 
     internal static bool TryParseSplineSegment(string? keySplines, int segmentIndex, out CubicBezierSpline spline)

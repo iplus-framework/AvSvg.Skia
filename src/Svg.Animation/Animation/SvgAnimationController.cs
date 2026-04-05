@@ -1027,7 +1027,7 @@ public sealed class SvgAnimationController : IDisposable
             return new AnimationSample(1f, 0);
         }
 
-        var iterationIndex = (int)(elapsedTicks / durationTicks);
+        var iterationIndex = ClampIterationIndex(elapsedTicks / durationTicks);
         var localTicks = elapsedTicks % durationTicks;
         if (localTicks == 0 && elapsedTicks > 0)
         {
@@ -2998,6 +2998,18 @@ public sealed class SvgAnimationController : IDisposable
         }
 
         return left.Value >= right ? left : right;
+    }
+
+    private static int ClampIterationIndex(long iterationIndex)
+    {
+        if (iterationIndex <= 0)
+        {
+            return 0;
+        }
+
+        return iterationIndex >= int.MaxValue
+            ? int.MaxValue
+            : (int)iterationIndex;
     }
 
     private static float Clamp01(float value)

@@ -402,6 +402,25 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void CreateAnimatedDocument_IgnoresMalformedTransformValueLists()
+    {
+        var document = SvgService.FromSvg(MalformedTransformValuesSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var exception = Record.Exception(() => controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1)));
+        Assert.Null(exception);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        var translate = Assert.IsType<SvgTranslate>(Assert.Single(target!.Transforms));
+        Assert.Equal(0f, translate.X, 3);
+        Assert.Equal(0f, translate.Y, 3);
+    }
+
+    [Fact]
     public void CreateAnimatedDocument_EnforcesMaximumActiveDuration()
     {
         var document = SvgService.FromSvg(MaximumDurationAnimationSvg);
@@ -701,6 +720,20 @@ public class SvgAnimationControllerTests
         var translate = Assert.IsType<SvgTranslate>(Assert.Single(target!.Transforms));
         Assert.Equal(55f, translate.X, 3);
         Assert.Equal(0f, translate.Y, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_SaturatesLargeRepeatIterationCounts()
+    {
+        var document = SvgService.FromSvg(LargeRepeatIterationAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromDays(30));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.True(target!.X.Value > 1_000_000f);
     }
 
     [Fact]
@@ -1188,6 +1221,17 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
+    private const string MalformedTransformValuesSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animateTransform attributeName="transform" type="translate" values="0 0;bad" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
     private const string MinimumDurationAnimationSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              width="20"
@@ -1393,6 +1437,17 @@ public class SvgAnimationControllerTests
              viewBox="0 0 120 20">
           <rect id="target" x="0" y="0" width="4" height="4" fill="red">
             <animateTransform attributeName="transform" type="translate" values="0 0;10 0;110 0" calcMode="paced" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string LargeRepeatIterationAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" from="0" to="1" dur="1ms" repeatCount="indefinite" accumulate="sum" fill="freeze" />
           </rect>
         </svg>
         """;
