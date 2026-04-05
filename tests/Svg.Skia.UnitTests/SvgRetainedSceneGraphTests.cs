@@ -315,6 +315,25 @@ public class SvgRetainedSceneGraphTests
     }
 
     [Fact]
+    public void RetainedSceneGraph_CompilesW3CEmbeddedImageCycleDocumentWithoutRecursing()
+    {
+        var svgPath = GetW3CTestSvgPath("struct-image-12-b.svg");
+        if (!File.Exists(svgPath))
+        {
+            return;
+        }
+
+        using var svg = new SKSvg();
+        using var _ = svg.Load(svgPath);
+        using var retainedPicture = svg.CreateRetainedSceneGraphPicture();
+
+        Assert.NotNull(svg.RetainedSceneGraph);
+        Assert.NotNull(svg.Picture);
+        Assert.NotNull(retainedPicture);
+        AssertNoDrawableBridge(svg.RetainedSceneGraph);
+    }
+
+    [Fact]
     public void CreateRetainedSceneGraphPicture_MatchesCurrentPicture_ForInheritedGroupMarkers()
     {
         using var svg = new SKSvg();
