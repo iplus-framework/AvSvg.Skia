@@ -840,6 +840,11 @@ public static class SvgSceneCompiler
         for (var i = 0; i < node.Children.Count; i++)
         {
             var child = node.Children[i];
+            if (child.IsDisplayNone)
+            {
+                continue;
+            }
+
             var childBounds = child.GeometryBounds;
             if (childBounds.IsEmpty)
             {
