@@ -334,6 +334,32 @@ public class SvgRetainedSceneGraphTests
     }
 
     [Fact]
+    public void RetainedSceneGraph_CompilesResvgSelfRecursiveMaskDocumentWithoutRecursing()
+    {
+        var svgPath = GetResvgSvgPath("e-mask-023.svg");
+        if (!File.Exists(svgPath))
+        {
+            return;
+        }
+
+        using var svg = new SKSvg();
+        using var _ = svg.Load(svgPath);
+        using var retainedPicture = svg.CreateRetainedSceneGraphPicture();
+
+        var scene = svg.RetainedSceneGraph;
+        Assert.NotNull(scene);
+        Assert.NotNull(svg.Picture);
+        Assert.NotNull(retainedPicture);
+        Assert.True(scene!.TryGetNodeById("rect2", out var maskedNode));
+        Assert.NotNull(maskedNode);
+        Assert.NotNull(maskedNode!.MaskNode);
+
+        var recursiveMaskContentNode = Assert.Single(maskedNode.MaskNode!.Children, static child => child.ElementId == "rect1");
+        Assert.Null(recursiveMaskContentNode.MaskNode);
+        AssertNoDrawableBridge(scene);
+    }
+
+    [Fact]
     public void CreateRetainedSceneGraphPicture_MatchesCurrentPicture_ForInheritedGroupMarkers()
     {
         using var svg = new SKSvg();
@@ -813,6 +839,11 @@ public class SvgRetainedSceneGraphTests
     private static string GetW3CTestSvgPath(string fileName)
     {
         return Path.Combine("..", "..", "..", "..", "..", "externals", "W3C_SVG_11_TestSuite", "W3C_SVG_11_TestSuite", "svg", fileName);
+    }
+
+    private static string GetResvgSvgPath(string fileName)
+    {
+        return Path.Combine("..", "..", "..", "..", "..", "externals", "resvg", "tests", "svg", fileName);
     }
 
     private const string SimpleSvg = """
