@@ -5,7 +5,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
-using System.Text.RegularExpressions;
 using SkiaSharp;
 using Svg.Transforms;
 
@@ -24,10 +23,6 @@ public sealed class SvgAnimationFrameChangedEventArgs : EventArgs
 [RequiresUnreferencedCode("Uses TypeDescriptor-based converters for animated SVG values.")]
 public sealed class SvgAnimationController : IDisposable
 {
-    private static readonly Regex s_eventTimingRegex = new(
-        @"^\s*(?:(?<id>[A-Za-z_][A-Za-z0-9_.:\-]*)\.)?(?<event>[A-Za-z][A-Za-z0-9_\-]*)(?:\s*(?<sign>[+-])\s*(?<offset>.+))?\s*$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     private readonly struct TimingSpec
     {
         public TimingSpec(TimeSpan offset)
@@ -188,27 +183,6 @@ public sealed class SvgAnimationController : IDisposable
         public int IterationIndex { get; }
     }
 
-    private readonly struct CubicBezierSpline
-    {
-        public CubicBezierSpline(float x1, float y1, float x2, float y2)
-        {
-            X1 = x1;
-            Y1 = y1;
-            X2 = x2;
-            Y2 = y2;
-        }
-
-        public float X1 { get; }
-
-        public float Y1 { get; }
-
-        public float X2 { get; }
-
-        public float Y2 { get; }
-    }
-
-    private static readonly SvgNumberCollectionConverter s_numberCollectionConverter = new();
-    private static readonly SvgUnitConverter s_unitConverter = new();
     private static readonly TypeConverter s_paintServerConverter = TypeDescriptor.GetConverter(typeof(SvgPaintServer));
 
     private readonly List<AnimationBinding> _bindings;
@@ -599,9 +573,9 @@ public sealed class SvgAnimationController : IDisposable
         }
 
         var specs = new List<TimingSpec>();
-        foreach (var token in SplitSemicolonList(value))
+        foreach (var token in SvgAnimationParser.SplitSemicolonList(value))
         {
-            if (TryParseClockValue(token, out var clockOffset))
+            if (SvgAnimationParser.TryParseClockValue(token, out var clockOffset))
             {
                 specs.Add(new TimingSpec(clockOffset));
                 continue;
@@ -698,75 +672,13 @@ public sealed class SvgAnimationController : IDisposable
     {
         spec = default;
 
-        var match = s_eventTimingRegex.Match(value);
-        if (!match.Success)
+        if (!SvgAnimationParser.TryParseEventTimingSpec(value, document, defaultEventAddress, out var parsedTiming))
         {
             return false;
         }
 
-        var eventName = match.Groups["event"].Value;
-        if (!TryMapEventName(eventName, out var eventType))
-        {
-            return false;
-        }
-
-        var eventAddress = defaultEventAddress;
-        var idGroup = match.Groups["id"];
-        if (idGroup.Success)
-        {
-            var eventElement = document?.GetElementById(idGroup.Value);
-            if (eventElement is null)
-            {
-                return false;
-            }
-
-            eventAddress = SvgElementAddress.Create(eventElement);
-        }
-
-        var offset = TimeSpan.Zero;
-        var signGroup = match.Groups["sign"];
-        if (signGroup.Success)
-        {
-            var offsetText = string.Concat(signGroup.Value, match.Groups["offset"].Value);
-            if (!TryParseClockValue(offsetText, out offset))
-            {
-                return false;
-            }
-        }
-
-        spec = new TimingSpec(CreateEventInstanceKey(eventAddress, eventType), offset);
+        spec = new TimingSpec(CreateEventInstanceKey(parsedTiming.EventAddress, parsedTiming.EventType), parsedTiming.Offset);
         return true;
-    }
-
-    private static bool TryMapEventName(string eventName, out SvgPointerEventType eventType)
-    {
-        switch (eventName.Trim())
-        {
-            case "click":
-                eventType = SvgPointerEventType.Click;
-                return true;
-            case "mousedown":
-                eventType = SvgPointerEventType.Press;
-                return true;
-            case "mouseup":
-                eventType = SvgPointerEventType.Release;
-                return true;
-            case "mousemove":
-                eventType = SvgPointerEventType.Move;
-                return true;
-            case "mouseover":
-                eventType = SvgPointerEventType.Enter;
-                return true;
-            case "mouseout":
-                eventType = SvgPointerEventType.Leave;
-                return true;
-            case "mousescroll":
-                eventType = SvgPointerEventType.Wheel;
-                return true;
-            default:
-                eventType = default;
-                return false;
-        }
     }
 
     private static string? ResolveAttributeName(SvgAnimationElement animation)
@@ -804,12 +716,12 @@ public sealed class SvgAnimationController : IDisposable
         {
             case SvgSet svgSet:
                 if (!TryGetSetSample(controller, binding, svgSet, time) ||
-                    string.IsNullOrWhiteSpace(svgSet.To))
+                    !SvgAnimationParser.TryGetTrimmedString(svgSet.To, out var setValue))
                 {
                     return false;
                 }
 
-                value = svgSet.To.Trim();
+                value = setValue;
                 return true;
             case SvgAnimateMotion animateMotion:
                 if (!TryGetAnimationSample(controller, binding, animateMotion, time, allowIndefiniteDiscrete: false, out var motionSample) ||
@@ -907,12 +819,12 @@ public sealed class SvgAnimationController : IDisposable
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(animation.To))
+        if (!SvgAnimationParser.TryGetTrimmedString(animation.To, out var setValue))
         {
             return;
         }
 
-        _ = SetAttributeValue(target, binding.AttributeName, animation.To.Trim());
+        _ = SetAttributeValue(target, binding.AttributeName, setValue);
     }
 
     private static void ApplyAnimateValue(SvgAnimationController controller, AnimationBinding binding, SvgElement target, SvgAnimationValueElement animation, TimeSpan time, bool forceColorInterpolation)
@@ -1076,23 +988,17 @@ public sealed class SvgAnimationController : IDisposable
     {
         repeatCount = 1d;
 
-        if (string.IsNullOrWhiteSpace(value))
+        if (!SvgAnimationParser.TryGetFirstSemicolonSegment(value, out var trimmed))
         {
             return RepeatCountMode.DefaultOne;
         }
 
-        var trimmed = value!.Split(';')[0].Trim();
-        if (trimmed.Length == 0)
-        {
-            return RepeatCountMode.DefaultOne;
-        }
-
-        if (string.Equals(trimmed, "indefinite", StringComparison.OrdinalIgnoreCase))
+        if (SvgAnimationParser.EqualsKeywordIgnoreCase(trimmed.AsSpan(), "indefinite"))
         {
             return RepeatCountMode.Indefinite;
         }
 
-        if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out repeatCount))
+        if (SvgAnimationParser.TryParseInvariantDouble(trimmed.AsSpan(), out repeatCount))
         {
             repeatCount = Math.Max(0d, repeatCount);
             return RepeatCountMode.Finite;
@@ -1426,115 +1332,19 @@ public sealed class SvgAnimationController : IDisposable
 
     private static bool TryParseClockValue(string? value, out TimeSpan result)
     {
-        result = default;
-
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-
-        var part = value!.Trim();
-        if (part.Length == 0 || string.Equals(part, "indefinite", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        var sign = 1;
-        if (part[0] is '+' or '-')
-        {
-            sign = part[0] == '-' ? -1 : 1;
-            part = part.Substring(1).Trim();
-            if (part.Length == 0 || string.Equals(part, "indefinite", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-        }
-
-        if (TryParseColonClockValue(part, out result))
-        {
-            if (sign < 0)
-            {
-                result = -result;
-            }
-
-            return true;
-        }
-
-        double scalar;
-
-        if (part.EndsWith("ms", StringComparison.OrdinalIgnoreCase) &&
-            double.TryParse(part.Substring(0, part.Length - 2), NumberStyles.Float, CultureInfo.InvariantCulture, out scalar))
-        {
-            result = TimeSpan.FromMilliseconds(scalar);
-            if (sign < 0)
-            {
-                result = -result;
-            }
-            return true;
-        }
-
-        if (part.EndsWith("min", StringComparison.OrdinalIgnoreCase) &&
-            double.TryParse(part.Substring(0, part.Length - 3), NumberStyles.Float, CultureInfo.InvariantCulture, out scalar))
-        {
-            result = TimeSpan.FromMinutes(scalar);
-            if (sign < 0)
-            {
-                result = -result;
-            }
-            return true;
-        }
-
-        if (part.EndsWith("h", StringComparison.OrdinalIgnoreCase) &&
-            double.TryParse(part.Substring(0, part.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out scalar))
-        {
-            result = TimeSpan.FromHours(scalar);
-            if (sign < 0)
-            {
-                result = -result;
-            }
-            return true;
-        }
-
-        if (part.EndsWith("s", StringComparison.OrdinalIgnoreCase) &&
-            double.TryParse(part.Substring(0, part.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out scalar))
-        {
-            result = TimeSpan.FromSeconds(scalar);
-            if (sign < 0)
-            {
-                result = -result;
-            }
-            return true;
-        }
-
-        if (double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out scalar))
-        {
-            result = TimeSpan.FromSeconds(scalar);
-            if (sign < 0)
-            {
-                result = -result;
-            }
-            return true;
-        }
-
-        return false;
+        return SvgAnimationParser.TryParseClockValue(value, out result);
     }
 
     private static RepeatDurationMode ParseRepeatDuration(string? value, out TimeSpan repeatDuration)
     {
         repeatDuration = default;
 
-        if (string.IsNullOrWhiteSpace(value))
+        if (!SvgAnimationParser.TryGetTrimmedString(value, out var trimmed))
         {
             return RepeatDurationMode.None;
         }
 
-        var trimmed = value?.Trim();
-        if (string.IsNullOrEmpty(trimmed))
-        {
-            return RepeatDurationMode.None;
-        }
-
-        if (string.Equals(trimmed, "indefinite", StringComparison.OrdinalIgnoreCase))
+        if (SvgAnimationParser.EqualsKeywordIgnoreCase(trimmed.AsSpan(), "indefinite"))
         {
             return RepeatDurationMode.Indefinite;
         }
@@ -1542,43 +1352,6 @@ public sealed class SvgAnimationController : IDisposable
         return TryParseClockValue(trimmed, out repeatDuration) && repeatDuration >= TimeSpan.Zero
             ? RepeatDurationMode.Finite
             : RepeatDurationMode.None;
-    }
-
-    private static bool TryParseColonClockValue(string value, out TimeSpan result)
-    {
-        result = default;
-
-        var parts = value.Split(':');
-        if (parts.Length is < 2 or > 3)
-        {
-            return false;
-        }
-
-        var hours = 0;
-        var minutesText = parts[parts.Length - 2];
-        var secondsText = parts[parts.Length - 1];
-
-        if (parts.Length == 3 &&
-            !int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out hours))
-        {
-            return false;
-        }
-
-        if (!int.TryParse(minutesText, NumberStyles.None, CultureInfo.InvariantCulture, out var minutes) ||
-            !double.TryParse(secondsText, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
-        {
-            return false;
-        }
-
-        if (hours < 0 || minutes < 0 || minutes >= 60 || seconds < 0d || seconds >= 60d)
-        {
-            return false;
-        }
-
-        result = TimeSpan.FromHours(hours) +
-                 TimeSpan.FromMinutes(minutes) +
-                 TimeSpan.FromSeconds(seconds);
-        return true;
     }
 
     private static bool TryResolveAnimatedValue(AnimationBinding binding, SvgAnimationValueElement animation, AnimationSample sample, bool forceColorInterpolation, out string value)
@@ -1915,7 +1688,7 @@ public sealed class SvgAnimationController : IDisposable
 
     private static List<SKPoint> ResolveMotionCoordinatePoints(AnimationBinding binding, SvgAnimateMotion animation)
     {
-        var values = SplitSemicolonList(animation.Values);
+        var values = SvgAnimationParser.SplitSemicolonList(animation.Values);
         if (values.Count > 0)
         {
             return values
@@ -1927,8 +1700,8 @@ public sealed class SvgAnimationController : IDisposable
 
         var points = new List<SKPoint>();
 
-        if (!string.IsNullOrWhiteSpace(animation.From) &&
-            TryParseMotionCoordinatePair(animation.From, binding.SourceTarget, out var fromPoint))
+        if (SvgAnimationParser.TryGetTrimmedString(animation.From, out var fromValue) &&
+            TryParseMotionCoordinatePair(fromValue, binding.SourceTarget, out var fromPoint))
         {
             points.Add(fromPoint);
         }
@@ -1937,15 +1710,15 @@ public sealed class SvgAnimationController : IDisposable
             points.Add(new SKPoint(0f, 0f));
         }
 
-        if (!string.IsNullOrWhiteSpace(animation.To) &&
-            TryParseMotionCoordinatePair(animation.To, binding.SourceTarget, out var toPoint))
+        if (SvgAnimationParser.TryGetTrimmedString(animation.To, out var toValue) &&
+            TryParseMotionCoordinatePair(toValue, binding.SourceTarget, out var toPoint))
         {
             points.Add(toPoint);
             return points;
         }
 
-        if (!string.IsNullOrWhiteSpace(animation.By) &&
-            TryParseMotionCoordinatePair(animation.By, binding.SourceTarget, out var byPoint))
+        if (SvgAnimationParser.TryGetTrimmedString(animation.By, out var byValue) &&
+            TryParseMotionCoordinatePair(byValue, binding.SourceTarget, out var byPoint))
         {
             var startPoint = points[0];
             points.Add(new SKPoint(startPoint.X + byPoint.X, startPoint.Y + byPoint.Y));
@@ -1956,104 +1729,7 @@ public sealed class SvgAnimationController : IDisposable
 
     private static bool TryParseMotionCoordinatePair(string value, SvgElement owner, out SKPoint point)
     {
-        point = default;
-
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-
-        var coordinates = value
-            .Split(new[] { ',', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(static coordinate => coordinate.Trim())
-            .Where(static coordinate => coordinate.Length > 0)
-            .ToArray();
-        if (coordinates.Length != 2)
-        {
-            return false;
-        }
-
-        if (!TryParseMotionCoordinate(coordinates[0], UnitRenderingType.Horizontal, owner, out var x) ||
-            !TryParseMotionCoordinate(coordinates[1], UnitRenderingType.Vertical, owner, out var y))
-        {
-            return false;
-        }
-
-        point = new SKPoint(x, y);
-        return true;
-    }
-
-    private static bool TryParseMotionCoordinate(string value, UnitRenderingType renderingType, SvgElement owner, out float coordinate)
-    {
-        coordinate = default;
-
-        try
-        {
-            var unit = (SvgUnit?)s_unitConverter.ConvertFrom(null, CultureInfo.InvariantCulture, value);
-            if (!unit.HasValue)
-            {
-                return false;
-            }
-
-            coordinate = ToMotionCoordinate(unit.Value, renderingType, owner);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static float ToMotionCoordinate(SvgUnit unit, UnitRenderingType renderingType, SvgElement owner)
-    {
-        var ppi = owner.OwnerDocument?.Ppi ?? SvgDocument.PointsPerInch;
-
-        switch (unit.Type)
-        {
-            case SvgUnitType.Inch:
-                return unit.Value * ppi;
-            case SvgUnitType.Centimeter:
-                return (unit.Value / 2.54f) * ppi;
-            case SvgUnitType.Millimeter:
-                return (unit.Value / 25.4f) * ppi;
-            case SvgUnitType.Pica:
-                return ((unit.Value * 12f) / 72f) * ppi;
-            case SvgUnitType.Point:
-                return (unit.Value / 72f) * ppi;
-            case SvgUnitType.Percentage:
-                var document = owner.OwnerDocument;
-                var viewBox = document?.ViewBox;
-                var dimension = renderingType == UnitRenderingType.Horizontal
-                    ? (viewBox?.Width ?? 0f)
-                    : (viewBox?.Height ?? 0f);
-
-                if (dimension == 0f && document is not null)
-                {
-                    dimension = renderingType == UnitRenderingType.Horizontal
-                        ? ToViewportDimension(document.Width, document)
-                        : ToViewportDimension(document.Height, document);
-                }
-
-                return dimension == 0f ? unit.Value : (dimension * unit.Value / 100f);
-            default:
-                return unit.Value;
-        }
-    }
-
-    private static float ToViewportDimension(SvgUnit unit, SvgElement owner)
-    {
-        var ppi = owner.OwnerDocument?.Ppi ?? SvgDocument.PointsPerInch;
-
-        return unit.Type switch
-        {
-            SvgUnitType.Inch => unit.Value * ppi,
-            SvgUnitType.Centimeter => (unit.Value / 2.54f) * ppi,
-            SvgUnitType.Millimeter => (unit.Value / 25.4f) * ppi,
-            SvgUnitType.Pica => ((unit.Value * 12f) / 72f) * ppi,
-            SvgUnitType.Point => (unit.Value / 72f) * ppi,
-            SvgUnitType.Percentage => 0f,
-            _ => unit.Value
-        };
+        return SvgAnimationParser.TryParseMotionCoordinatePair(value, owner, out point);
     }
 
     private static string CreateMotionPathData(IReadOnlyList<SKPoint> points)
@@ -2102,27 +1778,7 @@ public sealed class SvgAnimationController : IDisposable
 
     private static bool TryResolveMotionRotation(string? rotateValue, SKPoint tangent, out float angle)
     {
-        angle = 0f;
-
-        if (string.IsNullOrWhiteSpace(rotateValue))
-        {
-            return false;
-        }
-
-        var trimmed = rotateValue!.Trim();
-        if (string.Equals(trimmed, "auto", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "auto-reverse", StringComparison.OrdinalIgnoreCase))
-        {
-            angle = (float)(Math.Atan2(tangent.Y, tangent.X) * 180d / Math.PI);
-            if (string.Equals(trimmed, "auto-reverse", StringComparison.OrdinalIgnoreCase))
-            {
-                angle += 180f;
-            }
-
-            return true;
-        }
-
-        return float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out angle) && angle != 0f;
+        return SvgAnimationParser.TryResolveMotionRotation(rotateValue, tangent, out angle);
     }
 
     private static bool TryCreateTransformString(SvgAnimateTransformType transformType, float[] values, out string transformValue)
@@ -2201,20 +1857,14 @@ public sealed class SvgAnimationController : IDisposable
 
     private static float[] ParseTransformNumbers(string value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return Array.Empty<float>();
-        }
-
-        var numbers = (SvgNumberCollection)s_numberCollectionConverter.ConvertFrom(null, CultureInfo.InvariantCulture, value.Trim());
-        return numbers.ToArray();
+        return SvgAnimationParser.ParseNumberList(value);
     }
 
     private static List<string> ResolveAnimationValues(AnimationBinding binding, SvgAnimationValueElement animation)
     {
         return binding.GetResolvedAnimationValues(() =>
         {
-            var values = SplitSemicolonList(animation.Values);
+            var values = SvgAnimationParser.SplitSemicolonList(animation.Values);
             if (values.Count > 0)
             {
                 return values;
@@ -2222,33 +1872,28 @@ public sealed class SvgAnimationController : IDisposable
 
             var resolved = new List<string>();
 
-            if (!string.IsNullOrWhiteSpace(animation.From))
+            if (SvgAnimationParser.TryGetTrimmedString(animation.From, out var fromValue))
             {
-                resolved.Add(animation.From.Trim());
+                resolved.Add(fromValue);
             }
             else if (!string.IsNullOrWhiteSpace(binding.BaseValueString))
             {
                 resolved.Add(binding.BaseValueString!);
             }
 
-            if (!string.IsNullOrWhiteSpace(animation.To))
+            if (SvgAnimationParser.TryGetTrimmedString(animation.To, out var toValue))
             {
-                resolved.Add(animation.To.Trim());
+                resolved.Add(toValue);
                 return resolved;
             }
 
-            if (!string.IsNullOrWhiteSpace(animation.By))
+            if (SvgAnimationParser.TryGetTrimmedString(animation.By, out var byValue))
             {
-                var fromValue = resolved.Count > 0 ? resolved[resolved.Count - 1] : binding.BaseValueString;
-                if (fromValue is { } && TryAddValue(binding, fromValue, animation.By.Trim(), out var sumValue))
+                var additiveBaseValue = resolved.Count > 0 ? resolved[resolved.Count - 1] : binding.BaseValueString;
+                if (additiveBaseValue is { } && TryAddValue(binding, additiveBaseValue, byValue, out var sumValue))
                 {
                     resolved.Add(sumValue);
                 }
-            }
-
-            if (resolved.Count == 0 && !string.IsNullOrWhiteSpace(animation.To))
-            {
-                resolved.Add(animation.To.Trim());
             }
 
             return resolved;
@@ -2330,17 +1975,6 @@ public sealed class SvgAnimationController : IDisposable
         }
 
         return true;
-    }
-
-    private static List<string> SplitSemicolonList(string? value)
-    {
-        return string.IsNullOrWhiteSpace(value)
-            ? new List<string>()
-            : value!
-                .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(static item => item.Trim())
-                .Where(static item => item.Length > 0)
-                .ToList();
     }
 
     private static string ResolveDiscreteValue(IReadOnlyList<string> values, SvgNumberCollection? keyTimes, float progress)
@@ -2449,37 +2083,7 @@ public sealed class SvgAnimationController : IDisposable
 
     private static bool TryGetSplineSegment(string? keySplines, int segmentIndex, out CubicBezierSpline spline)
     {
-        spline = default;
-
-        if (string.IsNullOrWhiteSpace(keySplines))
-        {
-            return false;
-        }
-
-        var segments = SplitSemicolonList(keySplines);
-        if (segmentIndex < 0 || segmentIndex >= segments.Count)
-        {
-            return false;
-        }
-
-        try
-        {
-            var values = (SvgNumberCollection)s_numberCollectionConverter.ConvertFrom(
-                null,
-                CultureInfo.InvariantCulture,
-                segments[segmentIndex]);
-            if (values.Count != 4)
-            {
-                return false;
-            }
-
-            spline = new CubicBezierSpline(values[0], values[1], values[2], values[3]);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        return SvgAnimationParser.TryParseSplineSegment(keySplines, segmentIndex, out spline);
     }
 
     private static float EvaluateSplineProgress(CubicBezierSpline spline, float progress)
@@ -2618,8 +2222,8 @@ public sealed class SvgAnimationController : IDisposable
     {
         result = string.Empty;
 
-        if (!float.TryParse(fromValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var fromNumber) ||
-            !float.TryParse(toValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var toNumber))
+        if (!SvgAnimationParser.TryParseInvariantFloat(fromValue, out var fromNumber) ||
+            !SvgAnimationParser.TryParseInvariantFloat(toValue, out var toNumber))
         {
             return false;
         }
@@ -2709,14 +2313,14 @@ public sealed class SvgAnimationController : IDisposable
     {
         color = default;
 
-        if (string.IsNullOrWhiteSpace(value))
+        if (!SvgAnimationParser.TryGetTrimmedString(value, out var trimmed))
         {
             return false;
         }
 
         try
         {
-            var paint = s_paintServerConverter.ConvertFrom(null, CultureInfo.InvariantCulture, value.Trim()) as SvgPaintServer;
+            var paint = s_paintServerConverter.ConvertFrom(null, CultureInfo.InvariantCulture, trimmed) as SvgPaintServer;
             return TryGetColor(paint, out color);
         }
         catch
@@ -2760,8 +2364,8 @@ public sealed class SvgAnimationController : IDisposable
             return true;
         }
 
-        if (float.TryParse(baseValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var baseNumber) &&
-            float.TryParse(byValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var byNumber))
+        if (SvgAnimationParser.TryParseInvariantFloat(baseValue, out var baseNumber) &&
+            SvgAnimationParser.TryParseInvariantFloat(byValue, out var byNumber))
         {
             result = (baseNumber + byNumber).ToSvgString();
             return true;
@@ -2804,8 +2408,8 @@ public sealed class SvgAnimationController : IDisposable
             return true;
         }
 
-        if (float.TryParse(endValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var endNumber) &&
-            float.TryParse(startValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var startNumber))
+        if (SvgAnimationParser.TryParseInvariantFloat(endValue, out var endNumber) &&
+            SvgAnimationParser.TryParseInvariantFloat(startValue, out var startNumber))
         {
             result = (endNumber - startNumber).ToSvgString();
             return true;
@@ -2839,7 +2443,7 @@ public sealed class SvgAnimationController : IDisposable
             return true;
         }
 
-        if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var numeric))
+        if (SvgAnimationParser.TryParseInvariantFloat(value, out var numeric))
         {
             result = (numeric * factor).ToSvgString();
             return true;
@@ -2944,8 +2548,13 @@ public sealed class SvgAnimationController : IDisposable
         {
             if (targetType == typeof(SvgUnit))
             {
-                result = s_unitConverter.ConvertFrom(null, CultureInfo.InvariantCulture, value);
-                return result is not null;
+                if (SvgAnimationParser.TryParseSvgUnit(value, out var unit))
+                {
+                    result = unit;
+                    return true;
+                }
+
+                return false;
             }
 
             var converter = TypeDescriptor.GetConverter(targetType);
@@ -2965,12 +2574,17 @@ public sealed class SvgAnimationController : IDisposable
 
     private static string CombineTransformValue(string? baseValue, string transformValue)
     {
-        if (string.IsNullOrWhiteSpace(baseValue))
+        if (!SvgAnimationParser.TryGetTrimmedString(transformValue, out var trimmedTransformValue))
         {
-            return transformValue;
+            return string.Empty;
         }
 
-        return string.Concat(baseValue!.Trim(), " ", transformValue.Trim());
+        if (!SvgAnimationParser.TryGetTrimmedString(baseValue, out var trimmedBaseValue))
+        {
+            return trimmedTransformValue;
+        }
+
+        return string.Concat(trimmedBaseValue, " ", trimmedTransformValue);
     }
 
     private static string? ResolveCurrentComposedBaseValue(string? currentComposedValue, string? fallbackBaseValue)
