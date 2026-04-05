@@ -1327,6 +1327,20 @@ public sealed class SvgAnimationController : IDisposable
             totalDuration = MinDuration(totalDuration, explicitEnd.Value - begin);
         }
 
+        switch (ParseRepeatDuration(animation.Minimum, out var minimumDuration))
+        {
+            case RepeatDurationMode.Finite:
+                totalDuration = MaxDuration(totalDuration, minimumDuration);
+                break;
+        }
+
+        switch (ParseRepeatDuration(animation.Maximum, out var maximumDuration))
+        {
+            case RepeatDurationMode.Finite:
+                totalDuration = MinDuration(totalDuration, maximumDuration);
+                break;
+        }
+
         return totalDuration;
     }
 
@@ -1382,6 +1396,9 @@ public sealed class SvgAnimationController : IDisposable
             animation.KeySplines,
             animation.CalcMode,
             sample.Progress,
+            animation.CalcMode == SvgAnimationCalcMode.Paced
+                ? ResolvePacedSegmentLengths(binding, values, forceColorInterpolation)
+                : null,
             out var startIndex,
             out var endIndex,
             out var localProgress);
@@ -1428,6 +1445,9 @@ public sealed class SvgAnimationController : IDisposable
             animation.KeySplines,
             animation.CalcMode,
             sample.Progress,
+            animation.CalcMode == SvgAnimationCalcMode.Paced
+                ? ResolveTransformPacedSegmentLengths(animation.TransformType, values)
+                : null,
             out var startIndex,
             out var endIndex,
             out var localProgress);
@@ -1529,6 +1549,9 @@ public sealed class SvgAnimationController : IDisposable
             animation.KeySplines,
             animation.CalcMode,
             progress,
+            animation.CalcMode == SvgAnimationCalcMode.Paced
+                ? ResolveScalarPacedSegmentLengths(animation.KeyPoints)
+                : null,
             out var startIndex,
             out var endIndex,
             out var localProgress);
@@ -1605,6 +1628,9 @@ public sealed class SvgAnimationController : IDisposable
             animation.KeySplines,
             animation.CalcMode,
             progress,
+            animation.CalcMode == SvgAnimationCalcMode.Paced
+                ? ResolvePointPacedSegmentLengths(points)
+                : null,
             out var startIndex,
             out var endIndex,
             out var localProgress);
@@ -2013,6 +2039,7 @@ public sealed class SvgAnimationController : IDisposable
         string? keySplines,
         SvgAnimationCalcMode calcMode,
         float progress,
+        IReadOnlyList<float>? pacedSegmentLengths,
         out int startIndex,
         out int endIndex,
         out float localProgress)
@@ -2022,6 +2049,12 @@ public sealed class SvgAnimationController : IDisposable
             startIndex = 0;
             endIndex = 0;
             localProgress = 1f;
+            return;
+        }
+
+        if (calcMode == SvgAnimationCalcMode.Paced &&
+            TryResolvePacedSegment(valueCount, pacedSegmentLengths, progress, out startIndex, out endIndex, out localProgress))
+        {
             return;
         }
 
@@ -2067,6 +2100,275 @@ public sealed class SvgAnimationController : IDisposable
         {
             localProgress = ResolveSplineProgress(keySplines, startIndex, localProgress);
         }
+    }
+
+    private static IReadOnlyList<float>? ResolvePacedSegmentLengths(AnimationBinding binding, IReadOnlyList<string> values, bool forceColorInterpolation)
+    {
+        if (values.Count <= 1)
+        {
+            return null;
+        }
+
+        var segmentLengths = new float[values.Count - 1];
+        for (var index = 0; index < segmentLengths.Length; index++)
+        {
+            if (!TryResolvePacedDistance(binding, values[index], values[index + 1], forceColorInterpolation, out var distance))
+            {
+                return null;
+            }
+
+            segmentLengths[index] = distance;
+        }
+
+        return segmentLengths;
+    }
+
+    private static IReadOnlyList<float>? ResolveTransformPacedSegmentLengths(SvgAnimateTransformType transformType, IReadOnlyList<string> values)
+    {
+        if (values.Count <= 1)
+        {
+            return null;
+        }
+
+        var segmentLengths = new float[values.Count - 1];
+        for (var index = 0; index < segmentLengths.Length; index++)
+        {
+            segmentLengths[index] = ResolveTransformDistance(
+                transformType,
+                ParseTransformNumbers(values[index]),
+                ParseTransformNumbers(values[index + 1]));
+        }
+
+        return segmentLengths;
+    }
+
+    private static IReadOnlyList<float>? ResolvePointPacedSegmentLengths(IReadOnlyList<SKPoint> points)
+    {
+        if (points.Count <= 1)
+        {
+            return null;
+        }
+
+        var segmentLengths = new float[points.Count - 1];
+        for (var index = 0; index < segmentLengths.Length; index++)
+        {
+            segmentLengths[index] = ResolvePointDistance(points[index], points[index + 1]);
+        }
+
+        return segmentLengths;
+    }
+
+    private static IReadOnlyList<float>? ResolveScalarPacedSegmentLengths(SvgNumberCollection values)
+    {
+        if (values.Count <= 1)
+        {
+            return null;
+        }
+
+        var segmentLengths = new float[values.Count - 1];
+        for (var index = 0; index < segmentLengths.Length; index++)
+        {
+            segmentLengths[index] = Math.Abs(values[index + 1] - values[index]);
+        }
+
+        return segmentLengths;
+    }
+
+    private static bool TryResolvePacedSegment(
+        int valueCount,
+        IReadOnlyList<float>? segmentLengths,
+        float progress,
+        out int startIndex,
+        out int endIndex,
+        out float localProgress)
+    {
+        startIndex = 0;
+        endIndex = 0;
+        localProgress = 1f;
+
+        if (valueCount <= 1 || segmentLengths is null || segmentLengths.Count != valueCount - 1)
+        {
+            return false;
+        }
+
+        double totalLength = 0d;
+        for (var index = 0; index < segmentLengths.Count; index++)
+        {
+            totalLength += Math.Max(0f, segmentLengths[index]);
+        }
+
+        if (totalLength <= 0d)
+        {
+            return false;
+        }
+
+        var targetLength = Clamp01(progress) * (float)totalLength;
+        var accumulatedLength = 0f;
+
+        for (var index = 0; index < segmentLengths.Count; index++)
+        {
+            var segmentLength = Math.Max(0f, segmentLengths[index]);
+            var segmentEndLength = accumulatedLength + segmentLength;
+            if (targetLength <= segmentEndLength || index == segmentLengths.Count - 1)
+            {
+                startIndex = index;
+                endIndex = index + 1;
+                localProgress = segmentLength > 0f
+                    ? Clamp01((targetLength - accumulatedLength) / segmentLength)
+                    : 0f;
+                return true;
+            }
+
+            accumulatedLength = segmentEndLength;
+        }
+
+        return false;
+    }
+
+    [RequiresUnreferencedCode("Calls Svg.Skia.SvgAnimationController.TryConvertStringToType(String, Type, out Object)")]
+    private static bool TryResolvePacedDistance(AnimationBinding binding, string fromValue, string toValue, bool forceColorInterpolation, out float distance)
+    {
+        distance = 0f;
+
+        if ((forceColorInterpolation || IsPaintServerType(binding.PropertyType)) &&
+            TryGetColor(fromValue, out var fromPaintColor) &&
+            TryGetColor(toValue, out var toPaintColor))
+        {
+            distance = ResolveColorDistance(fromPaintColor, toPaintColor);
+            return true;
+        }
+
+        if (binding.PropertyType is { } propertyType &&
+            TryConvertStringToType(fromValue, propertyType, out var fromObject) &&
+            TryConvertStringToType(toValue, propertyType, out var toObject) &&
+            TryResolveTypedPacedDistance(fromObject, toObject, out distance))
+        {
+            return true;
+        }
+
+        if (TryResolveNumberListDistance(fromValue, toValue, out distance))
+        {
+            return true;
+        }
+
+        if (TryGetColor(fromValue, out var fromColor) &&
+            TryGetColor(toValue, out var toColor))
+        {
+            distance = ResolveColorDistance(fromColor, toColor);
+            return true;
+        }
+
+        if (SvgAnimationParser.TryParseSvgUnit(fromValue, out var fromUnit) &&
+            SvgAnimationParser.TryParseSvgUnit(toValue, out var toUnit) &&
+            fromUnit.Type == toUnit.Type)
+        {
+            distance = Math.Abs(toUnit.Value - fromUnit.Value);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryResolveTypedPacedDistance(object? fromObject, object? toObject, out float distance)
+    {
+        distance = 0f;
+
+        switch (fromObject)
+        {
+            case float fromFloat when toObject is float toFloat:
+                distance = Math.Abs(toFloat - fromFloat);
+                return true;
+            case double fromDouble when toObject is double toDouble:
+                distance = (float)Math.Abs(toDouble - fromDouble);
+                return true;
+            case int fromInt when toObject is int toInt:
+                distance = Math.Abs(toInt - fromInt);
+                return true;
+            case SvgUnit fromUnit when toObject is SvgUnit toUnit && fromUnit.Type == toUnit.Type:
+                distance = Math.Abs(toUnit.Value - fromUnit.Value);
+                return true;
+            case SvgPaintServer fromPaint when toObject is SvgPaintServer toPaint:
+                if (TryGetColor(fromPaint, out var fromPaintColor) &&
+                    TryGetColor(toPaint, out var toPaintColor))
+                {
+                    distance = ResolveColorDistance(fromPaintColor, toPaintColor);
+                    return true;
+                }
+
+                return false;
+            case SvgColourServer fromColour when toObject is SvgColourServer toColour:
+                distance = ResolveColorDistance(fromColour.Colour, toColour.Colour);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryResolveNumberListDistance(string fromValue, string toValue, out float distance)
+    {
+        distance = 0f;
+
+        var fromValues = SvgAnimationParser.ParseNumberList(fromValue);
+        var toValues = SvgAnimationParser.ParseNumberList(toValue);
+        if (fromValues.Length == 0 || fromValues.Length != toValues.Length)
+        {
+            return false;
+        }
+
+        distance = ResolveEuclideanDistance(fromValues, toValues);
+        return true;
+    }
+
+    private static float ResolveTransformDistance(SvgAnimateTransformType transformType, float[] fromValues, float[] toValues)
+    {
+        var length = GetExpectedTransformValueCount(transformType, fromValues, toValues);
+        var normalizedFromValues = new float[length];
+        var normalizedToValues = new float[length];
+
+        for (var index = 0; index < length; index++)
+        {
+            normalizedFromValues[index] = index < fromValues.Length
+                ? fromValues[index]
+                : GetDefaultTransformValue(transformType, index, fromValues);
+            normalizedToValues[index] = index < toValues.Length
+                ? toValues[index]
+                : GetDefaultTransformValue(transformType, index, toValues);
+        }
+
+        return ResolveEuclideanDistance(normalizedFromValues, normalizedToValues);
+    }
+
+    private static float ResolveEuclideanDistance(float[] fromValues, float[] toValues)
+    {
+        double sum = 0d;
+
+        for (var index = 0; index < fromValues.Length; index++)
+        {
+            var delta = toValues[index] - fromValues[index];
+            sum += delta * delta;
+        }
+
+        return (float)Math.Sqrt(sum);
+    }
+
+    private static float ResolveColorDistance(Color fromColor, Color toColor)
+    {
+        var deltaA = toColor.A - fromColor.A;
+        var deltaR = toColor.R - fromColor.R;
+        var deltaG = toColor.G - fromColor.G;
+        var deltaB = toColor.B - fromColor.B;
+        return (float)Math.Sqrt(
+            (deltaA * deltaA) +
+            (deltaR * deltaR) +
+            (deltaG * deltaG) +
+            (deltaB * deltaB));
+    }
+
+    private static float ResolvePointDistance(SKPoint fromPoint, SKPoint toPoint)
+    {
+        var deltaX = toPoint.X - fromPoint.X;
+        var deltaY = toPoint.Y - fromPoint.Y;
+        return (float)Math.Sqrt((deltaX * deltaX) + (deltaY * deltaY));
     }
 
     private static float ResolveSplineProgress(string? keySplines, int segmentIndex, float progress)
@@ -2686,6 +2988,16 @@ public sealed class SvgAnimationController : IDisposable
         }
 
         return left.Value <= right ? left : right;
+    }
+
+    private static TimeSpan? MaxDuration(TimeSpan? left, TimeSpan right)
+    {
+        if (!left.HasValue)
+        {
+            return left;
+        }
+
+        return left.Value >= right ? left : right;
     }
 
     private static float Clamp01(float value)

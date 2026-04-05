@@ -43,10 +43,18 @@ public sealed class SvgAnimationClock
 
     public void AdvanceBy(TimeSpan delta)
     {
-        var next = _currentTime + delta;
-        if (next < TimeSpan.Zero)
+        TimeSpan next;
+        if (delta >= TimeSpan.Zero)
         {
-            next = TimeSpan.Zero;
+            next = delta >= TimeSpan.MaxValue - _currentTime
+                ? TimeSpan.MaxValue
+                : _currentTime + delta;
+        }
+        else
+        {
+            next = delta <= -_currentTime
+                ? TimeSpan.Zero
+                : _currentTime + delta;
         }
 
         Seek(next);

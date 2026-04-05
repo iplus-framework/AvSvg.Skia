@@ -149,35 +149,28 @@ internal static class SvgAnimationParser
         double scalar;
         if (TryParseClockValueWithSuffix(part, "ms", out scalar))
         {
-            result = TimeSpan.FromMilliseconds(scalar);
+            return TryCreateTimeSpan(scalar, sign, ClockTimeUnit.Milliseconds, out result);
         }
         else if (TryParseClockValueWithSuffix(part, "min", out scalar))
         {
-            result = TimeSpan.FromMinutes(scalar);
+            return TryCreateTimeSpan(scalar, sign, ClockTimeUnit.Minutes, out result);
         }
         else if (TryParseClockValueWithSuffix(part, "h", out scalar))
         {
-            result = TimeSpan.FromHours(scalar);
+            return TryCreateTimeSpan(scalar, sign, ClockTimeUnit.Hours, out result);
         }
         else if (TryParseClockValueWithSuffix(part, "s", out scalar))
         {
-            result = TimeSpan.FromSeconds(scalar);
+            return TryCreateTimeSpan(scalar, sign, ClockTimeUnit.Seconds, out result);
         }
         else if (TryParseInvariantDouble(part, out scalar))
         {
-            result = TimeSpan.FromSeconds(scalar);
+            return TryCreateTimeSpan(scalar, sign, ClockTimeUnit.Seconds, out result);
         }
         else
         {
             return false;
         }
-
-        if (sign < 0)
-        {
-            result = -result;
-        }
-
-        return true;
     }
 
     internal static bool TryParseEventTimingSpec(
@@ -398,10 +391,18 @@ internal static class SvgAnimationParser
         }
 
 #if NETSTANDARD2_1 || NETCOREAPP2_1_OR_GREATER
-        return float.TryParse(value, NumberStyles.Float, s_invariantCulture, out result);
+        if (!float.TryParse(value, NumberStyles.Float, s_invariantCulture, out result))
+        {
+            return false;
+        }
 #else
-        return float.TryParse(value.ToString(), NumberStyles.Float, s_invariantCulture, out result);
+        if (!float.TryParse(value.ToString(), NumberStyles.Float, s_invariantCulture, out result))
+        {
+            return false;
+        }
 #endif
+
+        return IsFinite(result);
     }
 
     internal static bool TryParseInvariantDouble(ReadOnlySpan<char> value, out double result)
@@ -414,10 +415,18 @@ internal static class SvgAnimationParser
         }
 
 #if NETSTANDARD2_1 || NETCOREAPP2_1_OR_GREATER
-        return double.TryParse(value, NumberStyles.Float, s_invariantCulture, out result);
+        if (!double.TryParse(value, NumberStyles.Float, s_invariantCulture, out result))
+        {
+            return false;
+        }
 #else
-        return double.TryParse(value.ToString(), NumberStyles.Float, s_invariantCulture, out result);
+        if (!double.TryParse(value.ToString(), NumberStyles.Float, s_invariantCulture, out result))
+        {
+            return false;
+        }
 #endif
+
+        return IsFinite(result);
     }
 
     internal static bool TryParseInvariantInt(ReadOnlySpan<char> value, out int result)
@@ -592,29 +601,67 @@ internal static class SvgAnimationParser
 
     private static int FindEventTimingSignIndex(ReadOnlySpan<char> value)
     {
-        var plusIndex = value.IndexOf('+');
-        var minusIndex = -1;
-
-        for (var index = 1; index < value.Length; index++)
+        for (var index = value.Length - 1; index > 0; index--)
         {
-            if (value[index] == '-' && char.IsWhiteSpace(value[index - 1]))
+            if (value[index] is not ('+' or '-'))
             {
-                minusIndex = index;
-                break;
+                continue;
             }
+
+            var offsetText = Trim(value.Slice(index + 1));
+            if (offsetText.Length == 0 || !TryParseClockValue(offsetText, out _))
+            {
+                continue;
+            }
+
+            return index;
         }
 
-        if (plusIndex < 0)
+        return -1;
+    }
+
+    private static bool TryCreateTimeSpan(double scalar, int sign, ClockTimeUnit unit, out TimeSpan result)
+    {
+        try
         {
-            return minusIndex;
+            result = unit switch
+            {
+                ClockTimeUnit.Milliseconds => TimeSpan.FromMilliseconds(scalar),
+                ClockTimeUnit.Minutes => TimeSpan.FromMinutes(scalar),
+                ClockTimeUnit.Hours => TimeSpan.FromHours(scalar),
+                _ => TimeSpan.FromSeconds(scalar)
+            };
         }
-
-        if (minusIndex < 0)
+        catch (OverflowException)
         {
-            return plusIndex;
+            result = default;
+            return false;
         }
 
-        return Math.Min(plusIndex, minusIndex);
+        if (sign < 0)
+        {
+            result = -result;
+        }
+
+        return true;
+    }
+
+    private static bool IsFinite(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    private static bool IsFinite(double value)
+    {
+        return !double.IsNaN(value) && !double.IsInfinity(value);
+    }
+
+    private enum ClockTimeUnit
+    {
+        Milliseconds,
+        Seconds,
+        Minutes,
+        Hours
     }
 
     private static float ToViewportDimension(SvgUnit unit, SvgElement owner)

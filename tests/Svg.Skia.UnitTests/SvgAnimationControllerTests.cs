@@ -374,6 +374,62 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void CreateAnimatedDocument_RejectsNonFiniteClockValues()
+    {
+        var document = SvgService.FromSvg(NonFiniteClockAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(0f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_RejectsNonFiniteRepeatCountValues()
+    {
+        var document = SvgService.FromSvg(NonFiniteRepeatCountAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1.5));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(0f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_EnforcesMaximumActiveDuration()
+    {
+        var document = SvgService.FromSvg(MaximumDurationAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(3));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(4f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_EnforcesMinimumActiveDuration()
+    {
+        var document = SvgService.FromSvg(MinimumDurationAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2.5));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(5f, target!.X.Value, 3);
+    }
+
+    [Fact]
     public void CreateAnimatedDocument_AppliesZeroDurationAnimateImmediately()
     {
         var document = SvgService.FromSvg(ZeroDurationAnimationSvg);
@@ -453,6 +509,38 @@ public class SvgAnimationControllerTests
         var target = animated.GetElementById<SvgRectangle>("target");
         Assert.NotNull(target);
         Assert.Equal(5f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_ParsesNegativeEventOffsetsWithoutWhitespace()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(NegativeEventOffsetBeginSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.NotNull(svg.AnimationController);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+
+        var dispatcher = new SvgInteractionDispatcher();
+        var clickInput = new SvgPointerInput(
+            new SKPoint(20, 20),
+            SvgPointerDeviceType.Mouse,
+            SvgMouseButton.Left,
+            1,
+            0,
+            false,
+            false,
+            false,
+            "pointer-1");
+
+        _ = dispatcher.DispatchPointerPressed(svg, clickInput);
+        _ = dispatcher.DispatchPointerReleased(svg, clickInput);
+
+        var animated = svg.AnimationController!.CreateAnimatedDocument(TimeSpan.FromSeconds(1.5));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(7.5f, target!.X.Value, 3);
     }
 
     [Fact]
@@ -583,6 +671,36 @@ public class SvgAnimationControllerTests
         var motionSplineTranslate = Assert.IsType<SvgTranslate>(Assert.Single(motionSpline!.Transforms));
         Assert.Equal(5f, motionLinearTranslate.X, 3);
         Assert.True(motionSplineTranslate.X > motionLinearTranslate.X + 1f);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_UsesPacedSegmentTimingForAnimateValues()
+    {
+        var document = SvgService.FromSvg(PacedValuesAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(55f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_UsesPacedSegmentTimingForAnimateTransform()
+    {
+        var document = SvgService.FromSvg(PacedTransformAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        var translate = Assert.IsType<SvgTranslate>(Assert.Single(target!.Transforms));
+        Assert.Equal(55f, translate.X, 3);
+        Assert.Equal(0f, translate.Y, 3);
     }
 
     [Fact]
@@ -853,6 +971,18 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
+    private const string NegativeEventOffsetBeginSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="40"
+             height="40"
+             viewBox="0 0 40 40">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="10" begin="trigger.click-1s" dur="2s" fill="freeze" />
+          </rect>
+          <circle id="trigger" cx="20" cy="20" r="4" fill="blue" />
+        </svg>
+        """;
+
     private const string MoveTriggeredAnimationSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              width="40"
@@ -1021,6 +1151,50 @@ public class SvgAnimationControllerTests
              viewBox="0 0 20 20">
           <rect id="target" x="0" y="0" width="4" height="4" fill="red">
             <animate attributeName="x" from="0" to="10" dur="0s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string NonFiniteClockAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="NaNs" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string NonFiniteRepeatCountAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="1s" repeatCount="NaN" />
+          </rect>
+        </svg>
+        """;
+
+    private const string MaximumDurationAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="5s" max="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string MinimumDurationAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="1s" min="3s" fill="freeze" />
           </rect>
         </svg>
         """;
@@ -1198,6 +1372,28 @@ public class SvgAnimationControllerTests
           <circle id="motionAccum" cx="0" cy="0" r="2" fill="purple">
             <animateMotion dur="2s" repeatCount="3" accumulate="sum" fill="freeze" path="M0,0 L10,0" />
           </circle>
+        </svg>
+        """;
+
+    private const string PacedValuesAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="120"
+             height="20"
+             viewBox="0 0 120 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" values="0;10;110" calcMode="paced" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string PacedTransformAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="120"
+             height="20"
+             viewBox="0 0 120 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animateTransform attributeName="transform" type="translate" values="0 0;10 0;110 0" calcMode="paced" dur="2s" fill="freeze" />
+          </rect>
         </svg>
         """;
 
