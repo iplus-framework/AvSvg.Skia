@@ -541,7 +541,13 @@ public sealed class SvgSceneDocument
 
             if (!IgnoreAttributes.HasFlag(DrawAttributes.Filter))
             {
-                if (ResolveFilterPayload(node) is { } filterPayload)
+                if (visualElement.Filter is { } filter &&
+                    !FilterEffectsService.IsNone(filter) &&
+                    string.IsNullOrWhiteSpace(node.FilterResourceKey))
+                {
+                    node.SuppressSubtreeRendering = true;
+                }
+                else if (ResolveFilterPayload(node) is { } filterPayload)
                 {
                     if (filterPayload.IsValid)
                     {
