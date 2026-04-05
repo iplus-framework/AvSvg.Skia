@@ -1107,23 +1107,33 @@ public sealed class Svg : SKCanvasElement
 
     private static double NormalizeAnimationPlaybackRate(double playbackRate)
     {
-        return playbackRate < 0 ? 0 : playbackRate;
+        return !IsFinite(playbackRate) || playbackRate < 0 ? 0 : playbackRate;
     }
 
     private static TimeSpan ScaleAnimationDelta(TimeSpan delta, double playbackRate)
     {
-        if (delta <= TimeSpan.Zero || playbackRate <= 0)
+        if (delta <= TimeSpan.Zero || playbackRate <= 0 || !IsFinite(playbackRate))
         {
             return TimeSpan.Zero;
         }
 
         var scaledTicks = delta.Ticks * playbackRate;
-        if (scaledTicks >= long.MaxValue)
+        if (double.IsNaN(scaledTicks))
+        {
+            return TimeSpan.Zero;
+        }
+
+        if (double.IsInfinity(scaledTicks) || scaledTicks >= long.MaxValue)
         {
             return TimeSpan.MaxValue;
         }
 
         return TimeSpan.FromTicks((long)Math.Round(scaledTicks, MidpointRounding.AwayFromZero));
+    }
+
+    private static bool IsFinite(double value)
+    {
+        return !double.IsNaN(value) && !double.IsInfinity(value);
     }
 
     private void OnAnimationInvalidated(object? sender, SvgAnimationFrameChangedEventArgs e)
