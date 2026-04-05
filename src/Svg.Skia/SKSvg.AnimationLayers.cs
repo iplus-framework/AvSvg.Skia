@@ -8,62 +8,6 @@ namespace Svg.Skia;
 
 public partial class SKSvg
 {
-    private static readonly HashSet<string> s_inheritedAnimationAttributes = new(StringComparer.Ordinal)
-    {
-        "alphabetic",
-        "ascent",
-        "ascent-height",
-        "clip",
-        "clip-rule",
-        "color",
-        "color-interpolation",
-        "color-interpolation-filters",
-        "descent",
-        "dominant-baseline",
-        "fill",
-        "fill-opacity",
-        "fill-rule",
-        "flood-color",
-        "flood-opacity",
-        "font",
-        "font-family",
-        "font-size",
-        "font-stretch",
-        "font-style",
-        "font-variant",
-        "font-weight",
-        "glyph-name",
-        "horiz-adv-x",
-        "horiz-origin-x",
-        "horiz-origin-y",
-        "k",
-        "lengthAdjust",
-        "letter-spacing",
-        "shape-rendering",
-        "space",
-        "stop-color",
-        "stop-opacity",
-        "stroke",
-        "stroke-dasharray",
-        "stroke-dashoffset",
-        "stroke-linecap",
-        "stroke-linejoin",
-        "stroke-miterlimit",
-        "stroke-opacity",
-        "stroke-width",
-        "text-anchor",
-        "text-decoration",
-        "text-transform",
-        "textLength",
-        "units-per-em",
-        "vert-adv-y",
-        "vert-origin-x",
-        "vert-origin-y",
-        "visibility",
-        "word-spacing",
-        "x-height"
-    };
-
     private sealed class AnimationLayerRootInfo
     {
         public AnimationLayerRootInfo(string compilationRootKey, SvgSceneNode rootNode, int order)
@@ -317,7 +261,6 @@ public partial class SKSvg
             {
                 WaitForDrawsLocked();
 
-                Drawable = null;
                 Model = compositeModel;
 
                 ReplaceRegisteredPicture(
@@ -718,8 +661,7 @@ public partial class SKSvg
 
     private static bool IsInheritedAnimationAttribute(string attributeName)
     {
-        return !string.IsNullOrWhiteSpace(attributeName) &&
-               s_inheritedAnimationAttributes.Contains(attributeName);
+        return SvgAnimationInvalidation.AffectsDescendantSubtree(attributeName);
     }
 
     private static bool IsSameOrDescendantAddress(string? candidateAddressKey, string ancestorAddressKey)

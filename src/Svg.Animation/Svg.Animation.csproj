@@ -10,33 +10,31 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <!-- Trimming parameters -->
   <PropertyGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net6.0'))">
     <IsTrimmable>true</IsTrimmable>
     <SuppressTrimAnalysisWarnings>false</SuppressTrimAnalysisWarnings>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
   </PropertyGroup>
-  <!-- AOT parameters -->
+
   <PropertyGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">
     <IsAotCompatible>true</IsAotCompatible>
     <EnableAotAnalyzer>true</EnableAotAnalyzer>
   </PropertyGroup>
 
   <PropertyGroup>
-    <Description>An SVG rendering library.</Description>
-    <PackageId>Svg.Skia</PackageId>
+    <Description>Shared SVG animation runtime and host playback contracts.</Description>
+    <PackageId>Svg.Animation</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>svg;vector graphics;rendering;2d;graphics;geometry;shapes;skiasharp;skia</PackageTags>
+    <PackageTags>svg;animation;smil;rendering;host playback;runtime</PackageTags>
   </PropertyGroup>
 
   <Import Project="..\..\build\SourceLink.props" />
   <Import Project="..\..\build\SignAssembly.props" />
   <Import Project="..\..\build\ReferenceAssemblies.props" />
   <Import Project="..\..\build\SkiaSharp.props" />
+
   <ItemGroup>
-    <!--<ProjectReference Include="..\..\externals\SVG\Source\Svg.csproj" />-->
-    <ProjectReference Include="..\Svg.Animation\Svg.Animation.csproj" />
-    <ProjectReference Include="..\Svg.SceneGraph\Svg.SceneGraph.csproj" />
+    <ProjectReference Include="..\ShimSkiaSharp\ShimSkiaSharp.csproj" />
     <ProjectReference Include="..\Svg.Model\Svg.Model.csproj" />
     <ProjectReference Include="..\Svg.Custom\Svg.Custom.csproj" />
   </ItemGroup>

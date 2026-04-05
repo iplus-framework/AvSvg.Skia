@@ -22,17 +22,6 @@ public enum SvgMouseButton
     XButton2
 }
 
-public enum SvgPointerEventType
-{
-    Move,
-    Press,
-    Release,
-    Enter,
-    Leave,
-    Wheel,
-    Click
-}
-
 public enum SvgPointerEventRoutePhase
 {
     Tunnel,
