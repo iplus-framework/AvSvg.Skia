@@ -49,7 +49,7 @@ internal sealed class ImageDrawable : DrawableBase
             return drawable;
         }
 
-        var uri = SvgService.GetImageUri(svgImage.Href, svgImage.OwnerDocument);
+        var uri = SvgService.GetImageDocumentUri(SvgService.GetImageUri(svgImage.Href, svgImage.OwnerDocument));
         if (references is { } && references.Contains(uri))
         {
             drawable.IsDrawable = false;
@@ -95,7 +95,8 @@ internal sealed class ImageDrawable : DrawableBase
 
         if (svgFragment is { })
         {
-            drawable.FragmentDrawable = FragmentDrawable.Create(svgFragment, skViewport, drawable, assetLoader, references, ignoreAttributes);
+            var nestedReferences = SvgService.ExtendImageReferences(references, svgFragment);
+            drawable.FragmentDrawable = FragmentDrawable.Create(svgFragment, skViewport, drawable, assetLoader, nestedReferences, ignoreAttributes);
         }
 
         drawable.Initialize();

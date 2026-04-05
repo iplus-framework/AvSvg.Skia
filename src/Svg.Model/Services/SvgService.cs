@@ -368,6 +368,36 @@ public static class SvgService
         return uri;
     }
 
+    internal static Uri GetImageDocumentUri(Uri uri)
+    {
+        if (!uri.IsAbsoluteUri || string.IsNullOrEmpty(uri.Fragment))
+        {
+            return uri;
+        }
+
+        var builder = new UriBuilder(uri)
+        {
+            Fragment = string.Empty
+        };
+
+        return builder.Uri;
+    }
+
+    internal static HashSet<Uri>? ExtendImageReferences(HashSet<Uri>? references, SvgFragment? fragment)
+    {
+        var document = fragment as SvgDocument ?? fragment?.OwnerDocument;
+        var nextReferences = references is null ? null : new HashSet<Uri>(references);
+
+        if (document?.BaseUri is not { } baseUri)
+        {
+            return nextReferences;
+        }
+
+        nextReferences ??= new HashSet<Uri>();
+        nextReferences.Add(GetImageDocumentUri(baseUri));
+        return nextReferences;
+    }
+
     internal static object? GetImage(string uriString, SvgDocument svgOwnerDocument, ISvgAssetLoader assetLoader)
     {
         try

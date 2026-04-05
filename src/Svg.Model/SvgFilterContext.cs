@@ -1488,7 +1488,7 @@ internal class SvgFilterContext
 
     private SKImageFilter? CreateImage(FilterEffects.SvgImage svgImage, ISvgAssetLoader assetLoader, HashSet<Uri>? references, SKRect skFilterPrimitiveRegion, SKRect? cropRect = default)
     {
-        var uri = SvgService.GetImageUri(svgImage.Href, svgImage.OwnerDocument);
+        var uri = SvgService.GetImageDocumentUri(SvgService.GetImageUri(svgImage.Href, svgImage.OwnerDocument));
         if (references is { } && references.Contains(uri))
         {
             return default;
@@ -1537,7 +1537,8 @@ internal class SvgFilterContext
             fragmentTransform = fragmentTransform.PreConcat(skScaleMatrix);
             // TODO: fragmentTransform
 
-            var fragmentDrawable = FragmentDrawable.Create(svgFragment, destRect, null, assetLoader, references, DrawAttributes.None);
+            var nestedReferences = SvgService.ExtendImageReferences(references, svgFragment);
+            var fragmentDrawable = FragmentDrawable.Create(svgFragment, destRect, null, assetLoader, nestedReferences, DrawAttributes.None);
             // TODO: fragmentDrawable.Snapshot()
             var skPicture = fragmentDrawable.Snapshot();
 
