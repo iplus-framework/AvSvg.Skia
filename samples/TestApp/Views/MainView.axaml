@@ -1,10 +1,12 @@
-﻿<UserControl xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:skia="using:Svg.Skia"
              xmlns:vm="using:TestApp.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             mc:Ignorable="d"
+             d:DesignWidth="800"
+             d:DesignHeight="450"
              x:Class="TestApp.Views.MainView"
              DragDrop.AllowDrop="True"
              FontFamily="avares://Avalonia.Fonts.Inter/Assets#Inter">
@@ -59,8 +61,7 @@
             </Panel.ContextFlyout>
             <TextBlock Text="{Binding Name}"
                        Padding="12"
-                       IsHitTestVisible="False">
-            </TextBlock>
+                       IsHitTestVisible="False" />
           </Panel>
         </DataTemplate>
       </ListBox.ItemTemplate>
@@ -151,10 +152,10 @@
                       OffContent="Cache Disabled"
                       Margin="0,0,12,6" />
         <ToggleSwitch Name="ShowHitBoundsToggle"
+                      IsChecked="{Binding SvgView.ShowHitBounds, Mode=TwoWay}"
                       OnContent="Show Bounds"
                       OffContent="Hide Bounds"
-                      Margin="0,0,12,6"
-                      Click="ShowHitBoundsToggle_OnToggled" />
+                      Margin="0,0,12,6" />
         <ToggleSwitch IsChecked="{Binding #Svg.Wireframe}"
                       OnContent="Wireframe On"
                       OffContent="Wireframe Off"
@@ -192,47 +193,46 @@
         <StackPanel Orientation="Horizontal" Margin="0,0,12,6">
           <Button Name="PlayAnimationButton"
                   Content="Play"
+                  IsEnabled="{Binding SvgView.CanPlay}"
                   Click="PlayAnimationButton_OnClick" />
           <Button Name="PauseAnimationButton"
                   Content="Pause"
                   Margin="6,0,0,0"
+                  IsEnabled="{Binding SvgView.CanPause}"
                   Click="PauseAnimationButton_OnClick" />
           <Button Name="RestartAnimationButton"
                   Content="Restart"
                   Margin="6,0,0,0"
+                  IsEnabled="{Binding SvgView.CanRestart}"
                   Click="RestartAnimationButton_OnClick" />
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" Margin="0,0,12,6">
-          <TextBlock Name="AnimationStatusText"
-                     VerticalAlignment="Center"
-                     Text="No animation" />
+          <TextBlock VerticalAlignment="Center"
+                     Text="{Binding SvgView.AnimationStatusText}" />
           <TextBlock Margin="6,0,0,0"
                      VerticalAlignment="Center"
                      Text="|" />
-          <TextBlock Name="AnimationClockText"
-                     Margin="6,0,0,0"
+          <TextBlock Margin="6,0,0,0"
                      VerticalAlignment="Center"
-                     Text="00:00.000" />
+                     Text="{Binding SvgView.AnimationClockText}" />
         </StackPanel>
 
-        <TextBlock Name="AnimationBackendInfoText"
-                   Margin="0,0,12,6"
+        <TextBlock Margin="0,0,12,6"
                    VerticalAlignment="Center"
-                   Text="Default" />
+                   Text="{Binding SvgView.AnimationBackendInfoText}"
+                   ToolTip.Tip="{Binding SvgView.AnimationBackendFallbackReason}" />
 
         <Button Content="Export"
-                Command="{Binding ExportCommand}"
-                CommandParameter="{Binding #Svg}"
-                Margin="0,0,0,6" />
+                Margin="0,0,0,6"
+                Click="ExportButton_OnClick" />
       </WrapPanel>
       <ScrollViewer HorizontalScrollBarVisibility="{Binding #HorizontalScrollBarVisibility.SelectedItem}"
                     VerticalScrollBarVisibility="{Binding #VerticalScrollBarVisibility.SelectedItem}">
         <ScrollViewer.ContextFlyout>
           <MenuFlyout Placement="Bottom">
             <MenuItem Header="Export"
-                      Command="{Binding ExportCommand}"
-                      CommandParameter="{Binding #Svg}" />
+                      Click="ExportButton_OnClick" />
           </MenuFlyout>
         </ScrollViewer.ContextFlyout>
         <Svg Name="Svg"
@@ -246,8 +246,8 @@
 
     <ListBox Grid.Column="2"
              Grid.Row="3"
-             Name="HitResults"
-             Margin="6" />
+             Margin="6"
+             ItemsSource="{Binding SvgView.HitResults}" />
 
   </Grid>
 
