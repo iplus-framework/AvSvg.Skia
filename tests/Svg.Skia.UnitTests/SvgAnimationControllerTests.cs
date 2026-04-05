@@ -295,6 +295,8 @@ public class SvgAnimationControllerTests
         using var _ = svg.Load(path);
 
         Assert.True(svg.HasAnimations);
+        Assert.False(svg.UsesAnimationLayerCaching);
+        Assert.False(svg.SupportsNativeComposition);
 
         using var initialBitmap = RenderBitmap(svg);
         var initialSignature = GetBitmapSignature(initialBitmap);
@@ -306,6 +308,8 @@ public class SvgAnimationControllerTests
         Assert.Equal(0f, renderedDocument.ViewBox.MinY, 3);
         Assert.Equal(200f, renderedDocument.ViewBox.Width, 3);
         Assert.Equal(200f, renderedDocument.ViewBox.Height, 3);
+        Assert.False(svg.UsesAnimationLayerCaching);
+        Assert.False(svg.SupportsNativeComposition);
 
         using var updatedBitmap = RenderBitmap(svg);
         var updatedSignature = GetBitmapSignature(updatedBitmap);

@@ -112,6 +112,12 @@ public partial class SKSvg
             return false;
         }
 
+        if (AnimationController.HasDocumentRootAnimationTargets())
+        {
+            DisableAnimationLayerCaching();
+            return false;
+        }
+
         var animatedTargetKeys = AnimationController.GetAnimatedTargetAddressKeys();
         if (animatedTargetKeys.Count == 0)
         {

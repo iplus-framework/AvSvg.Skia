@@ -227,6 +227,19 @@ public sealed class SvgAnimationController : IDisposable
         return true;
     }
 
+    internal bool HasDocumentRootAnimationTargets()
+    {
+        for (var i = 0; i < _bindings.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(_bindings[i].TargetAddress.Key))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     internal IReadOnlyList<string> GetAnimatedTargetAddressKeys()
     {
         if (_bindings.Count == 0)

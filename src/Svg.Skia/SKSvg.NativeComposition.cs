@@ -121,7 +121,8 @@ public partial class SKSvg
 
         if (SourceDocument is not { } currentSourceDocument ||
             AnimationController is not { } animationController ||
-            AnimationController.GetAnimatedTargetAddressKeys() is not { Count: > 0 } animatedTargetKeys ||
+            animationController.HasDocumentRootAnimationTargets() ||
+            animationController.GetAnimatedTargetAddressKeys() is not { Count: > 0 } animatedTargetKeys ||
             !TryGetNativeCompositionSourceBounds(out sourceBounds))
         {
             return false;
