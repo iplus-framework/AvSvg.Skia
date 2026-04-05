@@ -461,6 +461,8 @@ public static class SvgService
             return default;
         }
 
+        var imageBaseUri = GetImageUri(uriString, svgOwnerDocument);
+
         var headerStartIndex = 5;
         var headerEndIndex = uriString.IndexOf(",", headerStartIndex, StringComparison.Ordinal);
         if (headerEndIndex < 0 || headerEndIndex + 1 >= uriString.Length)
@@ -514,7 +516,7 @@ public static class SvgService
                     if (isCompressed)
                     {
                         using var bytesStream = new System.IO.MemoryStream(bytes);
-                        return LoadSvgz(bytesStream, svgOwnerDocument.BaseUri);
+                        return LoadSvgz(bytesStream, imageBaseUri);
                     }
                 }
 
@@ -524,7 +526,7 @@ public static class SvgService
 
             var buffer = Encoding.Default.GetBytes(data);
             using var stream = new System.IO.MemoryStream(buffer);
-            return LoadSvg(stream, svgOwnerDocument.BaseUri);
+            return LoadSvg(stream, imageBaseUri);
         }
 
         if (mimeType.StartsWith("image/", StringComparison.Ordinal) ||
