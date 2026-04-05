@@ -1483,7 +1483,7 @@ internal sealed class SvgSceneFilterContext
 
     private SKImageFilter? CreateImage(FilterEffects.SvgImage svgImage, ISvgAssetLoader assetLoader, HashSet<Uri>? references, SKRect skFilterPrimitiveRegion, SKRect? cropRect = default)
     {
-        var uri = SvgService.GetImageUri(svgImage.Href, svgImage.OwnerDocument);
+        var uri = SvgService.GetImageDocumentUri(SvgService.GetImageUri(svgImage.Href, svgImage.OwnerDocument));
         if (references is { } && references.Contains(uri))
         {
             return default;

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using ShimSkiaSharp;
 using Svg;
 using Svg.DataTypes;
@@ -12,11 +13,62 @@ namespace Svg.Skia;
 
 public static class SvgSceneCompiler
 {
+    private sealed class SvgSceneCompileContext
+    {
+        private readonly HashSet<string> _activeDocumentKeys = new(StringComparer.Ordinal);
+
+        public bool TryEnter(SvgDocument? document, out string? documentKey)
+        {
+            documentKey = GetDocumentKey(document);
+            return documentKey is null || _activeDocumentKeys.Add(documentKey);
+        }
+
+        public void Exit(string? documentKey)
+        {
+            if (documentKey is not null)
+            {
+                _activeDocumentKeys.Remove(documentKey);
+            }
+        }
+
+        private static string? GetDocumentKey(SvgDocument? document)
+        {
+            if (document is null)
+            {
+                return null;
+            }
+
+            if (document.BaseUri is { } baseUri)
+            {
+                return SvgService.GetImageDocumentUri(baseUri).AbsoluteUri;
+            }
+
+            return "instance:" + RuntimeHelpers.GetHashCode(document).ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
     public static bool TryCompile(
         SvgDocument? sourceDocument,
         SKRect cullRect,
         ISvgAssetLoader assetLoader,
         DrawAttributes ignoreAttributes,
+        out SvgSceneDocument? sceneDocument)
+    {
+        return TryCompile(
+            sourceDocument,
+            cullRect,
+            assetLoader,
+            ignoreAttributes,
+            new SvgSceneCompileContext(),
+            out sceneDocument);
+    }
+
+    private static bool TryCompile(
+        SvgDocument? sourceDocument,
+        SKRect cullRect,
+        ISvgAssetLoader assetLoader,
+        DrawAttributes ignoreAttributes,
+        SvgSceneCompileContext compileContext,
         out SvgSceneDocument? sceneDocument)
     {
         sceneDocument = null;
@@ -37,22 +89,35 @@ public static class SvgSceneCompiler
             return false;
         }
 
-        var rootNode = CompileElementNode(
-            sourceDocument,
-            viewport,
-            SKMatrix.Identity,
-            assetLoader,
-            ignoreAttributes,
-            compilationRootKey: null,
-            createOwnCompilationRootBoundary: false);
-
-        if (rootNode is null)
+        if (!compileContext.TryEnter(sourceDocument, out var documentKey))
         {
             return false;
         }
 
-        sceneDocument = new SvgSceneDocument(sourceDocument, cullRect, viewport, rootNode, assetLoader, ignoreAttributes);
-        return true;
+        try
+        {
+            var rootNode = CompileElementNode(
+                sourceDocument,
+                viewport,
+                SKMatrix.Identity,
+                assetLoader,
+                ignoreAttributes,
+                compilationRootKey: null,
+                createOwnCompilationRootBoundary: false,
+                compileContext);
+
+            if (rootNode is null)
+            {
+                return false;
+            }
+
+            sceneDocument = new SvgSceneDocument(sourceDocument, cullRect, viewport, rootNode, assetLoader, ignoreAttributes);
+            return true;
+        }
+        finally
+        {
+            compileContext.Exit(documentKey);
+        }
     }
 
     internal static bool TryCompileFragment(
@@ -63,6 +128,25 @@ public static class SvgSceneCompiler
         DrawAttributes ignoreAttributes,
         out SvgSceneDocument? sceneDocument)
     {
+        return TryCompileFragment(
+            sourceFragment,
+            cullRect,
+            viewport,
+            assetLoader,
+            ignoreAttributes,
+            new SvgSceneCompileContext(),
+            out sceneDocument);
+    }
+
+    private static bool TryCompileFragment(
+        SvgFragment? sourceFragment,
+        SKRect cullRect,
+        SKRect viewport,
+        ISvgAssetLoader assetLoader,
+        DrawAttributes ignoreAttributes,
+        SvgSceneCompileContext compileContext,
+        out SvgSceneDocument? sceneDocument)
+    {
         sceneDocument = null;
 
         if (sourceFragment is null)
@@ -70,28 +154,42 @@ public static class SvgSceneCompiler
             return false;
         }
 
-        var rootNode = CompileElementNode(
-            sourceFragment,
-            viewport,
-            SKMatrix.Identity,
-            assetLoader,
-            ignoreAttributes,
-            compilationRootKey: null,
-            createOwnCompilationRootBoundary: false);
-
-        if (rootNode is null)
+        var compilationDocument = sourceFragment as SvgDocument ?? sourceFragment.OwnerDocument;
+        if (!compileContext.TryEnter(compilationDocument, out var documentKey))
         {
             return false;
         }
 
-        sceneDocument = new SvgSceneDocument(
-            sourceFragment as SvgDocument ?? sourceFragment.OwnerDocument,
-            cullRect,
-            viewport,
-            rootNode,
-            assetLoader,
-            ignoreAttributes);
-        return true;
+        try
+        {
+            var rootNode = CompileElementNode(
+                sourceFragment,
+                viewport,
+                SKMatrix.Identity,
+                assetLoader,
+                ignoreAttributes,
+                compilationRootKey: null,
+                createOwnCompilationRootBoundary: false,
+                compileContext);
+
+            if (rootNode is null)
+            {
+                return false;
+            }
+
+            sceneDocument = new SvgSceneDocument(
+                sourceFragment as SvgDocument ?? sourceFragment.OwnerDocument,
+                cullRect,
+                viewport,
+                rootNode,
+                assetLoader,
+                ignoreAttributes);
+            return true;
+        }
+        finally
+        {
+            compileContext.Exit(documentKey);
+        }
     }
 
     internal static SvgSceneMutationResult ApplyMutation(
@@ -118,36 +216,50 @@ public static class SvgSceneCompiler
             return new SvgSceneMutationResult(true, 0, resources.Count);
         }
 
-        for (var i = 0; i < compilationRootKeys.Count; i++)
+        var compileContext = new SvgSceneCompileContext();
+        if (!compileContext.TryEnter(sceneDocument.SourceDocument, out var documentKey))
         {
-            var compilationRootKey = compilationRootKeys[i];
-            if (!sceneDocument.TryGetCompilationRoot(compilationRootKey, out var currentNode) ||
-                currentNode is null ||
-                !sceneDocument.TryResolveElement(compilationRootKey, out var currentElement) ||
-                currentElement is null)
-            {
-                return new SvgSceneMutationResult(false, i, resources.Count);
-            }
-
-            var replacement = CompileElementNode(
-                currentElement,
-                sceneDocument.CompilationViewport,
-                currentNode.Parent?.TotalTransform ?? SKMatrix.Identity,
-                sceneDocument.AssetLoader,
-                sceneDocument.IgnoreAttributes,
-                compilationRootKey,
-                createOwnCompilationRootBoundary: true);
-
-            if (replacement is null)
-            {
-                return new SvgSceneMutationResult(false, i, resources.Count);
-            }
-
-            currentNode.ReplaceWith(replacement);
+            return new SvgSceneMutationResult(false, 0, resources.Count);
         }
 
-        sceneDocument.RebuildIndexesAndDependencies();
-        return new SvgSceneMutationResult(true, compilationRootKeys.Count, resources.Count);
+        try
+        {
+            for (var i = 0; i < compilationRootKeys.Count; i++)
+            {
+                var compilationRootKey = compilationRootKeys[i];
+                if (!sceneDocument.TryGetCompilationRoot(compilationRootKey, out var currentNode) ||
+                    currentNode is null ||
+                    !sceneDocument.TryResolveElement(compilationRootKey, out var currentElement) ||
+                    currentElement is null)
+                {
+                    return new SvgSceneMutationResult(false, i, resources.Count);
+                }
+
+                var replacement = CompileElementNode(
+                    currentElement,
+                    sceneDocument.CompilationViewport,
+                    currentNode.Parent?.TotalTransform ?? SKMatrix.Identity,
+                    sceneDocument.AssetLoader,
+                    sceneDocument.IgnoreAttributes,
+                    compilationRootKey,
+                    createOwnCompilationRootBoundary: true,
+                    compileContext);
+
+                if (replacement is null)
+                {
+                    return new SvgSceneMutationResult(false, i, resources.Count);
+                }
+
+                currentNode.ReplaceWith(replacement);
+            }
+
+            sceneDocument.RebuildIndexesAndDependencies();
+            return new SvgSceneMutationResult(true, compilationRootKeys.Count, resources.Count);
+        }
+        finally
+        {
+            compileContext.Exit(documentKey);
+        }
     }
 
     private static bool RequiresRootSceneRebuild(SvgSceneDocument sceneDocument, SvgElement element)
@@ -274,7 +386,8 @@ public static class SvgSceneCompiler
         ISvgAssetLoader assetLoader,
         DrawAttributes ignoreAttributes,
         string? compilationRootKey,
-        bool createOwnCompilationRootBoundary)
+        bool createOwnCompilationRootBoundary,
+        SvgSceneCompileContext compileContext)
     {
         SvgSceneNode? node = null;
 
@@ -286,6 +399,7 @@ public static class SvgSceneCompiler
                 ignoreAttributes,
                 compilationRootKey,
                 createOwnCompilationRootBoundary,
+                compileContext,
                 out var directNode))
         {
             node = directNode;
@@ -331,7 +445,8 @@ public static class SvgSceneCompiler
                         assetLoader,
                         ignoreAttributes,
                         compilationRootKey: null,
-                        createOwnCompilationRootBoundary: true) is { } childNode)
+                        createOwnCompilationRootBoundary: true,
+                        compileContext) is { } childNode)
                 {
                     node.AddChild(childNode);
                 }
@@ -348,7 +463,8 @@ public static class SvgSceneCompiler
                      assetLoader,
                      ignoreAttributes,
                      node.CompilationRootKey,
-                     createOwnCompilationRootBoundary: false) is { } directSwitchChildNode)
+                     createOwnCompilationRootBoundary: false,
+                     compileContext) is { } directSwitchChildNode)
         {
             node.AddChild(directSwitchChildNode);
         }
@@ -774,6 +890,7 @@ public static class SvgSceneCompiler
         DrawAttributes ignoreAttributes,
         string? compilationRootKey,
         bool createOwnCompilationRootBoundary,
+        SvgSceneCompileContext compileContext,
         out SvgSceneNode? node)
     {
         node = null;
@@ -788,6 +905,7 @@ public static class SvgSceneCompiler
                 ignoreAttributes,
                 compilationRootKey,
                 createOwnCompilationRootBoundary,
+                compileContext,
                 out node);
         }
 
@@ -801,6 +919,7 @@ public static class SvgSceneCompiler
                 ignoreAttributes,
                 compilationRootKey,
                 createOwnCompilationRootBoundary,
+                compileContext,
                 out node);
         }
 
@@ -899,7 +1018,8 @@ public static class SvgSceneCompiler
                 viewport,
                 parentTotalTransform,
                 assetLoader,
-                ignoreAttributes);
+                ignoreAttributes,
+                compileContext);
         }
 
         return true;
@@ -913,6 +1033,7 @@ public static class SvgSceneCompiler
         DrawAttributes ignoreAttributes,
         string? compilationRootKey,
         bool createOwnCompilationRootBoundary,
+        SvgSceneCompileContext compileContext,
         out SvgSceneNode? node)
     {
         var elementAddressKey = TryGetElementAddressKey(svgUse);
@@ -987,7 +1108,8 @@ public static class SvgSceneCompiler
                     useNode.TotalTransform,
                     assetLoader,
                     ignoreAttributes,
-                    useNode.CompilationRootKey),
+                    useNode.CompilationRootKey,
+                    compileContext),
                 _ => CompileElementNode(
                     referencedElement,
                     viewport,
@@ -995,7 +1117,8 @@ public static class SvgSceneCompiler
                     assetLoader,
                     ignoreAttributes,
                     useNode.CompilationRootKey,
-                    createOwnCompilationRootBoundary: false)
+                    createOwnCompilationRootBoundary: false,
+                    compileContext)
             };
         });
 
@@ -1022,6 +1145,7 @@ public static class SvgSceneCompiler
         DrawAttributes ignoreAttributes,
         string? compilationRootKey,
         bool createOwnCompilationRootBoundary,
+        SvgSceneCompileContext compileContext,
         out SvgSceneNode? node)
     {
         var elementAddressKey = TryGetElementAddressKey(svgImage);
@@ -1062,7 +1186,7 @@ public static class SvgSceneCompiler
             return true;
         }
 
-        var uri = SvgService.GetImageUri(svgImage.Href, svgImage.OwnerDocument);
+        var uri = SvgService.GetImageDocumentUri(SvgService.GetImageUri(svgImage.Href, svgImage.OwnerDocument));
         var references = CreateReferences(svgImage);
         if (references is { } && references.Contains(uri))
         {
@@ -1114,7 +1238,8 @@ public static class SvgSceneCompiler
                     assetLoader,
                     ignoreAttributes,
                     node.TotalTransform,
-                    node.CompilationRootKey);
+                    node.CompilationRootKey,
+                    compileContext);
                 if (fragmentNode is null)
                 {
                     node.IsDrawable = false;
@@ -1139,7 +1264,8 @@ public static class SvgSceneCompiler
         SKMatrix parentTotalTransform,
         ISvgAssetLoader assetLoader,
         DrawAttributes ignoreAttributes,
-        string? compilationRootKey)
+        string? compilationRootKey,
+        SvgSceneCompileContext compileContext)
     {
         if (!HasFeatures(svgSymbol, ignoreAttributes) || !MaskingService.CanDraw(svgSymbol, ignoreAttributes))
         {
@@ -1203,7 +1329,8 @@ public static class SvgSceneCompiler
                     assetLoader,
                     ignoreAttributes,
                     compilationRootKey,
-                    createOwnCompilationRootBoundary: false) is { } childNode)
+                    createOwnCompilationRootBoundary: false,
+                    compileContext) is { } childNode)
             {
                 node.AddChild(childNode);
             }
@@ -1221,9 +1348,10 @@ public static class SvgSceneCompiler
         ISvgAssetLoader assetLoader,
         DrawAttributes ignoreAttributes,
         SKMatrix parentTotalTransform,
-        string? compilationRootKey)
+        string? compilationRootKey,
+        SvgSceneCompileContext compileContext)
     {
-        if (!TryCompile(imageDocument, srcRect, assetLoader, ignoreAttributes, out var imageSceneDocument) ||
+        if (!TryCompile(imageDocument, srcRect, assetLoader, ignoreAttributes, compileContext, out var imageSceneDocument) ||
             imageSceneDocument is null)
         {
             return null;
@@ -1326,7 +1454,8 @@ public static class SvgSceneCompiler
         SKRect viewport,
         SKMatrix parentTotalTransform,
         ISvgAssetLoader assetLoader,
-        DrawAttributes ignoreAttributes)
+        DrawAttributes ignoreAttributes,
+        SvgSceneCompileContext compileContext)
     {
         var pathTypes = path.GetPathTypes();
         var pathLength = pathTypes.Count;
@@ -1367,6 +1496,7 @@ public static class SvgSceneCompiler
                         assetLoader,
                         ignoreAttributes,
                         node.CompilationRootKey,
+                        compileContext,
                         out var startMarkerNode) &&
                     startMarkerNode is not null)
                 {
@@ -1413,6 +1543,7 @@ public static class SvgSceneCompiler
                             assetLoader,
                             ignoreAttributes,
                             node.CompilationRootKey,
+                            compileContext,
                             out var midMarkerNode) &&
                         midMarkerNode is not null)
                     {
@@ -1456,6 +1587,7 @@ public static class SvgSceneCompiler
                         assetLoader,
                         ignoreAttributes,
                         node.CompilationRootKey,
+                        compileContext,
                         out var endMarkerNode) &&
                     endMarkerNode is not null)
                 {
@@ -1478,6 +1610,7 @@ public static class SvgSceneCompiler
         ISvgAssetLoader assetLoader,
         DrawAttributes ignoreAttributes,
         string? compilationRootKey,
+        SvgSceneCompileContext compileContext,
         out SvgSceneNode? node)
     {
         var angle = 0f;
@@ -1502,6 +1635,7 @@ public static class SvgSceneCompiler
             assetLoader,
             ignoreAttributes,
             compilationRootKey,
+            compileContext,
             out node);
     }
 
@@ -1517,6 +1651,7 @@ public static class SvgSceneCompiler
         ISvgAssetLoader assetLoader,
         DrawAttributes ignoreAttributes,
         string? compilationRootKey,
+        SvgSceneCompileContext compileContext,
         out SvgSceneNode? node)
     {
         var xDiff = markerPoint2.X - markerPoint1.X;
@@ -1536,6 +1671,7 @@ public static class SvgSceneCompiler
             assetLoader,
             ignoreAttributes,
             compilationRootKey,
+            compileContext,
             out node);
     }
 
@@ -1549,6 +1685,7 @@ public static class SvgSceneCompiler
         ISvgAssetLoader assetLoader,
         DrawAttributes ignoreAttributes,
         string? compilationRootKey,
+        SvgSceneCompileContext compileContext,
         out SvgSceneNode? node)
     {
         node = null;
@@ -1635,7 +1772,8 @@ public static class SvgSceneCompiler
             assetLoader,
             DrawAttributes.Display | ignoreAttributes,
             compilationRootKey,
-            createOwnCompilationRootBoundary: false);
+            createOwnCompilationRootBoundary: false,
+            compileContext);
 
         if (childNode is null)
         {
@@ -1728,19 +1866,30 @@ public static class SvgSceneCompiler
         AssignRetainedVisualState(root, owner);
         AssignRetainedResourceKeys(root, owner);
 
-        for (var i = 0; i < children.Count; i++)
+        var compileContext = new SvgSceneCompileContext();
+        _ = compileContext.TryEnter(owner.OwnerDocument, out var documentKey);
+
+        try
         {
-            if (CompileElementNode(
-                    children[i],
-                    viewport,
-                    root.TotalTransform,
-                    assetLoader,
-                    ignoreAttributes,
-                    compilationRootKey: null,
-                    createOwnCompilationRootBoundary: false) is { } childNode)
+            for (var i = 0; i < children.Count; i++)
             {
-                root.AddChild(childNode);
+                if (CompileElementNode(
+                        children[i],
+                        viewport,
+                        root.TotalTransform,
+                        assetLoader,
+                        ignoreAttributes,
+                        compilationRootKey: null,
+                        createOwnCompilationRootBoundary: false,
+                        compileContext) is { } childNode)
+                {
+                    root.AddChild(childNode);
+                }
             }
+        }
+        finally
+        {
+            compileContext.Exit(documentKey);
         }
 
         FinalizeDirectStructuralBounds(root, SKMatrix.Identity);
@@ -1749,9 +1898,7 @@ public static class SvgSceneCompiler
 
     private static HashSet<Uri>? CreateReferences(SvgElement element)
     {
-        return element.OwnerDocument?.BaseUri is { } baseUri
-            ? new HashSet<Uri> { baseUri }
-            : null;
+        return SvgService.ExtendImageReferences(null, element.OwnerDocument);
     }
 
     private static bool TryGetDirectVisualPath(SvgElement element, SKRect viewport, out SKPath? path)
@@ -2169,19 +2316,30 @@ public static class SvgSceneCompiler
         AssignRetainedVisualState(node, svgMask);
         AssignRetainedResourceKeys(node, svgMask);
 
-        for (var i = 0; i < svgMask.Children.Count; i++)
+        var compileContext = new SvgSceneCompileContext();
+        _ = compileContext.TryEnter(svgMask.OwnerDocument, out var documentKey);
+
+        try
         {
-            if (CompileElementNode(
-                    svgMask.Children[i],
-                    targetBounds,
-                    node.TotalTransform,
-                    assetLoader,
-                    ignoreAttributes,
-                    compilationRootKey: null,
-                    createOwnCompilationRootBoundary: false) is { } childNode)
+            for (var i = 0; i < svgMask.Children.Count; i++)
             {
-                node.AddChild(childNode);
+                if (CompileElementNode(
+                        svgMask.Children[i],
+                        targetBounds,
+                        node.TotalTransform,
+                        assetLoader,
+                        ignoreAttributes,
+                        compilationRootKey: null,
+                        createOwnCompilationRootBoundary: false,
+                        compileContext) is { } childNode)
+                {
+                    node.AddChild(childNode);
+                }
             }
+        }
+        finally
+        {
+            compileContext.Exit(documentKey);
         }
 
         return node;
