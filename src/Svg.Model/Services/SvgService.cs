@@ -9,8 +9,6 @@ using System.Net;
 using System.Text;
 using System.Xml;
 using ShimSkiaSharp;
-using Svg.Model.Drawables;
-using Svg.Model.Drawables.Factories;
 
 namespace Svg.Model.Services;
 
@@ -607,58 +605,6 @@ public static class SvgService
         }
 
         return new SKSize((float)Math.Round(w), (float)Math.Round(h));
-    }
-
-    public static SKDrawable? ToDrawable(SvgFragment svgFragment, ISvgAssetLoader assetLoader, HashSet<Uri>? references, out SKRect? bounds, DrawAttributes ignoreAttributes = DrawAttributes.None)
-    {
-        var size = GetDimensions(svgFragment);
-        var fragmentBounds = SKRect.Create(size);
-        var drawable = DrawableFactory.Create(svgFragment, fragmentBounds, null, assetLoader, references, ignoreAttributes);
-        if (drawable is null)
-        {
-            bounds = default;
-            return default;
-        }
-
-        if (fragmentBounds.IsEmpty || fragmentBounds.Width <= 0 || fragmentBounds.Height <= 0)
-        {
-            var drawableBounds = drawable.Bounds;
-
-            var width = fragmentBounds.Width <= 0
-                ? Math.Abs(drawableBounds.Left) + drawableBounds.Width
-                : fragmentBounds.Width;
-
-            var height = fragmentBounds.Height <= 0
-                ? Math.Abs(drawableBounds.Top) + drawableBounds.Height
-                : fragmentBounds.Height;
-
-            fragmentBounds = SKRect.Create(0f, 0f, width, height);
-        }
-
-        drawable.PostProcess(fragmentBounds, SKMatrix.Identity);
-
-        bounds = fragmentBounds;
-        return drawable;
-    }
-
-    public static SKPicture? ToModel(SvgFragment svgFragment, ISvgAssetLoader assetLoader, out SKDrawable? skDrawable, out SKRect? skBounds, DrawAttributes ignoreAttributes = DrawAttributes.None)
-    {
-        var references = new HashSet<Uri>
-        {
-            svgFragment is SvgDocument svgDocument ? svgDocument.BaseUri : svgFragment.OwnerDocument.BaseUri
-        };
-        var drawable = ToDrawable(svgFragment, assetLoader, references, out var bounds, ignoreAttributes);
-        if (drawable is null || bounds is null)
-        {
-            skDrawable = default;
-            skBounds = default;
-            return default;
-        }
-
-        var picture = drawable.Snapshot(bounds.Value);
-        skDrawable = drawable;
-        skBounds = bounds;
-        return picture;
     }
 
     public static SvgDocument? OpenSvg(string path, SvgParameters? parameters = null)

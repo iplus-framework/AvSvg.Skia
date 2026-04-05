@@ -6,7 +6,7 @@ using Svg.Model.Drawables;
 
 namespace Svg.Model.Services;
 
-public static class HitTestService
+internal static class HitTestService
 {
     public static bool IntersectsWith(SKRect a, SKRect b)
     {

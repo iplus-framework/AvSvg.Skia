@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class AnchorDrawable : DrawableContainer
+internal sealed class AnchorDrawable : DrawableContainer
 {
     private AnchorDrawable(ISvgAssetLoader assetLoader, HashSet<Uri>? references)
         : base(assetLoader, references)

@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class RectangleDrawable : DrawablePath
+internal sealed class RectangleDrawable : DrawablePath
 {
     private RectangleDrawable(ISvgAssetLoader assetLoader, HashSet<Uri>? references)
         : base(assetLoader, references)

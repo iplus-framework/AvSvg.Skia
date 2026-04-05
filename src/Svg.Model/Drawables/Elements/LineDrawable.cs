@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class LineDrawable : DrawablePath
+internal sealed class LineDrawable : DrawablePath
 {
     private LineDrawable(ISvgAssetLoader assetLoader, HashSet<Uri>? references)
         : base(assetLoader, references)

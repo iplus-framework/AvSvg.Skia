@@ -55,6 +55,45 @@ public static class SvgSceneCompiler
         return true;
     }
 
+    internal static bool TryCompileFragment(
+        SvgFragment? sourceFragment,
+        SKRect cullRect,
+        SKRect viewport,
+        ISvgAssetLoader assetLoader,
+        DrawAttributes ignoreAttributes,
+        out SvgSceneDocument? sceneDocument)
+    {
+        sceneDocument = null;
+
+        if (sourceFragment is null)
+        {
+            return false;
+        }
+
+        var rootNode = CompileElementNode(
+            sourceFragment,
+            viewport,
+            SKMatrix.Identity,
+            assetLoader,
+            ignoreAttributes,
+            compilationRootKey: null,
+            createOwnCompilationRootBoundary: false);
+
+        if (rootNode is null)
+        {
+            return false;
+        }
+
+        sceneDocument = new SvgSceneDocument(
+            sourceFragment as SvgDocument ?? sourceFragment.OwnerDocument,
+            cullRect,
+            viewport,
+            rootNode,
+            assetLoader,
+            ignoreAttributes);
+        return true;
+    }
+
     internal static SvgSceneMutationResult ApplyMutation(
         SvgSceneDocument sceneDocument,
         SvgElement element,

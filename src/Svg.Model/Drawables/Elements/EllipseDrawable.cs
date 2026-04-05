@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class EllipseDrawable : DrawablePath
+internal sealed class EllipseDrawable : DrawablePath
 {
     private EllipseDrawable(ISvgAssetLoader assetLoader, HashSet<Uri>? references)
         : base(assetLoader, references)

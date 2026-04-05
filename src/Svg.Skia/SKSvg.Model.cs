@@ -9,7 +9,6 @@ using System.Xml;
 using ShimSkiaSharp;
 using Svg;
 using Svg.Model;
-using Svg.Model.Drawables.Factories;
 using Svg.Model.Services;
 
 namespace Svg.Skia;
@@ -24,6 +23,7 @@ public partial class SKSvg : IDisposable
 
     public static bool CacheOriginalStream { get; set; }
 
+    [RequiresUnreferencedCode("SVG document parsing may use trim-unsafe runtime discovery paths.")]
     public static SKSvg CreateFromStream(System.IO.Stream stream, SvgParameters? parameters = null)
     {
         var skSvg = new SKSvg();
@@ -31,8 +31,10 @@ public partial class SKSvg : IDisposable
         return skSvg;
     }
 
+    [RequiresUnreferencedCode("SVG document parsing may use trim-unsafe runtime discovery paths.")]
     public static SKSvg CreateFromStream(System.IO.Stream stream) => CreateFromStream(stream, null);
 
+    [RequiresUnreferencedCode("SVG document parsing may use trim-unsafe runtime discovery paths.")]
     public static SKSvg CreateFromFile(string path, SvgParameters? parameters = null)
     {
         var skSvg = new SKSvg();
@@ -40,8 +42,10 @@ public partial class SKSvg : IDisposable
         return skSvg;
     }
 
+    [RequiresUnreferencedCode("SVG document parsing may use trim-unsafe runtime discovery paths.")]
     public static SKSvg CreateFromFile(string path) => CreateFromFile(path, null);
 
+    [RequiresUnreferencedCode("VectorDrawable parsing may use trim-unsafe runtime discovery paths.")]
     public static SKSvg CreateFromVectorDrawable(string path, SvgParameters? parameters = null)
     {
         var skSvg = new SKSvg();
@@ -49,6 +53,7 @@ public partial class SKSvg : IDisposable
         return skSvg;
     }
 
+    [RequiresUnreferencedCode("VectorDrawable parsing may use trim-unsafe runtime discovery paths.")]
     public static SKSvg CreateFromVectorDrawable(System.IO.Stream stream, SvgParameters? parameters = null)
     {
         var skSvg = new SKSvg();
@@ -56,6 +61,7 @@ public partial class SKSvg : IDisposable
         return skSvg;
     }
 
+    [RequiresUnreferencedCode("VectorDrawable parsing may use trim-unsafe runtime discovery paths.")]
     public static SKSvg CreateFromVectorDrawable(XmlReader reader)
     {
         var skSvg = new SKSvg();
@@ -63,6 +69,7 @@ public partial class SKSvg : IDisposable
         return skSvg;
     }
 
+    [RequiresUnreferencedCode("SVG document parsing may use trim-unsafe runtime discovery paths.")]
     public static SKSvg CreateFromXmlReader(XmlReader reader)
     {
         var skSvg = new SKSvg();
@@ -88,20 +95,15 @@ public partial class SKSvg : IDisposable
 
     public static SkiaSharp.SKPicture? ToPicture(SvgFragment svgFragment, SkiaModel skiaModel, ISvgAssetLoader assetLoader)
     {
-        var picture = SvgService.ToModel(svgFragment, assetLoader, out _, out _);
+        var picture = SvgSceneRuntime.CreateModel(svgFragment, assetLoader);
         return skiaModel.ToSKPicture(picture);
     }
 
     public static void Draw(SkiaSharp.SKCanvas skCanvas, SvgFragment svgFragment, SkiaModel skiaModel, ISvgAssetLoader assetLoader)
     {
-        var references = new HashSet<Uri> { svgFragment.OwnerDocument.BaseUri };
-        var size = SvgService.GetDimensions(svgFragment);
-        var bounds = SKRect.Create(size);
-        var drawable = DrawableFactory.Create(svgFragment, bounds, null, assetLoader, references);
-        if (drawable is { })
+        var picture = SvgSceneRuntime.CreateModel(svgFragment, assetLoader);
+        if (picture is { })
         {
-            drawable.PostProcess(bounds, SKMatrix.Identity);
-            var picture = drawable.Snapshot(bounds);
             skiaModel.Draw(picture, skCanvas);
         }
     }
@@ -134,8 +136,6 @@ public partial class SKSvg : IDisposable
     public ISvgAssetLoader AssetLoader { get; }
 
     public SkiaModel SkiaModel { get; }
-
-    public SKDrawable? Drawable { get; private set; }
 
     public SKPicture? Model { get; private set; }
 
@@ -336,7 +336,6 @@ public partial class SKSvg : IDisposable
         if (Model is { } model)
         {
             clone.Model = model.DeepClone();
-            clone.Drawable = Drawable?.DeepClone();
         }
 
         if (SourceDocument?.DeepCopy() is SvgDocument sourceDocumentClone)
@@ -360,6 +359,7 @@ public partial class SKSvg : IDisposable
         return LoadInternal(stream, parameters, null, SourceFormat.Svg, SvgService.Open);
     }
 
+    [RequiresUnreferencedCode("SVG document parsing may use trim-unsafe runtime discovery paths.")]
     public SkiaSharp.SKPicture? Load(System.IO.Stream stream) => Load(stream, null);
 
     [RequiresUnreferencedCode("SVG document parsing may use trim-unsafe runtime discovery paths.")]
@@ -374,6 +374,7 @@ public partial class SKSvg : IDisposable
         return LoadPath(path, parameters, SourceFormat.Svg, SvgService.Open);
     }
 
+    [RequiresUnreferencedCode("SVG document parsing may use trim-unsafe runtime discovery paths.")]
     public SkiaSharp.SKPicture? Load(string path) => Load(path, null);
 
     [RequiresUnreferencedCode("SVG document parsing may use trim-unsafe runtime discovery paths.")]
@@ -685,7 +686,6 @@ public partial class SKSvg : IDisposable
         {
             WaitForDrawsLocked();
             Model = null;
-            Drawable = null;
 
             _picture?.Dispose();
             _picture = null;
@@ -734,29 +734,22 @@ public partial class SKSvg : IDisposable
     {
         DisableAnimationLayerCaching();
 
-        var model = SvgService.ToModel(svgDocument, AssetLoader, out var drawable, out _, _ignoreAttributes);
-        var picture = SkiaModel.ToSKPicture(model);
-
-        lock (Sync)
+        if (!SvgSceneRuntime.TryCompile(svgDocument, AssetLoader, _ignoreAttributes, out var sceneDocument) ||
+            sceneDocument is null)
         {
-            WaitForDrawsLocked();
-
-            Model = model;
-            Drawable = drawable;
-
-            _picture?.Dispose();
-            _picture = picture;
-
-            WireframePicture?.Dispose();
-            WireframePicture = null;
+            return null;
         }
 
         if (invalidateRetainedSceneGraph)
         {
-            InvalidateRetainedSceneGraph();
+            lock (Sync)
+            {
+                _retainedSceneGraph = sceneDocument;
+                _retainedSceneGraphDirty = false;
+            }
         }
 
-        return picture;
+        return RenderRetainedSceneDocument(sceneDocument) ? Picture : null;
     }
 
     private bool RenderRetainedSceneDocument(SvgSceneDocument sceneDocument)
@@ -778,7 +771,6 @@ public partial class SKSvg : IDisposable
             WaitForDrawsLocked();
 
             Model = model;
-            Drawable = null;
 
             _picture?.Dispose();
             _picture = picture;
@@ -793,24 +785,18 @@ public partial class SKSvg : IDisposable
     private bool TryRenderCurrentAnimatedDocumentRetained()
     {
         SvgDocument? currentDocument;
-        SKRect cullRect;
 
         lock (Sync)
         {
             currentDocument = _animatedDocument ?? SourceDocument;
-            cullRect = Model?.CullRect ?? SKRect.Empty;
-            if (cullRect.IsEmpty && currentDocument is { })
-            {
-                cullRect = SKRect.Create(SvgService.GetDimensions(currentDocument));
-            }
         }
 
-        if (currentDocument is null || cullRect.IsEmpty)
+        if (currentDocument is null)
         {
             return false;
         }
 
-        if (!SvgSceneCompiler.TryCompile(currentDocument, cullRect, AssetLoader, IgnoreAttributes, out var sceneDocument) ||
+        if (!SvgSceneRuntime.TryCompile(currentDocument, AssetLoader, IgnoreAttributes, out var sceneDocument) ||
             sceneDocument is null)
         {
             return false;

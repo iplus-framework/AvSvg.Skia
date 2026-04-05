@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class SymbolDrawable : DrawableContainer
+internal sealed class SymbolDrawable : DrawableContainer
 {
     private SymbolDrawable(ISvgAssetLoader assetLoader, HashSet<Uri>? references)
         : base(assetLoader, references)

@@ -2,7 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 namespace Svg.Model.Drawables;
 
-public interface IMarkerHost
+internal interface IMarkerHost
 {
     void AddMarker(DrawableBase drawable);
 }

@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class GroupDrawable : DrawableContainer
+internal sealed class GroupDrawable : DrawableContainer
 {
     private GroupDrawable(ISvgAssetLoader assetLoader, HashSet<Uri>? references)
         : base(assetLoader, references)

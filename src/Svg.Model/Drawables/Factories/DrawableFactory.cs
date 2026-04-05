@@ -7,7 +7,7 @@ using Svg.Model.Drawables.Elements;
 
 namespace Svg.Model.Drawables.Factories;
 
-public static class DrawableFactory
+internal static class DrawableFactory
 {
     public static DrawableBase? Create(SvgElement svgElement, SKRect skViewport, DrawableBase? parent, ISvgAssetLoader assetLoader, HashSet<Uri>? references, DrawAttributes ignoreAttributes = DrawAttributes.None)
     {

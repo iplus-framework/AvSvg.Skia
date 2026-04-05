@@ -7,7 +7,7 @@ using Svg.Model.Drawables.Factories;
 
 namespace Svg.Model.Drawables;
 
-public abstract class DrawableContainer : DrawableBase
+internal abstract class DrawableContainer : DrawableBase
 {
     public List<DrawableBase> ChildrenDrawables { get; }
 

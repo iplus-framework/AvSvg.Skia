@@ -7,7 +7,7 @@ using Svg.Model.Drawables.Elements;
 
 namespace Svg.Model.Editing;
 
-public static class DrawableWalker
+internal static class DrawableWalker
 {
     public static IEnumerable<DrawableBase> Traverse(DrawableBase root)
     {

@@ -10,7 +10,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables;
 
-public abstract class DrawableBase : SKDrawable, IFilterSource, IPictureSource
+internal abstract class DrawableBase : SKDrawable, IFilterSource, IPictureSource
 {
     public ISvgAssetLoader AssetLoader { get; }
     public HashSet<Uri>? References { get; }

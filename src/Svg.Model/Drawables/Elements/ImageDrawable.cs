@@ -8,7 +8,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class ImageDrawable : DrawableBase
+internal sealed class ImageDrawable : DrawableBase
 {
     public SKImage? Image { get; set; }
     public FragmentDrawable? FragmentDrawable { get; set; }

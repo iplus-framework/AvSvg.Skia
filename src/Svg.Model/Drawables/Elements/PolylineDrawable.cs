@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class PolylineDrawable : DrawablePath
+internal sealed class PolylineDrawable : DrawablePath
 {
     private PolylineDrawable(ISvgAssetLoader assetLoader, HashSet<Uri>? references)
         : base(assetLoader, references)

@@ -8,7 +8,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class SwitchDrawable : DrawableBase
+internal sealed class SwitchDrawable : DrawableBase
 {
     public DrawableBase? FirstChild { get; set; }
 

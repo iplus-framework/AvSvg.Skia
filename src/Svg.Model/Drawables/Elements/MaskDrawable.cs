@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class MaskDrawable : DrawableContainer
+internal sealed class MaskDrawable : DrawableContainer
 {
     private MaskDrawable(ISvgAssetLoader assetLoader, HashSet<Uri>? references)
         : base(assetLoader, references)

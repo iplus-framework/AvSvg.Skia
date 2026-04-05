@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class PolygonDrawable : DrawablePath
+internal sealed class PolygonDrawable : DrawablePath
 {
     private PolygonDrawable(ISvgAssetLoader assetLoader, HashSet<Uri>? references)
         : base(assetLoader, references)

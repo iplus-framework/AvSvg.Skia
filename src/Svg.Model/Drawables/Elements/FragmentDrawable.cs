@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class FragmentDrawable : DrawableContainer
+internal sealed class FragmentDrawable : DrawableContainer
 {
     private FragmentDrawable(ISvgAssetLoader assetLoader, HashSet<Uri>? references)
         : base(assetLoader, references)

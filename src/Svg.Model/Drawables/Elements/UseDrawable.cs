@@ -11,7 +11,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class UseDrawable : DrawableBase
+internal sealed class UseDrawable : DrawableBase
 {
     private static readonly FieldInfo? s_referencedElementParent = typeof(SvgElement).GetField("_parent", BindingFlags.NonPublic | BindingFlags.Instance);
 

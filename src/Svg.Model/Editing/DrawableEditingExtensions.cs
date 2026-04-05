@@ -8,7 +8,7 @@ using Svg.Model.Drawables;
 
 namespace Svg.Model.Editing;
 
-public static class DrawableEditingExtensions
+internal static class DrawableEditingExtensions
 {
     public static int UpdateFills(
         this DrawableBase root,

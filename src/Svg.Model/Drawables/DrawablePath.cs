@@ -7,7 +7,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables;
 
-public abstract class DrawablePath : DrawableBase, IMarkerHost
+internal abstract class DrawablePath : DrawableBase, IMarkerHost
 {
     public SKPath? Path { get; set; }
     public List<DrawableBase>? MarkerDrawables { get; set; }

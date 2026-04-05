@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Avalonia.Headless.XUnit;
 using Avalonia.Svg.Skia;
 using ShimSkiaSharp;
+using ShimSkiaSharp.Editing;
 using Svg.Model;
 using Svg.Model.Services;
 using Xunit;
@@ -43,7 +44,7 @@ public class SvgSourceTests
         var original = source.Picture;
 
         Assert.NotNull(original);
-        var command = source.Svg?.Model?.Commands?.OfType<DrawPathCanvasCommand>().FirstOrDefault();
+        var command = source.Svg?.Model?.FindCommands<DrawPathCanvasCommand>().FirstOrDefault();
         Assert.NotNull(command);
 
         if (command?.Paint is { } paint)
@@ -64,7 +65,7 @@ public class SvgSourceTests
         var original = source.Picture;
 
         Assert.NotNull(original);
-        var command = source.Svg?.Model?.Commands?.OfType<DrawPathCanvasCommand>().FirstOrDefault();
+        var command = source.Svg?.Model?.FindCommands<DrawPathCanvasCommand>().FirstOrDefault();
         Assert.NotNull(command);
 
         if (command?.Paint is { } paint)

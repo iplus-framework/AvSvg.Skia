@@ -10,7 +10,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class TextDrawable : DrawableBase
+internal sealed class TextDrawable : DrawableBase
 {
     private static readonly Regex s_multipleSpaces = new(@" {2,}", RegexOptions.Compiled);
 

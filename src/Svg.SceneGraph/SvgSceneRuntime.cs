@@ -1,0 +1,112 @@
+using System;
+using ShimSkiaSharp;
+using Svg;
+using Svg.Model;
+using Svg.Model.Services;
+
+namespace Svg.Skia;
+
+public static class SvgSceneRuntime
+{
+    public static bool TryCompile(
+        SvgFragment? sourceFragment,
+        ISvgAssetLoader assetLoader,
+        DrawAttributes ignoreAttributes,
+        out SvgSceneDocument? sceneDocument)
+    {
+        sceneDocument = null;
+
+        if (sourceFragment is null)
+        {
+            return false;
+        }
+
+        if (sourceFragment is SvgDocument sourceDocument)
+        {
+            var cullRect = GetInitialViewport(sourceDocument);
+            return SvgSceneCompiler.TryCompile(sourceDocument, cullRect, assetLoader, ignoreAttributes, out sceneDocument);
+        }
+
+        var viewport = GetInitialViewport(sourceFragment);
+        if (!SvgSceneCompiler.TryCompileFragment(sourceFragment, viewport, viewport, assetLoader, ignoreAttributes, out sceneDocument) ||
+            sceneDocument is null)
+        {
+            return false;
+        }
+
+        if (!NeedsViewportNormalization(sourceFragment, viewport))
+        {
+            return true;
+        }
+
+        var renderableBounds = SvgSceneNodeBoundsService.GetRenderableBounds(sceneDocument.Root);
+        if (renderableBounds.IsEmpty || renderableBounds.Equals(viewport))
+        {
+            return true;
+        }
+
+        return SvgSceneCompiler.TryCompileFragment(sourceFragment, renderableBounds, renderableBounds, assetLoader, ignoreAttributes, out sceneDocument);
+    }
+
+    public static SKPicture? CreateModel(
+        SvgFragment? sourceFragment,
+        ISvgAssetLoader assetLoader,
+        DrawAttributes ignoreAttributes = DrawAttributes.None)
+    {
+        return TryCompile(sourceFragment, assetLoader, ignoreAttributes, out var sceneDocument) && sceneDocument is not null
+            ? sceneDocument.CreateModel()
+            : null;
+    }
+
+    private static SKRect GetInitialViewport(SvgFragment fragment)
+    {
+        var size = SvgService.GetDimensions(fragment);
+        var bounds = SKRect.Create(size);
+        if (!bounds.IsEmpty)
+        {
+            return bounds;
+        }
+
+        if (fragment.ViewBox.Width > 0f && fragment.ViewBox.Height > 0f)
+        {
+            return SKRect.Create(
+                fragment.ViewBox.MinX,
+                fragment.ViewBox.MinY,
+                fragment.ViewBox.Width,
+                fragment.ViewBox.Height);
+        }
+
+        if (fragment is not SvgDocument && fragment.OwnerDocument is { } ownerDocument)
+        {
+            var ownerSize = SvgService.GetDimensions(ownerDocument);
+            var ownerBounds = SKRect.Create(ownerSize);
+            if (!ownerBounds.IsEmpty)
+            {
+                return ownerBounds;
+            }
+
+            if (ownerDocument.ViewBox.Width > 0f && ownerDocument.ViewBox.Height > 0f)
+            {
+                return SKRect.Create(
+                    ownerDocument.ViewBox.MinX,
+                    ownerDocument.ViewBox.MinY,
+                    ownerDocument.ViewBox.Width,
+                    ownerDocument.ViewBox.Height);
+            }
+        }
+
+        return SKRect.Create(0f, 0f, 1f, 1f);
+    }
+
+    private static bool NeedsViewportNormalization(SvgFragment fragment, SKRect viewport)
+    {
+        if (fragment is SvgDocument)
+        {
+            return false;
+        }
+
+        return viewport.Width <= 1f &&
+               viewport.Height <= 1f &&
+               fragment.ViewBox.Equals(SvgViewBox.Empty);
+    }
+}

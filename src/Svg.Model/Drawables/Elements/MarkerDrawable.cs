@@ -9,7 +9,7 @@ using Svg.Model.Services;
 
 namespace Svg.Model.Drawables.Elements;
 
-public sealed class MarkerDrawable : DrawableBase
+internal sealed class MarkerDrawable : DrawableBase
 {
     public DrawableBase? MarkerElementDrawable { get; set; }
     public SKRect? MarkerClipRect { get; set; }
