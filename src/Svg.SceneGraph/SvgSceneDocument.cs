@@ -491,7 +491,7 @@ public sealed class SvgSceneDocument
             return;
         }
 
-        foreach (var node in Traverse(root))
+        foreach (var node in TraverseStructural(root))
         {
             ResolveRuntimePayload(node);
         }
@@ -639,6 +639,23 @@ public sealed class SvgSceneDocument
             {
                 stack.Push(maskNode);
             }
+
+            for (var i = current.Children.Count - 1; i >= 0; i--)
+            {
+                stack.Push(current.Children[i]);
+            }
+        }
+    }
+
+    private static IEnumerable<SvgSceneNode> TraverseStructural(SvgSceneNode root)
+    {
+        var stack = new Stack<SvgSceneNode>();
+        stack.Push(root);
+
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            yield return current;
 
             for (var i = current.Children.Count - 1; i >= 0; i--)
             {
