@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using ShimSkiaSharp;
+using ShimSkiaSharp.Editing;
 using Svg;
 using Svg.DataTypes;
 using Svg.FilterEffects;
@@ -104,6 +105,46 @@ public class SvgRetainedSceneGraphTests
         Assert.True(scene.TryGetNodeById("text-target", out var textNode));
         Assert.NotNull(textNode);
         Assert.NotNull(textNode!.LocalModel);
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_PreservesPerGlyphTextPositions()
+    {
+        const string positionedTextSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">
+              <text id="positioned-root" x="10" y="20" font-size="16">
+                <tspan id="positioned-run" x="10 30 50 70" y="20 40 20 40">ab😋c</tspan>
+              </text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.FromSvg(positionedTextSvg);
+
+        var scene = svg.RetainedSceneGraph;
+        Assert.NotNull(scene);
+        Assert.True(scene!.TryGetNodeById("positioned-root", out var textNode));
+        Assert.NotNull(textNode);
+        Assert.True(textNode!.GeometryBounds.Right > 70f);
+        Assert.True(textNode.GeometryBounds.Bottom > 40f);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var blobPoints = retainedModel!
+            .FindCommands<DrawTextBlobCanvasCommand>()
+            .Where(static cmd => cmd.TextBlob?.Points is { Length: > 0 })
+            .SelectMany(static cmd => cmd.TextBlob!.Points!)
+            .ToList();
+
+        Assert.Equal(3, blobPoints.Count);
+        Assert.Equal(new SKPoint(10f, 20f), blobPoints[0]);
+        Assert.Equal(new SKPoint(30f, 40f), blobPoints[1]);
+        Assert.Equal(new SKPoint(50f, 20f), blobPoints[2]);
+
+        var tailCommand = Assert.Single(retainedModel.FindCommands<DrawTextCanvasCommand>(),
+            static cmd => cmd.X == 70f && cmd.Y == 40f);
+        Assert.Equal("c", tailCommand.Text);
     }
 
     [Fact]
