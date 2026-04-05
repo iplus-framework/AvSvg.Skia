@@ -1368,25 +1368,22 @@ public static class SvgSceneCompiler
 
         var node = new SvgSceneNode(
             SvgSceneNodeKind.Fragment,
-            svgImage,
-            TryGetElementAddressKey(svgImage),
-            svgImage.GetType().Name,
+            element: null,
+            elementAddressKey: null,
+            elementTypeName: svgImage.GetType().Name,
             compilationRootKey,
             isCompilationRootBoundary: false)
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
             IsAntialias = PaintingService.IsAntialias(svgImage),
             IsDrawable = true,
-            HitTestTargetElement = svgImage,
+            HitTestTargetElement = null,
             LocalModel = imagePicture,
             GeometryBounds = srcRect,
             TransformedBounds = parentTotalTransform.PreConcat(fragmentTransform).MapRect(srcRect),
             Transform = fragmentTransform,
             TotalTransform = parentTotalTransform.PreConcat(fragmentTransform)
         };
-
-        AssignRetainedResourceKeys(node, svgImage);
-        AssignRetainedVisualState(node, svgImage);
         return node;
     }
 
