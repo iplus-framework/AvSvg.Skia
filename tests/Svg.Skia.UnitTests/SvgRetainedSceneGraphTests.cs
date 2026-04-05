@@ -7,6 +7,7 @@ using ShimSkiaSharp;
 using Svg;
 using Svg.DataTypes;
 using Svg.FilterEffects;
+using Svg.Model.Services;
 using Xunit;
 using SkiaAlphaType = SkiaSharp.SKAlphaType;
 using SkiaBitmap = SkiaSharp.SKBitmap;
@@ -31,6 +32,18 @@ public class SvgRetainedSceneGraphTests
         Assert.NotNull(targetNode);
         Assert.Equal("target", targetNode!.ElementId);
         Assert.Contains(scene.Traverse(), static node => node.ElementTypeName.Contains("Rectangle", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SvgSceneRuntime_CreatesModelForSimpleDocument()
+    {
+        using var svg = new SKSvg();
+        var document = SvgService.FromSvg(SimpleSvg);
+
+        var picture = SvgSceneRuntime.CreateModel(document, svg.AssetLoader);
+
+        Assert.NotNull(picture);
+        Assert.NotEmpty(picture!.Commands);
     }
 
     [Fact]
@@ -325,6 +338,47 @@ public class SvgRetainedSceneGraphTests
         Assert.NotNull(svg.Picture);
         Assert.NotNull(retainedPicture);
         AssertPicturesEqual(svg, svg.Picture!, retainedPicture!);
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_RendersBackgroundImageFromSameFilteredContainer()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(EnableBackgroundOnSameContainerSvg);
+
+        Assert.NotNull(svg.Picture);
+
+        using var bitmap = ToBitmap(svg, svg.Picture!);
+
+        var sourcePixel = bitmap.GetPixel(30, 100);
+        var backgroundPixel = bitmap.GetPixel(130, 100);
+
+        Assert.True(
+            sourcePixel.Alpha == 0,
+            $"Expected source pixel to be transparent but was {sourcePixel} on {bitmap.Width}x{bitmap.Height} bitmap.");
+        Assert.True(
+            backgroundPixel.Alpha == 0,
+            $"Expected background pixel to be transparent but was {backgroundPixel} on {bitmap.Width}x{bitmap.Height} bitmap.");
+        Assert.True(
+            sourcePixel == backgroundPixel,
+            $"Expected source and background pixels to match transparent output but source was {sourcePixel} and background was {backgroundPixel}.");
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_SuppressesVisualsWithInvalidFilterOutput()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(InvalidFilterSvg);
+
+        Assert.NotNull(svg.Picture);
+
+        using var bitmap = ToBitmap(svg, svg.Picture!);
+
+        var framePixel = bitmap.GetPixel(40, 1);
+        var filteredPixel = bitmap.GetPixel(40, 40);
+
+        Assert.True(framePixel.Alpha > 0, $"Expected frame pixel to remain visible but was {framePixel}.");
+        Assert.Equal(0, filteredPixel.Alpha);
     }
 
     [Fact]
@@ -704,7 +758,7 @@ public class SvgRetainedSceneGraphTests
     private static void AssertNoDrawableBridge(SvgSceneDocument? scene)
     {
         Assert.NotNull(scene);
-        Assert.DoesNotContain(scene!.Traverse(), static node => node.CompilationStrategy == SvgSceneCompilationStrategy.DrawableBridge);
+        Assert.All(scene!.Traverse(), static node => Assert.Equal(SvgSceneCompilationStrategy.DirectRetained, node.CompilationStrategy));
     }
 
     private static void AssertPicturesEqual(SKSvg svg, SkiaSharp.SKPicture expected, SkiaSharp.SKPicture actual)
@@ -824,6 +878,35 @@ public class SvgRetainedSceneGraphTests
             </filter>
           </defs>
           <rect id="filtered-image-target" x="4" y="4" width="16" height="16" fill="#3366cc" filter="url(#image-filter)" />
+        </svg>
+        """;
+
+    private const string EnableBackgroundOnSameContainerSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="200"
+             height="200"
+             viewBox="0 0 200 200">
+          <filter id="filter1" filterUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+            <feOffset in="BackgroundImage" dx="100" />
+          </filter>
+          <g id="background-filter-root" enable-background="new" filter="url(#filter1)">
+            <rect id="background-source" x="20" y="70" width="60" height="60" fill="green" />
+          </g>
+        </svg>
+        """;
+
+    private const string InvalidFilterSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="80"
+             height="80"
+             viewBox="0 0 80 80">
+          <defs>
+            <filter id="invalid-filter" color-interpolation-filters="sRGB">
+              <feDiffuseLighting />
+            </filter>
+          </defs>
+          <rect id="filtered" x="10" y="10" width="60" height="60" fill="red" filter="url(#invalid-filter)" />
+          <rect id="frame" x="1" y="1" width="78" height="78" fill="none" stroke="black" />
         </svg>
         """;
 

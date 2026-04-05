@@ -675,24 +675,18 @@ internal sealed class SvgSceneFilterContext
 
     private SKImageFilter GetTransparentBlackImage()
     {
-        var skPaint = new SKPaint
-        {
-            Style = SKPaintStyle.StrokeAndFill,
-            Color = FilterEffectsService.s_transparentBlack
-        };
-        var skImageFilter = SKImageFilter.CreatePaint(skPaint);
-        return skImageFilter;
+        var recorder = new SKPictureRecorder();
+        recorder.BeginRecording(_skFilterRegion);
+        var picture = recorder.EndRecording();
+        return SKImageFilter.CreatePicture(picture, _skFilterRegion);
     }
 
     private SKImageFilter GetTransparentBlackAlpha()
     {
-        var skPaint = new SKPaint
-        {
-            Style = SKPaintStyle.StrokeAndFill,
-            Color = FilterEffectsService.s_transparentBlack
-        };
-
-        var skImageFilterGraphic = SKImageFilter.CreatePaint(skPaint);
+        var recorder = new SKPictureRecorder();
+        recorder.BeginRecording(_skFilterRegion);
+        var picture = recorder.EndRecording();
+        var skImageFilterGraphic = SKImageFilter.CreatePicture(picture, _skFilterRegion);
 
         var matrix = new float[20]
         {

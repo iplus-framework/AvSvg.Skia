@@ -60,7 +60,7 @@ public sealed class SvgSceneNode
 
     public bool IsCompilationRootBoundary { get; private set; }
 
-    public SvgSceneCompilationStrategy CompilationStrategy { get; internal set; } = SvgSceneCompilationStrategy.DrawableBridge;
+    public SvgSceneCompilationStrategy CompilationStrategy { get; internal set; } = SvgSceneCompilationStrategy.DirectRetained;
 
     public SvgSceneNode? Parent { get; private set; }
 
@@ -113,6 +113,8 @@ public sealed class SvgSceneNode
     public bool IsDrawable { get; internal set; }
 
     public bool IsAntialias { get; internal set; }
+
+    public bool SuppressSubtreeRendering { get; internal set; }
 
     public bool IsDirty { get; private set; }
 
@@ -177,6 +179,7 @@ public sealed class SvgSceneNode
         StrokeWidth = replacement.StrokeWidth;
         IsDrawable = replacement.IsDrawable;
         IsAntialias = replacement.IsAntialias;
+        SuppressSubtreeRendering = replacement.SuppressSubtreeRendering;
 
         _children.Clear();
         for (var i = 0; i < replacement.Children.Count; i++)

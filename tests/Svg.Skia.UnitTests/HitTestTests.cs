@@ -102,6 +102,18 @@ public class HitTestTests : SvgUnitTest
         </svg>
         """;
 
+    private const string InvalidFilterHitTestSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="20">
+          <defs>
+            <filter id="invalid-filter">
+              <feDiffuseLighting />
+            </filter>
+          </defs>
+          <rect id="back" x="0" y="0" width="40" height="20" fill="green" />
+          <rect id="filtered-front" x="0" y="0" width="40" height="20" fill="red" filter="url(#invalid-filter)" />
+        </svg>
+        """;
+
     private static string GetSvgPath(string name)
         => Path.Combine("..", "..", "..", "..", "Tests", name);
 
@@ -130,9 +142,9 @@ public class HitTestTests : SvgUnitTest
     {
         var a = SKRect.Create(0, 0, 10, 10);
         var b = SKRect.Create(5, 5, 5, 5);
-        Assert.True(HitTestService.IntersectsWith(a, b));
+        Assert.True(IntersectsWith(a, b));
         var c = SKRect.Create(20, 20, 5, 5);
-        Assert.False(HitTestService.IntersectsWith(a, c));
+        Assert.False(IntersectsWith(a, c));
     }
 
     [Fact]
@@ -298,5 +310,28 @@ public class HitTestTests : SvgUnitTest
         Assert.Equal("back", topmostElement!.ID);
         Assert.NotNull(topmostNode);
         Assert.Equal("back", topmostNode!.ElementId);
+    }
+
+    [Fact]
+    public void HitTest_Point_InvalidFilterSubtree_IsNotInteractable()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(InvalidFilterHitTestSvg);
+
+        var hitElements = svg.HitTestElements(new SKPoint(10, 10)).Select(e => e.ID).ToList();
+        var topmostElement = svg.HitTestTopmostElement(new SKPoint(10, 10));
+        var topmostNode = svg.HitTestTopmostSceneNode(new SKPoint(10, 10));
+
+        Assert.DoesNotContain("filtered-front", hitElements);
+        Assert.NotNull(topmostElement);
+        Assert.Equal("back", topmostElement!.ID);
+        Assert.NotNull(topmostNode);
+        Assert.Equal("back", topmostNode!.ElementId);
+    }
+
+    private static bool IntersectsWith(SKRect a, SKRect b)
+    {
+        return a.Left < b.Right && a.Right > b.Left &&
+               a.Top < b.Bottom && a.Bottom > b.Top;
     }
 }

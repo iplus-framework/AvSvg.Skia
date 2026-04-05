@@ -65,7 +65,12 @@ public static class SvgSceneRenderer
             return false;
         }
 
-        if (!node.IsDrawable)
+        if (node.IsDisplayNone)
+        {
+            return true;
+        }
+
+        if (node.SuppressSubtreeRendering)
         {
             return true;
         }
@@ -122,7 +127,7 @@ public static class SvgSceneRenderer
             canvas.SaveLayer(filter);
         }
 
-        if (node.LocalModel is { } localModel)
+        if (node.IsDrawable && node.LocalModel is { } localModel)
         {
             canvas.DrawPicture(localModel);
         }

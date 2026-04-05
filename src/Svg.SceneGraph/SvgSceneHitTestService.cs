@@ -24,6 +24,11 @@ internal static class SvgSceneHitTestService
 
     public static bool HitTestPointer(SvgSceneNode node, SKPoint point)
     {
+        if (node.SuppressSubtreeRendering)
+        {
+            return false;
+        }
+
         if (!node.IsDrawable)
         {
             return false;
@@ -109,11 +114,22 @@ internal static class SvgSceneHitTestService
 
     private static bool CanTraverseSubtree(SvgSceneNode node, SKPoint point)
     {
-        return !node.IsDisplayNone && CanHitTestPoint(node, point);
+        return !node.IsDisplayNone && !node.SuppressSubtreeRendering && CanHitTestPoint(node, point);
+    }
+
+    private static bool IntersectsWith(SKRect a, SKRect b)
+    {
+        return a.Left < b.Right && a.Right > b.Left &&
+               a.Top < b.Bottom && a.Bottom > b.Top;
     }
 
     private static bool HitTestNode(SvgSceneNode node, SKPoint point)
     {
+        if (node.SuppressSubtreeRendering)
+        {
+            return false;
+        }
+
         if (!node.IsDrawable)
         {
             return false;
@@ -126,12 +142,17 @@ internal static class SvgSceneHitTestService
 
     private static bool HitTestNode(SvgSceneNode node, SKRect rect)
     {
+        if (node.SuppressSubtreeRendering)
+        {
+            return false;
+        }
+
         if (!node.IsDrawable)
         {
             return false;
         }
 
-        return HitTestService.IntersectsWith(GetRectHitBounds(node), rect);
+        return IntersectsWith(GetRectHitBounds(node), rect);
     }
 
     private static bool HitTestPainted(SvgSceneNode node, SKPoint point)

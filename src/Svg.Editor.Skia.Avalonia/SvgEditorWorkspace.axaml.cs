@@ -1682,20 +1682,6 @@ public partial class SvgEditorWorkspace : UserControl
 
         if (results.Count > 0)
             return results;
-
-        foreach (var element in skSvg.HitTestElements(picturePoint).OfType<SvgVisualElement>())
-        {
-            if (!seen.Add(element) ||
-                (!_includeHidden && !IsElementVisible(element)))
-            {
-                continue;
-            }
-
-            var sceneNode = ResolveRetainedSceneNode(element);
-            if (sceneNode is not null)
-                results.Add(new SelectionVisualInfo(element, sceneNode));
-        }
-
         return results;
     }
 

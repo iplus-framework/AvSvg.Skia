@@ -112,23 +112,44 @@ public sealed class SvgSceneResource
             return null;
         }
 
-        var cacheKey = CreatePayloadCacheKey(targetNode);
+        var targetBounds = targetNode.GeometryBounds;
+        var cacheKey = CreatePayloadCacheKey(targetNode, targetBounds);
         if (_maskPayloads.TryGetValue(cacheKey, out var cachedPayload))
         {
             return cachedPayload;
         }
 
-        var maskNode = SvgSceneCompiler.CompileMaskNode(svgMask, targetNode.GeometryBounds, sceneDocument.AssetLoader, sceneDocument.IgnoreAttributes);
-        if (maskNode is null)
+        if (svgMask.MaskUnits == SvgCoordinateUnits.ObjectBoundingBox &&
+            (targetBounds.Width <= 0f || targetBounds.Height <= 0f))
+        {
+            var emptyPayload = CreateEmptyMaskPayload(svgMask);
+            _maskPayloads.Add(cacheKey, emptyPayload);
+            return emptyPayload;
+        }
+
+        if (!sceneDocument.TryEnterMaskResolution(Key))
         {
             return null;
         }
 
-        sceneDocument.ResolveRuntimePayloadTree(maskNode);
+        try
+        {
+            var maskNode = SvgSceneCompiler.CompileMaskNode(svgMask, targetBounds, sceneDocument.AssetLoader, sceneDocument.IgnoreAttributes);
+            if (maskNode is null)
+            {
+                return null;
+            }
 
-        var payload = new SvgSceneMaskPayload(maskNode, CreateMaskPaint(), CreateMaskDstInPaint());
-        _maskPayloads.Add(cacheKey, payload);
-        return payload;
+            sceneDocument.ResolveRuntimePayloadTree(maskNode);
+
+            var payload = new SvgSceneMaskPayload(maskNode, CreateMaskPaint(), CreateMaskDstInPaint());
+            _maskPayloads.Add(cacheKey, payload);
+            return payload;
+        }
+        finally
+        {
+            sceneDocument.ExitMaskResolution(Key);
+        }
     }
 
     internal SvgSceneFilterPayload? ResolveFilterPayload(SvgSceneDocument sceneDocument, SvgSceneNode targetNode)
@@ -156,23 +177,21 @@ public sealed class SvgSceneResource
             sceneDocument.AssetLoader,
             references);
 
-        if (filterContext.FilterPaint is null)
-        {
-            return null;
-        }
+        var payload = filterContext.FilterPaint is { } filterPaint
+            ? new SvgSceneFilterPayload(filterPaint.DeepClone(), filterContext.FilterClip, isValid: true)
+            : SvgSceneFilterPayload.Invalid(filterContext.FilterClip);
 
-        var payload = new SvgSceneFilterPayload(filterContext.FilterPaint.DeepClone(), filterContext.FilterClip);
         _filterPayloads.Add(cacheKey, payload);
         return payload;
     }
 
-    private static string CreatePayloadCacheKey(SvgSceneNode targetNode)
+    private static string CreatePayloadCacheKey(SvgSceneNode targetNode, SKRect? effectiveBounds = null)
     {
         var key = targetNode.ElementAddressKey
                   ?? targetNode.ElementId
                   ?? targetNode.ElementTypeName;
         var compilationRootKey = targetNode.CompilationRootKey ?? string.Empty;
-        var bounds = targetNode.GeometryBounds;
+        var bounds = effectiveBounds ?? targetNode.GeometryBounds;
         var transform = targetNode.TotalTransform;
 
         return string.Join(
@@ -217,6 +236,30 @@ public sealed class SvgSceneResource
             Color = FilterEffectsService.s_transparentBlack,
             ColorFilter = SKColorFilter.CreateLumaColor()
         };
+    }
+
+    private static SvgSceneMaskPayload CreateEmptyMaskPayload(SvgMask svgMask)
+    {
+        var maskNode = new SvgSceneNode(
+            SvgSceneNodeKind.Mask,
+            svgMask,
+            SvgSceneCompiler.TryGetElementAddressKey(svgMask),
+            svgMask.GetType().Name,
+            compilationRootKey: null,
+            isCompilationRootBoundary: false)
+        {
+            CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
+            IsDrawable = true,
+            IsAntialias = PaintingService.IsAntialias(svgMask),
+            GeometryBounds = SKRect.Empty,
+            Transform = SKMatrix.Identity,
+            TotalTransform = SKMatrix.Identity,
+            TransformedBounds = SKRect.Empty
+        };
+
+        SvgSceneCompiler.AssignRetainedVisualState(maskNode, svgMask);
+        SvgSceneCompiler.AssignRetainedResourceKeys(maskNode, svgMask);
+        return new SvgSceneMaskPayload(maskNode, CreateMaskPaint(), CreateMaskDstInPaint());
     }
 
     private sealed class ReadOnlySetView<T> : IReadOnlyCollection<T> where T : notnull
@@ -266,13 +309,19 @@ internal sealed class SvgSceneMaskPayload
 
 internal sealed class SvgSceneFilterPayload
 {
-    public SvgSceneFilterPayload(SKPaint filterPaint, SKRect? filterClip)
+    public SvgSceneFilterPayload(SKPaint? filterPaint, SKRect? filterClip, bool isValid)
     {
         FilterPaint = filterPaint;
         FilterClip = filterClip;
+        IsValid = isValid;
     }
 
-    public SKPaint FilterPaint { get; }
+    public static SvgSceneFilterPayload Invalid(SKRect? filterClip)
+        => new(null, filterClip, isValid: false);
+
+    public SKPaint? FilterPaint { get; }
 
     public SKRect? FilterClip { get; }
+
+    public bool IsValid { get; }
 }

@@ -18,6 +18,7 @@ public sealed class SvgSceneDocument
     private readonly Dictionary<string, SvgSceneResource> _resourcesByKey = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SvgSceneResource> _resourcesById = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<SvgSceneResource>> _resourcesByAddress = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _resolvingMaskResourceKeys = new(StringComparer.Ordinal);
     private readonly ReadOnlyDictionary<string, SvgSceneNode> _readOnlyNodesById;
     private readonly ReadOnlyDictionary<string, SvgSceneResource> _readOnlyResourcesById;
 
@@ -239,6 +240,24 @@ public sealed class SvgSceneDocument
 
         node = null;
         return false;
+    }
+
+    internal bool TryEnterMaskResolution(string resourceKey)
+    {
+        if (string.IsNullOrWhiteSpace(resourceKey))
+        {
+            return false;
+        }
+
+        return _resolvingMaskResourceKeys.Add(resourceKey);
+    }
+
+    internal void ExitMaskResolution(string resourceKey)
+    {
+        if (!string.IsNullOrWhiteSpace(resourceKey))
+        {
+            _resolvingMaskResourceKeys.Remove(resourceKey);
+        }
     }
 
     internal bool TryResolveElement(string addressKey, out SvgElement? element)
@@ -508,6 +527,7 @@ public sealed class SvgSceneDocument
             node.MaskDstIn = null;
             node.Filter = null;
             node.FilterClip = null;
+            node.SuppressSubtreeRendering = false;
 
             if (!IgnoreAttributes.HasFlag(DrawAttributes.Mask))
             {
@@ -523,8 +543,15 @@ public sealed class SvgSceneDocument
             {
                 if (ResolveFilterPayload(node) is { } filterPayload)
                 {
-                    node.Filter = filterPayload.FilterPaint.DeepClone();
-                    node.FilterClip = filterPayload.FilterClip;
+                    if (filterPayload.IsValid)
+                    {
+                        node.Filter = filterPayload.FilterPaint?.DeepClone();
+                        node.FilterClip = filterPayload.FilterClip;
+                    }
+                    else
+                    {
+                        node.SuppressSubtreeRendering = true;
+                    }
                 }
             }
         }
