@@ -355,7 +355,8 @@ public sealed class Svg : SKCanvasElement
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        if (_svg?.Picture is not { } picture)
+        var picture = _svg?.Picture;
+        if (picture is null)
         {
             return default;
         }
@@ -371,7 +372,8 @@ public sealed class Svg : SKCanvasElement
 
     protected override Size ArrangeOverride(Size finalSize)
     {
-        if (_svg?.Picture is not { } picture)
+        var picture = _svg?.Picture;
+        if (picture is null)
         {
             return default;
         }
@@ -388,7 +390,14 @@ public sealed class Svg : SKCanvasElement
     protected override void RenderOverride(SkiaCanvas canvas, Size area)
     {
         var source = _svg;
-        if (source?.Svg is null || source.Picture is null)
+        if (source is null)
+        {
+            return;
+        }
+
+        var skSvg = source?.Svg;
+        var picture = source?.Picture;
+        if (skSvg is null || picture is null)
         {
             return;
         }
@@ -396,10 +405,10 @@ public sealed class Svg : SKCanvasElement
         if (!SvgRenderLayout.TryCreateRenderInfo(
                 new SvgSize(area.Width, area.Height),
                 new SvgRect(
-                    source.Picture.CullRect.Left,
-                    source.Picture.CullRect.Top,
-                    source.Picture.CullRect.Width,
-                    source.Picture.CullRect.Height),
+                    picture.CullRect.Left,
+                    picture.CullRect.Top,
+                    picture.CullRect.Width,
+                    picture.CullRect.Height),
                 Stretch,
                 StretchDirection,
                 Zoom,
@@ -410,7 +419,7 @@ public sealed class Svg : SKCanvasElement
             return;
         }
 
-        if (!source.BeginRender())
+        if (!source!.BeginRender())
         {
             return;
         }
@@ -421,7 +430,7 @@ public sealed class Svg : SKCanvasElement
             canvas.ClipRect(ToSKRect(renderInfo.DestinationRect));
             var matrix = ToSKMatrix(renderInfo.Matrix);
             canvas.Concat(in matrix);
-            source.Svg.Draw(canvas);
+            skSvg.Draw(canvas);
         }
         finally
         {
@@ -674,7 +683,8 @@ public sealed class Svg : SKCanvasElement
     {
         renderInfo = default;
 
-        if (_svg?.Picture is not { } picture)
+        var picture = _svg?.Picture;
+        if (picture is null)
         {
             return false;
         }
