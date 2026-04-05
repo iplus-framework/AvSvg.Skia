@@ -576,7 +576,7 @@ public sealed class SvgInteractionDispatcher
 
     private static SvgElement? GetRootElement(SKSvg? svg)
     {
-        return svg?.RetainedSceneGraph?.SourceDocument ?? svg?.SourceDocument;
+        return svg?.SourceDocument ?? svg?.RetainedSceneGraph?.SourceDocument;
     }
 
     private void RegisterTree(SvgElement element)

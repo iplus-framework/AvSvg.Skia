@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using ShimSkiaSharp;
@@ -81,6 +82,15 @@ public class SvgInteractionDispatcherTests : SvgUnitTest
     private const string SparseHitSvg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="20">
           <rect id="target" x="10" y="2" width="10" height="8" fill="forestgreen" />
+        </svg>
+        """;
+
+    private const string AnimatedEventBridgeSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <animate attributeName="x" from="0" to="10" dur="2s" fill="freeze" />
+          </rect>
+          <circle id="trigger" cx="20" cy="20" r="4" fill="blue" />
         </svg>
         """;
 
@@ -287,6 +297,31 @@ public class SvgInteractionDispatcherTests : SvgUnitTest
 
         Assert.Equal(1, innerMouseDownCount);
         Assert.Equal(1, groupMouseDownCount);
+    }
+
+    [Fact]
+    public void Dispatcher_KeepsOriginalElementHandlersAfterAnimationCreatesClone()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(AnimatedEventBridgeSvg);
+
+        var sourceTrigger = svg.SourceDocument?.GetElementById("trigger");
+        Assert.NotNull(sourceTrigger);
+
+        var clickCount = 0;
+        sourceTrigger!.Click += (_, _) => clickCount++;
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+        Assert.NotNull(svg.RetainedSceneGraph);
+        Assert.NotSame(svg.SourceDocument, svg.RetainedSceneGraph!.SourceDocument);
+
+        var dispatcher = new SvgInteractionDispatcher();
+        var clickInput = CreateInput(20, 20, SvgMouseButton.Left, clickCount: 1);
+
+        dispatcher.DispatchPointerPressed(svg, clickInput);
+        dispatcher.DispatchPointerReleased(svg, clickInput);
+
+        Assert.Equal(1, clickCount);
     }
 
     [Fact]
