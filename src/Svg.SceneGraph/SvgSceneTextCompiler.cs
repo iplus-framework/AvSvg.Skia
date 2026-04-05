@@ -164,6 +164,33 @@ internal static class SvgSceneTextCompiler
                     GetPositionsDX(svgTextBase, viewport, dxs);
                     GetPositionsDY(svgTextBase, viewport, dys);
 
+                    if (TryCreatePositionedCodepointPoints(text!, xs, ys, dxs, dys, out var positionedPoints))
+                    {
+                        var fillAdvance = 0f;
+                        if (SvgScenePaintingService.IsValidFill(svgTextBase))
+                        {
+                            var fillPaint = SvgScenePaintingService.GetFillPaint(svgTextBase, rootGeometryBounds, assetLoader, ignoreAttributes);
+                            if (fillPaint is not null)
+                            {
+                                fillAdvance = DrawPositionedTextRuns(svgTextBase, text!, positionedPoints, rootGeometryBounds, fillPaint, canvas, assetLoader);
+                            }
+                        }
+
+                        var strokeAdvance = 0f;
+                        if (SvgScenePaintingService.IsValidStroke(svgTextBase, rootGeometryBounds))
+                        {
+                            var strokePaint = SvgScenePaintingService.GetStrokePaint(svgTextBase, rootGeometryBounds, assetLoader, ignoreAttributes);
+                            if (strokePaint is not null)
+                            {
+                                strokeAdvance = DrawPositionedTextRuns(svgTextBase, text!, positionedPoints, rootGeometryBounds, strokePaint, canvas, assetLoader);
+                            }
+                        }
+
+                        currentX = positionedPoints[positionedPoints.Length - 1].X + Math.Max(fillAdvance, strokeAdvance);
+                        currentY = positionedPoints[positionedPoints.Length - 1].Y;
+                        break;
+                    }
+
                     var x = xs.Count >= 1 ? xs[0] : currentX;
                     var y = ys.Count >= 1 ? ys[0] : currentY;
                     var dx = dxs.Count >= 1 ? dxs[0] : 0f;
@@ -268,6 +295,52 @@ internal static class SvgSceneTextCompiler
         }
 
         return totalAdvance;
+    }
+
+    private static float DrawPositionedTextRuns(
+        SvgTextBase svgTextBase,
+        string text,
+        SKPoint[] points,
+        SKRect geometryBounds,
+        SKPaint paint,
+        SKCanvas canvas,
+        ISvgAssetLoader assetLoader)
+    {
+        PaintingService.SetPaintText(svgTextBase, geometryBounds, paint);
+
+        var lastCodepointStart = GetLastCodepointStart(text);
+        var leadingText = text.Substring(0, lastCodepointStart);
+        if (!string.IsNullOrEmpty(leadingText))
+        {
+            var offset = 0;
+            foreach (var typefaceSpan in assetLoader.FindTypefaces(leadingText, paint))
+            {
+                var localPaint = paint.Clone();
+                localPaint.Typeface = typefaceSpan.Typeface;
+
+                var codepointCount = CountCodepoints(typefaceSpan.Text);
+                var spanPoints = new SKPoint[codepointCount];
+                Array.Copy(points, offset, spanPoints, 0, codepointCount);
+
+                var textBlob = SKTextBlob.CreatePositioned(typefaceSpan.Text, spanPoints);
+                canvas.DrawText(textBlob, 0, 0, localPaint);
+                offset += codepointCount;
+            }
+        }
+
+        var trailingText = text.Substring(lastCodepointStart);
+        foreach (var typefaceSpan in assetLoader.FindTypefaces(trailingText, paint))
+        {
+            var localPaint = paint.Clone();
+            localPaint.Typeface = typefaceSpan.Typeface;
+            canvas.DrawText(typefaceSpan.Text, points[points.Length - 1].X, points[points.Length - 1].Y, localPaint);
+            return typefaceSpan.Advance;
+        }
+
+        var fallbackPaint = paint.Clone();
+        canvas.DrawText(trailingText, points[points.Length - 1].X, points[points.Length - 1].Y, fallbackPaint);
+        var fallbackBounds = new SKRect();
+        return assetLoader.MeasureText(trailingText, fallbackPaint, ref fallbackBounds);
     }
 
     private static void DrawTextPath(
@@ -384,6 +457,15 @@ internal static class SvgSceneTextCompiler
                     GetPositionsY(svgTextBase, viewport, ys);
                     GetPositionsDX(svgTextBase, viewport, dxs);
                     GetPositionsDY(svgTextBase, viewport, dys);
+
+                    if (TryCreatePositionedCodepointPoints(text!, xs, ys, dxs, dys, out var positionedPoints))
+                    {
+                        var positionedTextBounds = MeasurePositionedTextStringBounds(svgTextBase, text!, positionedPoints, viewport, assetLoader, out var positionedAdvance);
+                        UnionBounds(ref bounds, positionedTextBounds);
+                        currentX = positionedPoints[positionedPoints.Length - 1].X + positionedAdvance;
+                        currentY = positionedPoints[positionedPoints.Length - 1].Y;
+                        break;
+                    }
 
                     var x = xs.Count >= 1 ? xs[0] : currentX;
                     var y = ys.Count >= 1 ? ys[0] : currentY;
@@ -509,6 +591,38 @@ internal static class SvgSceneTextCompiler
         return new SKRect(startX, anchorY + metrics.Ascent, startX + totalAdvance, anchorY + metrics.Descent);
     }
 
+    private static SKRect MeasurePositionedTextStringBounds(
+        SvgTextBase svgTextBase,
+        string text,
+        SKPoint[] points,
+        SKRect viewport,
+        ISvgAssetLoader assetLoader,
+        out float advance)
+    {
+        var paint = new SKPaint();
+        PaintingService.SetPaintText(svgTextBase, viewport, paint);
+
+        var bounds = SKRect.Empty;
+        advance = 0f;
+
+        var pointIndex = 0;
+        var spans = assetLoader.FindTypefaces(text, paint);
+        if (spans.Count == 0)
+        {
+            MeasurePositionedCodepoints(text, points, paint, assetLoader, ref bounds, ref pointIndex, ref advance);
+            return bounds;
+        }
+
+        foreach (var span in spans)
+        {
+            var localPaint = paint.Clone();
+            localPaint.Typeface = span.Typeface;
+            MeasurePositionedCodepoints(span.Text, points, localPaint, assetLoader, ref bounds, ref pointIndex, ref advance);
+        }
+
+        return bounds;
+    }
+
     private static void UnionBounds(ref SKRect bounds, SKRect candidate)
     {
         if (candidate.IsEmpty)
@@ -551,6 +665,98 @@ internal static class SvgSceneTextCompiler
         {
             dys.Add(svgTextBase.Dy[i].ToDeviceValue(UnitRenderingType.VerticalOffset, svgTextBase, viewport));
         }
+    }
+
+    private static bool TryCreatePositionedCodepointPoints(
+        string text,
+        IReadOnlyList<float> xs,
+        IReadOnlyList<float> ys,
+        IReadOnlyList<float> dxs,
+        IReadOnlyList<float> dys,
+        out SKPoint[] points)
+    {
+        var codepointCount = CountCodepoints(text);
+        if (xs.Count < 1 || ys.Count < 1 || xs.Count != ys.Count || xs.Count != codepointCount)
+        {
+            points = Array.Empty<SKPoint>();
+            return false;
+        }
+
+        points = new SKPoint[codepointCount];
+        for (var i = 0; i < codepointCount; i++)
+        {
+            var dx = dxs.Count >= 1 && i < dxs.Count ? dxs[i] : 0f;
+            var dy = dys.Count >= 1 && i < dys.Count ? dys[i] : 0f;
+            points[i] = new SKPoint(xs[i] + dx, ys[i] + dy);
+        }
+
+        return true;
+    }
+
+    private static void MeasurePositionedCodepoints(
+        string text,
+        SKPoint[] points,
+        SKPaint paint,
+        ISvgAssetLoader assetLoader,
+        ref SKRect bounds,
+        ref int pointIndex,
+        ref float advance)
+    {
+        var charIndex = 0;
+        while (TryReadNextCodepoint(text, ref charIndex, out var codepoint))
+        {
+            var glyphBounds = new SKRect();
+            var glyphAdvance = assetLoader.MeasureText(codepoint, paint, ref glyphBounds);
+            var metrics = assetLoader.GetFontMetrics(paint);
+            var point = points[pointIndex++];
+            var candidate = glyphBounds.IsEmpty
+                ? new SKRect(point.X, point.Y + metrics.Ascent, point.X + glyphAdvance, point.Y + metrics.Descent)
+                : new SKRect(point.X + glyphBounds.Left, point.Y + glyphBounds.Top, point.X + glyphBounds.Right, point.Y + glyphBounds.Bottom);
+            UnionBounds(ref bounds, candidate);
+            advance = glyphAdvance;
+        }
+    }
+
+    private static int CountCodepoints(string text)
+    {
+        return text.Length - CountLowSurrogates(text);
+    }
+
+    private static int GetLastCodepointStart(string text)
+    {
+        return text.Length - (char.IsLowSurrogate(text[text.Length - 1]) ? 2 : 1);
+    }
+
+    private static bool TryReadNextCodepoint(string text, ref int charIndex, out string codepoint)
+    {
+        if (charIndex >= text.Length)
+        {
+            codepoint = string.Empty;
+            return false;
+        }
+
+        var start = charIndex++;
+        if (charIndex < text.Length && char.IsHighSurrogate(text[start]) && char.IsLowSurrogate(text[charIndex]))
+        {
+            charIndex++;
+        }
+
+        codepoint = text.Substring(start, charIndex - start);
+        return true;
+    }
+
+    private static int CountLowSurrogates(string text)
+    {
+        var count = 0;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsLowSurrogate(text[i]))
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private static IEnumerable<ISvgNode> GetContentNodes(SvgTextBase svgTextBase)
