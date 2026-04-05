@@ -25,7 +25,6 @@ public partial class SKSvg
     public bool TryEnsureRetainedSceneGraph(out SvgSceneDocument? sceneDocument)
     {
         SvgDocument? sourceDocument;
-        SKRect cullRect;
 
         lock (Sync)
         {
@@ -36,14 +35,9 @@ public partial class SKSvg
             }
 
             sourceDocument = _animatedDocument ?? SourceDocument;
-            cullRect = Model?.CullRect ?? SKRect.Empty;
-            if (cullRect.IsEmpty && sourceDocument is { })
-            {
-                cullRect = SKRect.Create(SvgService.GetDimensions(sourceDocument));
-            }
         }
 
-        if (sourceDocument is null || cullRect.IsEmpty)
+        if (sourceDocument is null)
         {
             lock (Sync)
             {
@@ -55,7 +49,7 @@ public partial class SKSvg
             return false;
         }
 
-        if (!SvgSceneCompiler.TryCompile(sourceDocument, cullRect, AssetLoader, IgnoreAttributes, out var compiledSceneDocument))
+        if (!SvgSceneRuntime.TryCompile(sourceDocument, AssetLoader, IgnoreAttributes, out var compiledSceneDocument))
         {
             lock (Sync)
             {
@@ -287,17 +281,28 @@ public partial class SKSvg
 
     private bool TryRebuildRetainedSceneGraphForCurrentDocument(SvgDocument currentDocument, out SvgSceneDocument? sceneDocument)
     {
-        InvalidateRetainedSceneGraph();
-        if (!TryEnsureRetainedSceneGraph(out sceneDocument) || sceneDocument is null)
-        {
-            return false;
-        }
+        DisableAnimationLayerCaching();
 
-        if (!ReferenceEquals(sceneDocument.SourceDocument, currentDocument))
+        if (!SvgSceneRuntime.TryCompile(currentDocument, AssetLoader, IgnoreAttributes, out var compiledSceneDocument) ||
+            compiledSceneDocument is null)
         {
             InvalidateRetainedSceneGraph();
             sceneDocument = null;
             return false;
+        }
+
+        if (!ReferenceEquals(compiledSceneDocument.SourceDocument, currentDocument))
+        {
+            InvalidateRetainedSceneGraph();
+            sceneDocument = null;
+            return false;
+        }
+
+        lock (Sync)
+        {
+            _retainedSceneGraph = compiledSceneDocument;
+            _retainedSceneGraphDirty = false;
+            sceneDocument = compiledSceneDocument;
         }
 
         return true;

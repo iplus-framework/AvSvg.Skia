@@ -241,6 +241,78 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void SetAnimationTime_RebuildsRootViewBoxAnimations()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(RootViewBoxAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(65, 65))?.ID);
+        Assert.Null(svg.HitTestTopmostElement(new SKPoint(25, 25)));
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(2));
+
+        var renderedDocument = GetRenderedDocument(svg);
+        Assert.Equal(50f, renderedDocument.ViewBox.MinX, 3);
+        Assert.Equal(50f, renderedDocument.ViewBox.MinY, 3);
+        Assert.Equal(50f, renderedDocument.ViewBox.Width, 3);
+        Assert.Equal(50f, renderedDocument.ViewBox.Height, 3);
+        Assert.Null(svg.HitTestTopmostElement(new SKPoint(65, 65)));
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(25, 25))?.ID);
+    }
+
+    [Fact]
+    public void SetAnimationTime_RebuildsRetainedSceneCullRectForRootViewBoxSizeChanges()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(RootViewBoxSizeAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.NotNull(svg.Model);
+        Assert.NotNull(svg.RetainedSceneGraph);
+        Assert.Equal(100f, svg.Model!.CullRect.Width, 3);
+        Assert.Equal(100f, svg.Model.CullRect.Height, 3);
+        Assert.Equal(100f, svg.RetainedSceneGraph!.CullRect.Width, 3);
+        Assert.Equal(100f, svg.RetainedSceneGraph.CullRect.Height, 3);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(2));
+
+        Assert.NotNull(svg.Model);
+        Assert.NotNull(svg.RetainedSceneGraph);
+        Assert.Equal(50f, svg.Model!.CullRect.Width, 3);
+        Assert.Equal(50f, svg.Model.CullRect.Height, 3);
+        Assert.Equal(50f, svg.RetainedSceneGraph!.CullRect.Width, 3);
+        Assert.Equal(50f, svg.RetainedSceneGraph.CullRect.Height, 3);
+    }
+
+    [Fact]
+    public void SetAnimationTime_RebuildsW3CRootViewBoxFixture()
+    {
+        var path = GetW3CTestSvgPath("animate-elem-38-t.svg");
+        Assert.True(File.Exists(path));
+
+        using var svg = new SKSvg();
+        using var _ = svg.Load(path);
+
+        Assert.True(svg.HasAnimations);
+
+        using var initialBitmap = RenderBitmap(svg);
+        var initialSignature = GetBitmapSignature(initialBitmap);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(9));
+
+        var renderedDocument = GetRenderedDocument(svg);
+        Assert.Equal(100f, renderedDocument.ViewBox.MinX, 3);
+        Assert.Equal(0f, renderedDocument.ViewBox.MinY, 3);
+        Assert.Equal(200f, renderedDocument.ViewBox.Width, 3);
+        Assert.Equal(200f, renderedDocument.ViewBox.Height, 3);
+
+        using var updatedBitmap = RenderBitmap(svg);
+        var updatedSignature = GetBitmapSignature(updatedBitmap);
+        Assert.NotEqual(initialSignature, updatedSignature);
+    }
+
+    [Fact]
     public void CreateAnimatedDocument_ParsesColonClockValues()
     {
         var document = SvgService.FromSvg(ColonClockAnimationSvg);
@@ -666,6 +738,21 @@ public class SvgAnimationControllerTests
         return Assert.IsType<SvgDocument>(sceneDocument!.SourceDocument);
     }
 
+    private static string GetW3CTestSvgPath(string name)
+    {
+        return Path.GetFullPath(Path.Combine(
+            "..",
+            "..",
+            "..",
+            "..",
+            "..",
+            "externals",
+            "W3C_SVG_11_TestSuite",
+            "W3C_SVG_11_TestSuite",
+            "svg",
+            name));
+    }
+
     private const string AnimationRuntimeSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -925,6 +1012,42 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
+    private const string RootViewBoxAnimationSvg = """
+        <svg id="svg-root"
+             xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="100%"
+             height="100%"
+             viewBox="0 0 100 100"
+             preserveAspectRatio="none">
+          <rect id="target" x="60" y="60" width="10" height="10" fill="red" />
+          <animate xlink:href="#svg-root"
+                   attributeName="viewBox"
+                   from="0 0 100 100"
+                   to="50 50 50 50"
+                   dur="2s"
+                   fill="freeze" />
+        </svg>
+        """;
+
+    private const string RootViewBoxSizeAnimationSvg = """
+        <svg id="svg-root"
+             xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="100%"
+             height="100%"
+             viewBox="0 0 100 100"
+             preserveAspectRatio="none">
+          <rect id="target" x="10" y="10" width="10" height="10" fill="red" />
+          <animate xlink:href="#svg-root"
+                   attributeName="viewBox"
+                   from="0 0 100 100"
+                   to="0 0 50 50"
+                   dur="2s"
+                   fill="freeze" />
+        </svg>
+        """;
+
     private const string SplineAnimationSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              width="30"
@@ -1090,5 +1213,30 @@ public class SvgAnimationControllerTests
             svg.Settings.Srgb);
 
         return Assert.IsType<SkiaBitmap>(bitmap);
+    }
+
+    private static string GetBitmapSignature(SkiaBitmap bitmap)
+    {
+        var builder = new StringBuilder();
+        builder.Append(bitmap.Width).Append('x').Append(bitmap.Height);
+
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                var pixel = bitmap.GetPixel(x, y);
+                builder
+                    .Append('|')
+                    .Append(pixel.Alpha)
+                    .Append(',')
+                    .Append(pixel.Red)
+                    .Append(',')
+                    .Append(pixel.Green)
+                    .Append(',')
+                    .Append(pixel.Blue);
+            }
+        }
+
+        return builder.ToString();
     }
 }

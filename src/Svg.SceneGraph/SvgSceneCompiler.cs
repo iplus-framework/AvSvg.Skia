@@ -106,6 +106,11 @@ public static class SvgSceneCompiler
         }
 
         var resources = sceneDocument.GetResourcesForAddress(addressKey!);
+        if (RequiresRootSceneRebuild(sceneDocument, element))
+        {
+            return new SvgSceneMutationResult(false, 0, resources.Count);
+        }
+
         var compilationRootKeys = PruneCompilationRoots(sceneDocument, sceneDocument.GetCompilationRootsForMutation(addressKey!));
         if (compilationRootKeys.Count == 0)
         {
@@ -143,6 +148,16 @@ public static class SvgSceneCompiler
 
         sceneDocument.RebuildIndexesAndDependencies();
         return new SvgSceneMutationResult(true, compilationRootKeys.Count, resources.Count);
+    }
+
+    private static bool RequiresRootSceneRebuild(SvgSceneDocument sceneDocument, SvgElement element)
+    {
+        if (sceneDocument.Root.Element is null)
+        {
+            return false;
+        }
+
+        return ReferenceEquals(sceneDocument.Root.Element, element);
     }
 
     internal static bool TryGetResourceKind(SvgElement element, out SvgSceneResourceKind kind)
