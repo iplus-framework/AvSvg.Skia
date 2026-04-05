@@ -523,6 +523,42 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void CreateAnimatedDocument_ParsesWhitespaceHeavyTransformValues()
+    {
+        var document = SvgService.FromSvg(WhitespaceTransformValuesSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1.5));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        var translate = Assert.IsType<SvgTranslate>(Assert.Single(target!.Transforms));
+        Assert.Equal(10f, translate.X, 3);
+        Assert.Equal(5f, translate.Y, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_ParsesWhitespaceHeavyMotionValuesAndAutoReverseRotation()
+    {
+        var document = SvgService.FromSvg(WhitespaceMotionValuesSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1.5));
+
+        var motion = animated.GetElementById<SvgCircle>("motion");
+        Assert.NotNull(motion);
+        Assert.Equal(2, motion!.Transforms.Count);
+
+        var translate = Assert.IsType<SvgTranslate>(motion.Transforms[0]);
+        var rotate = Assert.IsType<SvgRotate>(motion.Transforms[1]);
+        Assert.Equal(10f, translate.X, 3);
+        Assert.Equal(5f, translate.Y, 3);
+        Assert.Equal(270f, rotate.Angle, 3);
+    }
+
+    [Fact]
     public void CreateAnimatedDocument_HonorsSplineCalcMode()
     {
         var document = SvgService.FromSvg(SplineAnimationSvg);
@@ -1008,6 +1044,39 @@ public class SvgAnimationControllerTests
              viewBox="0 0 30 30">
           <circle id="motion" cx="0" cy="0" r="2" fill="purple">
             <animateMotion values="0,0;10,0;10,10" calcMode="linear" keyTimes="0;0.5;1" dur="2s" fill="freeze" />
+          </circle>
+        </svg>
+        """;
+
+    private const string WhitespaceTransformValuesSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="30"
+             height="30"
+             viewBox="0 0 30 30">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animateTransform attributeName="transform"
+                              type="translate"
+                              values="  0 0 ;   10 0 ;  10 10  "
+                              keyTimes=" 0 ; 0.5 ; 1 "
+                              dur=" 2s "
+                              fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string WhitespaceMotionValuesSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="30"
+             height="30"
+             viewBox="0 0 30 30">
+          <circle id="motion" cx="0" cy="0" r="2" fill="purple">
+            <animateMotion values=" 0,0 ; 10 0 ; 10,
+                                    10 "
+                           calcMode="linear"
+                           keyTimes=" 0 ; 0.5 ; 1 "
+                           dur=" 2s "
+                           rotate=" auto-reverse "
+                           fill="freeze" />
           </circle>
         </svg>
         """;
