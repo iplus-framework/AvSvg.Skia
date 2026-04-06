@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using ShimSkiaSharp;
-using Svg.Model.Drawables.Elements;
 
 namespace Svg.Model.Services;
 
@@ -405,16 +404,5 @@ internal static class MaskingService
             return skClipRect;
         }
         return default;
-    }
-
-    internal static MaskDrawable? GetSvgElementMask(SvgElement svgElement, SKRect skBounds, HashSet<Uri> uris, ISvgAssetLoader assetLoader, HashSet<Uri>? references)
-    {
-        var svgMaskRef = svgElement.GetUriElementReference<SvgMask>("mask", uris);
-        if (svgMaskRef?.Children is null)
-        {
-            return default;
-        }
-        var maskDrawable = MaskDrawable.Create(svgMaskRef, skBounds, null, assetLoader, references);
-        return maskDrawable;
     }
 }

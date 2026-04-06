@@ -374,19 +374,6 @@ internal static class SvgScenePaintingService
         return gradientServers;
     }
 
-    private static List<SvgPatternServer> GetLinkedPatternServers(SvgPatternServer svgPatternServer, SvgVisualElement svgVisualElement)
-    {
-        var patternServers = new List<SvgPatternServer>();
-        var currentPatternServer = svgPatternServer;
-        do
-        {
-            patternServers.Add(currentPatternServer);
-            currentPatternServer = SvgDeferredPaintServer.TryGet<SvgPatternServer>(currentPatternServer.InheritGradient, svgVisualElement);
-        } while (currentPatternServer is not null && currentPatternServer != svgPatternServer);
-
-        return patternServers;
-    }
-
     private static void GetStops(
         List<SvgGradientServer> svgReferencedGradientServers,
         SKRect skBounds,
@@ -758,117 +745,17 @@ internal static class SvgScenePaintingService
         ISvgAssetLoader assetLoader,
         DrawAttributes ignoreAttributes)
     {
-        var svgReferencedPatternServers = GetLinkedPatternServers(svgPatternServer, svgVisualElement);
-
-        SvgPatternServer? firstChildren = null;
-        SvgPatternServer? firstX = null;
-        SvgPatternServer? firstY = null;
-        SvgPatternServer? firstWidth = null;
-        SvgPatternServer? firstHeight = null;
-        SvgPatternServer? firstPatternUnit = null;
-        SvgPatternServer? firstPatternContentUnit = null;
-        SvgPatternServer? firstViewBox = null;
-        SvgPatternServer? firstAspectRatio = null;
-
-        foreach (var p in svgReferencedPatternServers)
-        {
-            if (firstChildren is null && p.Children.Count > 0)
-            {
-                firstChildren = p;
-            }
-
-            if (firstX is null && p.X != SvgUnit.None)
-            {
-                firstX = p;
-            }
-
-            if (firstY is null && p.Y != SvgUnit.None)
-            {
-                firstY = p;
-            }
-
-            if (firstWidth is null && p.Width != SvgUnit.None)
-            {
-                firstWidth = p;
-            }
-
-            if (firstHeight is null && p.Height != SvgUnit.None)
-            {
-                firstHeight = p;
-            }
-
-            if (firstPatternUnit is null && SvgService.TryGetAttribute(p, "patternUnits", out _))
-            {
-                firstPatternUnit = p;
-            }
-
-            if (firstPatternContentUnit is null && SvgService.TryGetAttribute(p, "patternContentUnits", out _))
-            {
-                firstPatternContentUnit = p;
-            }
-
-            if (firstViewBox is null && p.ViewBox != SvgViewBox.Empty)
-            {
-                firstViewBox = p;
-            }
-
-            if (firstAspectRatio is null)
-            {
-                var pAspectRatio = p.AspectRatio;
-                if (pAspectRatio.Align != SvgPreserveAspectRatio.xMidYMid || pAspectRatio.Slice || pAspectRatio.Defer)
-                {
-                    firstAspectRatio = p;
-                }
-            }
-        }
-
-        if (firstChildren is null || firstWidth is null || firstHeight is null)
+        if (!SvgPatternPaintStateResolver.TryCreate(svgPatternServer, svgVisualElement, skBounds, out var patternState) ||
+            patternState is null)
         {
             return null;
         }
-
-        var xUnit = firstX?.X ?? new SvgUnit(0f);
-        var yUnit = firstY?.Y ?? new SvgUnit(0f);
-        var widthUnit = firstWidth.Width;
-        var heightUnit = firstHeight.Height;
-        var patternUnits = firstPatternUnit?.PatternUnits ?? SvgCoordinateUnits.ObjectBoundingBox;
-        var patternContentUnits = firstPatternContentUnit?.PatternContentUnits ?? SvgCoordinateUnits.UserSpaceOnUse;
-        var viewBox = firstViewBox?.ViewBox ?? SvgViewBox.Empty;
-        var aspectRatio = firstAspectRatio?.AspectRatio ?? new SvgAspectRatio(SvgPreserveAspectRatio.xMidYMid, false);
-
-        var patternRect = TransformsService.CalculateRect(xUnit, yUnit, widthUnit, heightUnit, patternUnits, skBounds, skBounds, svgPatternServer);
-        if (patternRect is null || patternRect.Value.Width <= 0f || patternRect.Value.Height <= 0f)
-        {
-            return null;
-        }
-
-        var shaderMatrix = SKMatrix.CreateIdentity();
-        shaderMatrix = shaderMatrix.PreConcat(TransformsService.ToMatrix(svgPatternServer.PatternTransform));
-        shaderMatrix = shaderMatrix.PreConcat(SKMatrix.CreateTranslation(patternRect.Value.Left, patternRect.Value.Top));
-
-        var pictureTransform = SKMatrix.CreateIdentity();
-        if (!viewBox.Equals(SvgViewBox.Empty))
-        {
-            pictureTransform = pictureTransform.PreConcat(TransformsService.ToMatrix(
-                viewBox,
-                aspectRatio,
-                0f,
-                0f,
-                patternRect.Value.Width,
-                patternRect.Value.Height));
-        }
-        else if (patternContentUnits == SvgCoordinateUnits.ObjectBoundingBox)
-        {
-            pictureTransform = pictureTransform.PreConcat(SKMatrix.CreateScale(skBounds.Width, skBounds.Height));
-        }
-
-        var pictureViewport = SKRect.Create(0f, 0f, patternRect.Value.Width, patternRect.Value.Height);
         var patternScene = SvgSceneCompiler.CompileTemporaryChildrenScene(
-            firstChildren,
-            firstChildren.Children,
-            pictureViewport,
-            pictureViewport,
-            pictureTransform,
+            patternState.ContentSource,
+            patternState.Children,
+            patternState.PictureViewport,
+            patternState.PictureViewport,
+            patternState.PictureTransform,
             opacity,
             assetLoader,
             ignoreAttributes);
@@ -880,6 +767,6 @@ internal static class SvgScenePaintingService
         var picture = SvgSceneRenderer.Render(patternScene);
         return picture is null
             ? null
-            : SKShader.CreatePicture(picture, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat, shaderMatrix, picture.CullRect);
+            : SKShader.CreatePicture(picture, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat, patternState.ShaderMatrix, picture.CullRect);
     }
 }
