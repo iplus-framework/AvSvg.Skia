@@ -8,7 +8,7 @@ namespace Svg.Skia.UnitTests.Common;
 
 public static class ImageHelper
 {
-    private static double CompareImages(Image<Rgba32> actual, Image<Rgba32> expected, IReadOnlyCollection<Rectangle>? ignoredRegions = null)
+    private static double CompareImages(Image<Rgba32> actual, Image<Rgba32> expected, IReadOnlyCollection<Rectangle>? ignoredRegions = null, Rgba32? compositeBackground = null)
     {
         if (actual.Width != expected.Width || actual.Height != expected.Height)
         {
@@ -19,6 +19,11 @@ public static class ImageHelper
         double squaresError = 0;
 
         const double scale = 1 / 255d;
+        var useCompositeBackground = compositeBackground.HasValue;
+        var compositeColor = compositeBackground.GetValueOrDefault();
+        var backgroundR = compositeColor.R * scale;
+        var backgroundG = compositeColor.G * scale;
+        var backgroundB = compositeColor.B * scale;
 
         for (var x = 0; x < actual.Width; x++)
         {
@@ -31,12 +36,35 @@ public static class ImageHelper
                     continue;
                 }
 
-                var expectedAlpha = expected[x, y].A * scale;
-                var actualAlpha = actual[x, y].A * scale;
+                var expectedPixel = expected[x, y];
+                var actualPixel = actual[x, y];
 
-                var r = scale * (expectedAlpha * expected[x, y].R - actualAlpha * actual[x, y].R);
-                var g = scale * (expectedAlpha * expected[x, y].G - actualAlpha * actual[x, y].G);
-                var b = scale * (expectedAlpha * expected[x, y].B - actualAlpha * actual[x, y].B);
+                var expectedAlpha = expectedPixel.A * scale;
+                var actualAlpha = actualPixel.A * scale;
+
+                if (useCompositeBackground)
+                {
+                    var expectedR = backgroundR + expectedAlpha * (expectedPixel.R * scale - backgroundR);
+                    var expectedG = backgroundG + expectedAlpha * (expectedPixel.G * scale - backgroundG);
+                    var expectedB = backgroundB + expectedAlpha * (expectedPixel.B * scale - backgroundB);
+
+                    var actualR = backgroundR + actualAlpha * (actualPixel.R * scale - backgroundR);
+                    var actualG = backgroundG + actualAlpha * (actualPixel.G * scale - backgroundG);
+                    var actualB = backgroundB + actualAlpha * (actualPixel.B * scale - backgroundB);
+
+                    var deltaR = expectedR - actualR;
+                    var deltaG = expectedG - actualG;
+                    var deltaB = expectedB - actualB;
+                    var compositeError = deltaR * deltaR + deltaG * deltaG + deltaB * deltaB;
+
+                    localError += compositeError;
+                    quantity += 3;
+                    continue;
+                }
+
+                var r = scale * (expectedAlpha * expectedPixel.R - actualAlpha * actualPixel.R);
+                var g = scale * (expectedAlpha * expectedPixel.G - actualAlpha * actualPixel.G);
+                var b = scale * (expectedAlpha * expectedPixel.B - actualAlpha * actualPixel.B);
                 var a = expectedAlpha - actualAlpha;
 
                 var error = r * r + g * g + b * b + a * a;
@@ -55,18 +83,18 @@ public static class ImageHelper
 
         var meanSquaresError = squaresError / quantity;
 
-        const int channelCount = 4;
+        var channelCount = useCompositeBackground ? 3 : 4;
 
         meanSquaresError = meanSquaresError / channelCount;
 
         return Math.Sqrt(meanSquaresError);
     }
 
-    public static void CompareImages(string name, string actualPath, string expectedPath, double errorThreshold, IReadOnlyCollection<Rectangle>? ignoredRegions = null)
+    public static void CompareImages(string name, string actualPath, string expectedPath, double errorThreshold, IReadOnlyCollection<Rectangle>? ignoredRegions = null, Rgba32? compositeBackground = null)
     {
         using var expected = Image.Load<Rgba32>(expectedPath);
         using var actual = Image.Load<Rgba32>(actualPath);
-        var immediateError = CompareImages(actual, expected, ignoredRegions);
+        var immediateError = CompareImages(actual, expected, ignoredRegions, compositeBackground);
 
         if (immediateError > errorThreshold)
         {

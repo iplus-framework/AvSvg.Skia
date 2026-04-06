@@ -1,5 +1,6 @@
 ﻿using System.IO;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using Svg.Skia.UnitTests.Common;
 using Xunit;
 
@@ -13,13 +14,18 @@ public class W3CTestSuiteTests : SvgUnitTest
     private string GetExpectedPngPath(string name)
         => Path.Combine("..", "..", "..", "..", "..", "externals", "W3C_SVG_11_TestSuite", "W3C_SVG_11_TestSuite", "png", name);
 
+    private string GetChromeOverridePngPath(string name)
+        => Path.Combine("..", "..", "..", "ChromeReference", "W3C", name);
+
     private string GetActualPngPath(string name)
         => Path.Combine("..", "..", "..", "..", "Tests", name);
 
     private void TestImpl(string name, double errorThreshold, float scaleX = 1.0f, float scaleY = 1.0f)
     {
         var svgPath = GetSvgPath($"{name}.svg");
-        var expectedPng = GetExpectedPngPath($"{name}.png");
+        var chromeOverridePng = GetChromeOverridePngPath($"{name}.png");
+        var useChromeOverride = File.Exists(chromeOverridePng);
+        var expectedPng = useChromeOverride ? chromeOverridePng : GetExpectedPngPath($"{name}.png");
         var actualPng = GetActualPngPath($"{name} (Actual).png");
 
         if (File.Exists(actualPng))
@@ -28,11 +34,21 @@ public class W3CTestSuiteTests : SvgUnitTest
         }
 
         var svg = new SKSvg();
-        SetTypefaceProviders(svg.Settings);
+        svg.Settings.StandaloneViewport = SkiaSharp.SKRect.Create(0f, 0f, 480f, 360f);
+        if (!ShouldUseBrowserCompatibleFontFallback(name))
+        {
+            SetTypefaceProviders(svg.Settings);
+        }
         using var _ = svg.Load(svgPath);
-        svg.Save(actualPng, SkiaSharp.SKColors.Transparent, scaleX: scaleX, scaleY: scaleY);
+        svg.Save(actualPng, useChromeOverride ? SkiaSharp.SKColors.White : SkiaSharp.SKColors.Transparent, scaleX: scaleX, scaleY: scaleY);
 
-        ImageHelper.CompareImages(name, actualPng, expectedPng, GetEffectiveThreshold(name, errorThreshold), GetIgnoredRegions(name));
+        ImageHelper.CompareImages(
+            name,
+            actualPng,
+            expectedPng,
+            GetEffectiveThreshold(name, errorThreshold),
+            GetIgnoredRegions(name),
+            useChromeOverride ? new Rgba32(255, 255, 255, 255) : null);
 
 #if false
         if (File.Exists(actualPng))
@@ -40,6 +56,14 @@ public class W3CTestSuiteTests : SvgUnitTest
             File.Delete(actualPng);
         }
 #endif
+    }
+
+    private static bool ShouldUseBrowserCompatibleFontFallback(string name)
+    {
+        return name.StartsWith("linking-") ||
+               name.StartsWith("masking-") ||
+               name.StartsWith("painting-") ||
+               name == "metadata-example-01-t";
     }
 
     private static double GetEffectiveThreshold(string name, double errorThreshold)
@@ -278,69 +302,69 @@ public class W3CTestSuiteTests : SvgUnitTest
     [InlineData("interact-zoom-01-t", 0.022, Skip = "TODO")]
     [InlineData("interact-zoom-02-t", 0.022, Skip = "TODO")]
     [InlineData("interact-zoom-03-t", 0.022, Skip = "TODO")]
-    [InlineData("linking-a-01-b", 0.022, Skip = "TODO")]
-    [InlineData("linking-a-03-b", 0.022, Skip = "TODO")]
-    [InlineData("linking-a-04-t", 0.022, Skip = "TODO")]
-    [InlineData("linking-a-05-t", 0.022, Skip = "TODO")]
-    [InlineData("linking-a-07-t", 0.022, Skip = "TODO")]
-    [InlineData("linking-a-08-t", 0.022, Skip = "TODO")]
-    [InlineData("linking-a-09-b", 0.022, Skip = "TODO")]
-    [InlineData("linking-a-10-f", 0.022, Skip = "TODO")]
-    [InlineData("linking-frag-01-f", 0.022, Skip = "TODO")]
-    [InlineData("linking-uri-01-b", 0.022, Skip = "TODO")]
-    [InlineData("linking-uri-02-b", 0.022, Skip = "TODO")]
-    [InlineData("linking-uri-03-t", 0.022, Skip = "TODO")]
-    [InlineData("masking-filter-01-f", 0.022, Skip = "TODO")]
-    [InlineData("masking-intro-01-f", 0.022, Skip = "TODO")]
-    [InlineData("masking-mask-01-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-mask-02-f", 0.022, Skip = "TODO")]
-    [InlineData("masking-opacity-01-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-01-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-02-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-03-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-04-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-05-f", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-06-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-07-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-08-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-09-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-10-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-11-b", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-12-f", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-13-f", 0.022, Skip = "TODO")]
-    [InlineData("masking-path-14-f", 0.022, Skip = "TODO")]
-    [InlineData("metadata-example-01-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-control-01-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-control-02-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-control-03-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-control-04-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-control-05-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-control-06-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-fill-01-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-fill-02-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-fill-03-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-fill-04-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-fill-05-b", 0.022, Skip = "TODO")]
-    [InlineData("painting-marker-01-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-marker-02-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-marker-03-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-marker-04-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-marker-05-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-marker-06-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-marker-07-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-marker-properties-01-f", 0.022, Skip = "TODO")]
-    [InlineData("painting-render-01-b", 0.022, Skip = "TODO")]
-    [InlineData("painting-render-02-b", 0.022, Skip = "TODO")]
-    [InlineData("painting-stroke-01-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-stroke-02-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-stroke-03-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-stroke-04-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-stroke-05-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-stroke-06-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-stroke-07-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-stroke-08-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-stroke-09-t", 0.022, Skip = "TODO")]
-    [InlineData("painting-stroke-10-t", 0.022, Skip = "TODO")]
+    [InlineData("linking-a-01-b", 0.022)]
+    [InlineData("linking-a-03-b", 0.022)]
+    [InlineData("linking-a-04-t", 0.022)]
+    [InlineData("linking-a-05-t", 0.022)]
+    [InlineData("linking-a-07-t", 0.022)]
+    [InlineData("linking-a-08-t", 0.022)]
+    [InlineData("linking-a-09-b", 0.022)]
+    [InlineData("linking-a-10-f", 0.022)]
+    [InlineData("linking-frag-01-f", 0.022)]
+    [InlineData("linking-uri-01-b", 0.022)]
+    [InlineData("linking-uri-02-b", 0.022)]
+    [InlineData("linking-uri-03-t", 0.022)]
+    [InlineData("masking-filter-01-f", 0.022)]
+    [InlineData("masking-intro-01-f", 0.022)]
+    [InlineData("masking-mask-01-b", 0.022)]
+    [InlineData("masking-mask-02-f", 0.022)]
+    [InlineData("masking-opacity-01-b", 0.022)]
+    [InlineData("masking-path-01-b", 0.022)]
+    [InlineData("masking-path-02-b", 0.022)]
+    [InlineData("masking-path-03-b", 0.022)]
+    [InlineData("masking-path-04-b", 0.022)]
+    [InlineData("masking-path-05-f", 0.022)]
+    [InlineData("masking-path-06-b", 0.022)]
+    [InlineData("masking-path-07-b", 0.022)]
+    [InlineData("masking-path-08-b", 0.022)]
+    [InlineData("masking-path-09-b", 0.022)]
+    [InlineData("masking-path-10-b", 0.022)]
+    [InlineData("masking-path-11-b", 0.022)]
+    [InlineData("masking-path-12-f", 0.022)]
+    [InlineData("masking-path-13-f", 0.022)]
+    [InlineData("masking-path-14-f", 0.022)]
+    [InlineData("metadata-example-01-t", 0.022)]
+    [InlineData("painting-control-01-f", 0.022)]
+    [InlineData("painting-control-02-f", 0.022)]
+    [InlineData("painting-control-03-f", 0.022)]
+    [InlineData("painting-control-04-f", 0.022)]
+    [InlineData("painting-control-05-f", 0.022)]
+    [InlineData("painting-control-06-f", 0.022)]
+    [InlineData("painting-fill-01-t", 0.022)]
+    [InlineData("painting-fill-02-t", 0.022)]
+    [InlineData("painting-fill-03-t", 0.022)]
+    [InlineData("painting-fill-04-t", 0.022)]
+    [InlineData("painting-fill-05-b", 0.022)]
+    [InlineData("painting-marker-01-f", 0.022)]
+    [InlineData("painting-marker-02-f", 0.022)]
+    [InlineData("painting-marker-03-f", 0.022)]
+    [InlineData("painting-marker-04-f", 0.022)]
+    [InlineData("painting-marker-05-f", 0.022)]
+    [InlineData("painting-marker-06-f", 0.022)]
+    [InlineData("painting-marker-07-f", 0.022)]
+    [InlineData("painting-marker-properties-01-f", 0.022)]
+    [InlineData("painting-render-01-b", 0.022)]
+    [InlineData("painting-render-02-b", 0.022)]
+    [InlineData("painting-stroke-01-t", 0.022)]
+    [InlineData("painting-stroke-02-t", 0.022)]
+    [InlineData("painting-stroke-03-t", 0.022)]
+    [InlineData("painting-stroke-04-t", 0.022)]
+    [InlineData("painting-stroke-05-t", 0.022)]
+    [InlineData("painting-stroke-06-t", 0.022)]
+    [InlineData("painting-stroke-07-t", 0.022)]
+    [InlineData("painting-stroke-08-t", 0.022)]
+    [InlineData("painting-stroke-09-t", 0.022)]
+    [InlineData("painting-stroke-10-t", 0.022)]
     [InlineData("paths-data-01-t", 0.100)]
     [InlineData("paths-data-02-t", 0.100)]
     [InlineData("paths-data-03-f", 0.100)]

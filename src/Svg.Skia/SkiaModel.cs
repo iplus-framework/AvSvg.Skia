@@ -191,7 +191,7 @@ public partial class SkiaModel
         };
     }
 
-    private IEnumerable<string> EnumerateFontFamilyCandidates(string? fontFamily)
+    internal static IEnumerable<string> EnumerateFontFamilyCandidates(string? fontFamily)
     {
         var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
