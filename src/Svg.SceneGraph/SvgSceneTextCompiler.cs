@@ -765,7 +765,9 @@ internal static class SvgSceneTextCompiler
         {
             foreach (var child in svgTextBase.Children)
             {
-                if (child is ISvgNode svgNode && child is not ISvgDescriptiveElement)
+                if (child is ISvgNode svgNode &&
+                    child is not ISvgDescriptiveElement &&
+                    child is not NonSvgElement)
                 {
                     yield return svgNode;
                 }
@@ -775,6 +777,11 @@ internal static class SvgSceneTextCompiler
         {
             foreach (var node in svgTextBase.Nodes)
             {
+                if (node is NonSvgElement)
+                {
+                    continue;
+                }
+
                 yield return node;
             }
         }
