@@ -306,9 +306,9 @@ public class SvgEditorWorkspaceTests
             SetPrivateField(workspace, "_selectedSvgElement", element);
             SetPrivateField(workspace, "_selectedElement", element);
 
-            var updateSelectedDrawable = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedDrawable", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(updateSelectedDrawable);
-            updateSelectedDrawable!.Invoke(workspace, null);
+            var updateSelectedSceneState = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedSceneState", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(updateSelectedSceneState);
+            updateSelectedSceneState!.Invoke(workspace, null);
 
             InvokePrivateMenuHandler(workspace, "PathToolButton_Click");
 
@@ -356,9 +356,9 @@ public class SvgEditorWorkspaceTests
             SetPrivateField(workspace, "_selectedSvgElement", element);
             SetPrivateField(workspace, "_selectedElement", element);
 
-            var updateSelectedDrawable = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedDrawable", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(updateSelectedDrawable);
-            updateSelectedDrawable!.Invoke(workspace, null);
+            var updateSelectedSceneState = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedSceneState", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(updateSelectedSceneState);
+            updateSelectedSceneState!.Invoke(workspace, null);
 
             var selectedSceneNode = GetPrivateField<SvgSceneNode?>(workspace, "_selectedSceneNode");
             Assert.NotNull(selectedSceneNode);
@@ -410,9 +410,9 @@ public class SvgEditorWorkspaceTests
             multiSelected.Add(elements[0]);
             multiSelected.Add(elements[1]);
 
-            var updateSelectedDrawable = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedDrawable", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(updateSelectedDrawable);
-            updateSelectedDrawable!.Invoke(workspace, null);
+            var updateSelectedSceneState = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedSceneState", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(updateSelectedSceneState);
+            updateSelectedSceneState!.Invoke(workspace, null);
 
             var multiSceneNodes = GetPrivateField<IList>(workspace, "_multiSceneNodes");
             Assert.Equal(2, multiSceneNodes.Count);
@@ -456,9 +456,9 @@ public class SvgEditorWorkspaceTests
             SetPrivateField(workspace, "_selectedSvgElement", element);
             SetPrivateField(workspace, "_selectedElement", element);
 
-            var updateSelectedDrawable = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedDrawable", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(updateSelectedDrawable);
-            updateSelectedDrawable!.Invoke(workspace, null);
+            var updateSelectedSceneState = typeof(SvgEditorWorkspace).GetMethod("UpdateSelectedSceneState", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(updateSelectedSceneState);
+            updateSelectedSceneState!.Invoke(workspace, null);
 
             var selectedSceneNode = GetPrivateField<SvgSceneNode?>(workspace, "_selectedSceneNode");
             Assert.NotNull(selectedSceneNode);
