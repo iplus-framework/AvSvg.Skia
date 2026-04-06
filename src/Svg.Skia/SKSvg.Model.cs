@@ -609,19 +609,61 @@ public partial class SKSvg : IDisposable
     {
         if (Picture is { })
         {
-            return Picture.ToImage(stream, background, format, quality, scaleX, scaleY, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Premul, Settings.Srgb);
+            if (Picture.ToImage(stream, background, format, quality, scaleX, scaleY, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Premul, Settings.Srgb))
+            {
+                return true;
+            }
         }
-        return false;
+
+        return TrySaveBlankModelImage(stream, background, format, quality, scaleX, scaleY);
     }
 
     public bool Save(string path, SkiaSharp.SKColor background, SkiaSharp.SKEncodedImageFormat format = SkiaSharp.SKEncodedImageFormat.Png, int quality = 100, float scaleX = 1f, float scaleY = 1f)
     {
-        if (Picture is { })
+        using var stream = System.IO.File.Open(path, System.IO.FileMode.Create, System.IO.FileAccess.ReadWrite, System.IO.FileShare.None);
+        if (Save(stream, background, format, quality, scaleX, scaleY))
         {
-            using var stream = System.IO.File.OpenWrite(path);
-            return Picture.ToImage(stream, background, format, quality, scaleX, scaleY, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Premul, Settings.Srgb);
+            return true;
         }
+
+        stream.SetLength(0);
         return false;
+    }
+
+    private bool TrySaveBlankModelImage(System.IO.Stream stream, SkiaSharp.SKColor background, SkiaSharp.SKEncodedImageFormat format, int quality, float scaleX, float scaleY)
+    {
+        SKPicture? model;
+        lock (Sync)
+        {
+            model = Model;
+        }
+
+        if (model is null)
+        {
+            return false;
+        }
+
+        var width = model.CullRect.Width * scaleX;
+        var height = model.CullRect.Height * scaleY;
+        if (!(width > 0) || !(height > 0))
+        {
+            return false;
+        }
+
+        var imageInfo = new SkiaSharp.SKImageInfo((int)width, (int)height, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Premul, Settings.Srgb);
+        using var bitmap = new SkiaSharp.SKBitmap(imageInfo);
+        using var canvas = new SkiaSharp.SKCanvas(bitmap);
+        canvas.Clear(background);
+
+        using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(format, quality);
+        if (data is null)
+        {
+            return false;
+        }
+
+        data.SaveTo(stream);
+        return true;
     }
 
     public void Draw(SkiaSharp.SKCanvas canvas)

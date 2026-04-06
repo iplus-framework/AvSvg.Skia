@@ -1555,7 +1555,14 @@ public partial class SkiaModel
         using var skPictureRecorder = new SkiaSharp.SKPictureRecorder();
         using var skCanvas = skPictureRecorder.BeginRecording(skRect);
 
-        Draw(picture, skCanvas);
+        if (picture.Commands is { Count: > 0 })
+        {
+            Draw(picture, skCanvas);
+        }
+        else
+        {
+            PreserveCullRect(skCanvas, skRect);
+        }
 
         return skPictureRecorder.EndRecording();
     }
@@ -1571,9 +1578,28 @@ public partial class SkiaModel
         using var skPictureRecorder = new SkiaSharp.SKPictureRecorder();
         using var skCanvas = skPictureRecorder.BeginRecording(skRect);
 
-        Draw(picture, skCanvas, true);
+        if (picture.Commands is { Count: > 0 })
+        {
+            Draw(picture, skCanvas, true);
+        }
+        else
+        {
+            PreserveCullRect(skCanvas, skRect);
+        }
 
         return skPictureRecorder.EndRecording();
+    }
+
+    private static void PreserveCullRect(SkiaSharp.SKCanvas skCanvas, SkiaSharp.SKRect skRect)
+    {
+        using var paint = new SkiaSharp.SKPaint
+        {
+            Color = new SkiaSharp.SKColor(0, 0, 0, 0),
+            IsAntialias = false,
+            Style = SkiaSharp.SKPaintStyle.Fill
+        };
+
+        skCanvas.DrawRect(skRect, paint);
     }
 
     public void Draw(CanvasCommand canvasCommand, SkiaSharp.SKCanvas skCanvas, bool wireframe = false)
