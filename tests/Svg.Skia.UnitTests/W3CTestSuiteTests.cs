@@ -41,7 +41,7 @@ public class W3CTestSuiteTests
     }
 
     // TODO:
-    [WindowsAndOSXTheory]
+    [OSXTheory]
     [InlineData("animate-dom-01-f", 0.022, Skip = "TODO")]
     [InlineData("animate-dom-02-f", 0.022, Skip = "TODO")]
     [InlineData("animate-elem-02-t", 0.022, Skip = "TODO")]
