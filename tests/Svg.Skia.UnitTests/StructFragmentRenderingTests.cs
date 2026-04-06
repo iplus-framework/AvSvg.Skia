@@ -24,6 +24,7 @@ public class StructFragmentRenderingTests
             "struct-frag-04-t.svg");
 
         using var svg = new SKSvg();
+        svg.Settings.StandaloneViewport = SKRect.Create(0f, 0f, 480f, 360f);
         using var _ = svg.Load(svgPath);
 
         Assert.NotNull(svg.RetainedSceneGraph);

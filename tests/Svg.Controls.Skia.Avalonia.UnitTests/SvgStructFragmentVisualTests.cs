@@ -6,6 +6,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Svg.Skia;
 using SkiaSharp;
+using Svg.Skia;
 using Xunit;
 
 namespace Avalonia.Svg.Skia.UnitTests;
@@ -28,7 +29,10 @@ public class SvgStructFragmentVisualTests
             "svg",
             "struct-frag-04-t.svg"));
 
-        using var source = SvgSource.Load(svgPath);
+        using var svg = new SKSvg();
+        svg.Settings.StandaloneViewport = SKRect.Create(0f, 0f, 480f, 360f);
+        using var _ = svg.Load(svgPath);
+        var source = new SvgSource(default(Uri)) { Picture = svg.Picture };
         Assert.NotNull(source.Picture);
         Assert.Equal(480f, source.Picture!.CullRect.Width);
         Assert.Equal(360f, source.Picture.CullRect.Height);

@@ -95,13 +95,21 @@ public partial class SKSvg : IDisposable
 
     public static SkiaSharp.SKPicture? ToPicture(SvgFragment svgFragment, SkiaModel skiaModel, ISvgAssetLoader assetLoader)
     {
-        var picture = SvgSceneRuntime.CreateModel(svgFragment, assetLoader);
+        var picture = SvgSceneRuntime.CreateModel(
+            svgFragment,
+            assetLoader,
+            DrawAttributes.None,
+            GetStandaloneViewport(skiaModel.Settings));
         return skiaModel.ToSKPicture(picture);
     }
 
     public static void Draw(SkiaSharp.SKCanvas skCanvas, SvgFragment svgFragment, SkiaModel skiaModel, ISvgAssetLoader assetLoader)
     {
-        var picture = SvgSceneRuntime.CreateModel(svgFragment, assetLoader);
+        var picture = SvgSceneRuntime.CreateModel(
+            svgFragment,
+            assetLoader,
+            DrawAttributes.None,
+            GetStandaloneViewport(skiaModel.Settings));
         if (picture is { })
         {
             skiaModel.Draw(picture, skCanvas);
@@ -310,6 +318,7 @@ public partial class SKSvg : IDisposable
         clone.Settings.ColorType = Settings.ColorType;
         clone.Settings.SrgbLinear = Settings.SrgbLinear;
         clone.Settings.Srgb = Settings.Srgb;
+        clone.Settings.StandaloneViewport = Settings.StandaloneViewport;
         clone.Settings.TypefaceProviders = Settings.TypefaceProviders is null
             ? null
             : new List<TypefaceProviders.ITypefaceProvider>(Settings.TypefaceProviders);
@@ -776,7 +785,7 @@ public partial class SKSvg : IDisposable
     {
         DisableAnimationLayerCaching();
 
-        if (!SvgSceneRuntime.TryCompile(svgDocument, AssetLoader, _ignoreAttributes, out var sceneDocument) ||
+        if (!SvgSceneRuntime.TryCompile(svgDocument, AssetLoader, _ignoreAttributes, GetStandaloneViewport(), out var sceneDocument) ||
             sceneDocument is null)
         {
             return null;
@@ -838,7 +847,7 @@ public partial class SKSvg : IDisposable
             return false;
         }
 
-        if (!SvgSceneRuntime.TryCompile(currentDocument, AssetLoader, IgnoreAttributes, out var sceneDocument) ||
+        if (!SvgSceneRuntime.TryCompile(currentDocument, AssetLoader, IgnoreAttributes, GetStandaloneViewport(), out var sceneDocument) ||
             sceneDocument is null)
         {
             return false;
@@ -986,5 +995,25 @@ public partial class SKSvg : IDisposable
         }
 
         return true;
+    }
+
+    private SKRect GetStandaloneViewport()
+    {
+        return GetStandaloneViewport(Settings);
+    }
+
+    private static SKRect GetStandaloneViewport(SKSvgSettings settings)
+    {
+        var standaloneViewport = settings.StandaloneViewport;
+        if (standaloneViewport is null || standaloneViewport.Value.Width <= 0f || standaloneViewport.Value.Height <= 0f)
+        {
+            return SKRect.Empty;
+        }
+
+        return SKRect.Create(
+            standaloneViewport.Value.Left,
+            standaloneViewport.Value.Top,
+            standaloneViewport.Value.Width,
+            standaloneViewport.Value.Height);
     }
 }

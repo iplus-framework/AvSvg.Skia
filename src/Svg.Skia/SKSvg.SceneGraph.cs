@@ -49,7 +49,7 @@ public partial class SKSvg
             return false;
         }
 
-        if (!SvgSceneRuntime.TryCompile(sourceDocument, AssetLoader, IgnoreAttributes, out var compiledSceneDocument))
+        if (!SvgSceneRuntime.TryCompile(sourceDocument, AssetLoader, IgnoreAttributes, GetStandaloneViewport(), out var compiledSceneDocument))
         {
             lock (Sync)
             {
@@ -283,7 +283,7 @@ public partial class SKSvg
     {
         DisableAnimationLayerCaching();
 
-        if (!SvgSceneRuntime.TryCompile(currentDocument, AssetLoader, IgnoreAttributes, out var compiledSceneDocument) ||
+        if (!SvgSceneRuntime.TryCompile(currentDocument, AssetLoader, IgnoreAttributes, GetStandaloneViewport(), out var compiledSceneDocument) ||
             compiledSceneDocument is null)
         {
             InvalidateRetainedSceneGraph();
