@@ -331,6 +331,7 @@ public static class SvgSceneCompiler
             Add(ResolveReference(markerElement, markerElement.MarkerStart));
             Add(ResolveReference(markerElement, markerElement.MarkerMid));
             Add(ResolveReference(markerElement, markerElement.MarkerEnd));
+            Add(ResolveReference(markerElement, GetEffectiveMarkerShorthandReferenceUri(markerElement)));
         }
 
         if (element is SvgUse svgUse)
@@ -1475,7 +1476,7 @@ public static class SvgSceneCompiler
         var markerParentTotalTransform = node.TotalTransform.IsIdentity ? parentTotalTransform : node.TotalTransform;
         var hitTestTarget = node.HitTestTargetElement ?? node.Element;
 
-        var markerStart = GetEffectiveMarkerReferenceUri(markerElement, static element => element.MarkerStart, static group => group.MarkerStart);
+        var markerStart = GetEffectiveMarkerReferenceUri(markerElement, "marker-start", static element => element.MarkerStart);
         if (markerStart is not null &&
             !SvgService.HasRecursiveReference(markerElement, static element => element.MarkerStart, new HashSet<Uri>()))
         {
@@ -1514,7 +1515,7 @@ public static class SvgSceneCompiler
             }
         }
 
-        var markerMid = GetEffectiveMarkerReferenceUri(markerElement, static element => element.MarkerMid, static group => group.MarkerMid);
+        var markerMid = GetEffectiveMarkerReferenceUri(markerElement, "marker-mid", static element => element.MarkerMid);
         if (markerMid is not null &&
             pathLength > 2 &&
             !SvgService.HasRecursiveReference(markerElement, static element => element.MarkerMid, new HashSet<Uri>()))
@@ -1562,7 +1563,7 @@ public static class SvgSceneCompiler
             }
         }
 
-        var markerEnd = GetEffectiveMarkerReferenceUri(markerElement, static element => element.MarkerEnd, static group => group.MarkerEnd);
+        var markerEnd = GetEffectiveMarkerReferenceUri(markerElement, "marker-end", static element => element.MarkerEnd);
         if (markerEnd is not null &&
             !SvgService.HasRecursiveReference(markerElement, static element => element.MarkerEnd, new HashSet<Uri>()))
         {
@@ -1811,24 +1812,69 @@ public static class SvgSceneCompiler
 
     private static Uri? GetEffectiveMarkerReferenceUri(
         SvgMarkerElement markerElement,
-        Func<SvgMarkerElement, Uri?> localSelector,
-        Func<SvgGroup, Uri?> groupSelector)
+        string attributeName,
+        Func<SvgMarkerElement, Uri?> localSelector)
     {
         if (localSelector(markerElement) is { } localValue)
         {
             return localValue;
         }
 
+        if (GetEffectiveMarkerShorthandReferenceUri(markerElement) is { } localShorthand)
+        {
+            return localShorthand;
+        }
+
         for (var current = markerElement.Parent; current is not null; current = current.Parent)
         {
-            if (current is SvgGroup svgGroup &&
-                groupSelector(svgGroup) is { } groupValue)
+            if (TryGetUriAttribute(current, attributeName) is { } inheritedSpecific)
             {
-                return groupValue;
+                return inheritedSpecific;
+            }
+
+            if (GetEffectiveMarkerShorthandReferenceUri(current) is { } inheritedShorthand)
+            {
+                return inheritedShorthand;
             }
         }
 
         return null;
+    }
+
+    private static Uri? GetEffectiveMarkerShorthandReferenceUri(SvgElement element)
+        => TryGetUriAttribute(element, "marker");
+
+    private static Uri? TryGetUriAttribute(SvgElement element, string attributeName)
+    {
+        if (!element.TryGetAttribute(attributeName, out var rawValue) ||
+            string.IsNullOrWhiteSpace(rawValue))
+        {
+            return null;
+        }
+
+        var normalizedValue = rawValue.Trim();
+        if (string.Equals(normalizedValue, "none", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalizedValue, "inherit", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (normalizedValue.StartsWith("url(", StringComparison.OrdinalIgnoreCase) &&
+            normalizedValue.EndsWith(")", StringComparison.Ordinal))
+        {
+            normalizedValue = normalizedValue.Substring(4, normalizedValue.Length - 5).Trim();
+        }
+
+        if (normalizedValue.Length >= 2 &&
+            ((normalizedValue[0] == '\'' && normalizedValue[^1] == '\'') ||
+             (normalizedValue[0] == '"' && normalizedValue[^1] == '"')))
+        {
+            normalizedValue = normalizedValue.Substring(1, normalizedValue.Length - 2);
+        }
+
+        return string.IsNullOrWhiteSpace(normalizedValue)
+            ? null
+            : new Uri(normalizedValue, UriKind.RelativeOrAbsolute);
     }
 
     private static bool HasFeatures(SvgElement element, DrawAttributes ignoreAttributes)
