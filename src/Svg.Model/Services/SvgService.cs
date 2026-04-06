@@ -588,7 +588,7 @@ public static class SvgService
 
         if (svgFragment is SvgDocument)
         {
-            if (svgFragment.ViewBox.Width > 0 && svgFragment.ViewBox.Height > 0)
+            if (percentViewport.IsEmpty && svgFragment.ViewBox.Width > 0 && svgFragment.ViewBox.Height > 0)
             {
                 percentViewport = SKRect.Create(
                     svgFragment.ViewBox.MinX,
