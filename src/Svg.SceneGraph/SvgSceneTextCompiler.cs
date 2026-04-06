@@ -39,7 +39,7 @@ internal static class SvgSceneTextCompiler
         };
 
         node.TotalTransform = parentTotalTransform.PreConcat(node.Transform);
-        node.IsDrawable = HasFeatures(svgTextBase, ignoreAttributes) && MaskingService.CanDraw(svgTextBase, ignoreAttributes);
+        node.IsRenderable = HasFeatures(svgTextBase, ignoreAttributes) && MaskingService.CanDraw(svgTextBase, ignoreAttributes);
         node.HitTestTargetElement = svgTextBase;
         SvgSceneCompiler.AssignRetainedVisualState(node, svgTextBase);
         SvgSceneCompiler.AssignRetainedResourceKeys(node, svgTextBase);
@@ -58,7 +58,7 @@ internal static class SvgSceneTextCompiler
         node.GeometryBounds = geometryBounds;
         node.TransformedBounds = node.TotalTransform.MapRect(geometryBounds);
 
-        if (!node.IsDrawable)
+        if (!node.IsRenderable)
         {
             return true;
         }
@@ -66,7 +66,7 @@ internal static class SvgSceneTextCompiler
         var cullRect = CreateLocalCullRect(geometryBounds);
         if (cullRect.IsEmpty)
         {
-            node.IsDrawable = false;
+            node.IsRenderable = false;
             return true;
         }
 
@@ -78,7 +78,7 @@ internal static class SvgSceneTextCompiler
 
         if (node.LocalModel is null)
         {
-            node.IsDrawable = false;
+            node.IsRenderable = false;
         }
 
         return true;

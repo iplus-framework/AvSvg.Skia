@@ -297,7 +297,7 @@ public partial class SKSvg
         int documentChildIndex,
         bool isAnimated)
     {
-        if (!node.IsDrawable)
+        if (!node.IsRenderable)
         {
             return CreateHiddenNativeCompositionLayer(documentChildIndex, isAnimated);
         }
@@ -339,7 +339,7 @@ public partial class SKSvg
 
     private static bool CanRenderNativeCompositionRoot(SvgSceneNode node)
     {
-        if (!node.IsDrawable)
+        if (!node.IsRenderable)
         {
             return false;
         }

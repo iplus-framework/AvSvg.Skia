@@ -12,7 +12,7 @@ internal static class SvgSceneNodeBoundsService
             return SKRect.Empty;
         }
 
-        var bounds = node.IsDrawable ? node.TransformedBounds : SKRect.Empty;
+        var bounds = node.IsRenderable ? node.TransformedBounds : SKRect.Empty;
         for (var i = 0; i < node.Children.Count; i++)
         {
             bounds = UnionNonEmpty(bounds, GetRenderableBounds(node.Children[i]));

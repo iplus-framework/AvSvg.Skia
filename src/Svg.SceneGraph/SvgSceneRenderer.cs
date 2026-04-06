@@ -127,7 +127,7 @@ public static class SvgSceneRenderer
             canvas.SaveLayer(filter);
         }
 
-        if (node.IsDrawable && node.LocalModel is { } localModel)
+        if (node.IsRenderable && node.LocalModel is { } localModel)
         {
             canvas.DrawPicture(localModel);
         }

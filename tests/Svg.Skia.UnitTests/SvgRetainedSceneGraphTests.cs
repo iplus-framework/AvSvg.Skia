@@ -57,7 +57,7 @@ public class SvgRetainedSceneGraphTests
 
         Assert.NotNull(scene);
         Assert.Equal(SvgSceneCompilationStrategy.DirectRetained, scene!.Root.CompilationStrategy);
-        Assert.True(scene.Root.IsDrawable);
+        Assert.True(scene.Root.IsRenderable);
     }
 
     [Fact]
@@ -323,12 +323,12 @@ public class SvgRetainedSceneGraphTests
         Assert.True(scene!.TryGetNodeById("sym", out var symbolNode));
         Assert.NotNull(symbolNode);
         Assert.Equal(SvgSceneNodeKind.Fragment, symbolNode!.Kind);
-        Assert.False(symbolNode.IsDrawable);
+        Assert.False(symbolNode.IsRenderable);
 
         Assert.True(scene.TryGetNodeById("fo", out var foreignObjectNode));
         Assert.NotNull(foreignObjectNode);
         Assert.Equal(SvgSceneNodeKind.Container, foreignObjectNode!.Kind);
-        Assert.False(foreignObjectNode.IsDrawable);
+        Assert.False(foreignObjectNode.IsRenderable);
     }
 
     [Theory]

@@ -523,7 +523,7 @@ public static class SvgSceneCompiler
             createOwnCompilationRootBoundary && !string.IsNullOrWhiteSpace(effectiveCompilationRootKey))
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
-            IsDrawable = false,
+            IsRenderable = false,
             IsAntialias = element is SvgVisualElement visual ? PaintingService.IsAntialias(visual) : true,
             Transform = transform,
             TotalTransform = parentTotalTransform.PreConcat(transform),
@@ -557,7 +557,7 @@ public static class SvgSceneCompiler
                             compilationRootKey,
                             createOwnCompilationRootBoundary,
                             PaintingService.IsAntialias(svgDocument),
-                            isDrawable: false,
+                            isRenderable: false,
                             SKMatrix.Identity,
                             parentTotalTransform);
                         return true;
@@ -573,7 +573,7 @@ public static class SvgSceneCompiler
                         compilationRootKey,
                         createOwnCompilationRootBoundary,
                         PaintingService.IsAntialias(svgDocument),
-                        isDrawable: true,
+                        isRenderable: true,
                         transform,
                         parentTotalTransform);
                     node.GeometryBounds = fragmentViewport;
@@ -604,7 +604,7 @@ public static class SvgSceneCompiler
                         compilationRootKey,
                         createOwnCompilationRootBoundary,
                         PaintingService.IsAntialias(svgAnchor),
-                        isDrawable: true,
+                        isRenderable: true,
                         TransformsService.ToMatrix(svgAnchor.Transforms),
                         parentTotalTransform);
                     return true;
@@ -644,7 +644,7 @@ public static class SvgSceneCompiler
                             compilationRootKey,
                             createOwnCompilationRootBoundary,
                             PaintingService.IsAntialias(svgFragment),
-                            isDrawable: false,
+                            isRenderable: false,
                             SKMatrix.Identity,
                             parentTotalTransform);
                         return true;
@@ -660,7 +660,7 @@ public static class SvgSceneCompiler
                         compilationRootKey,
                         createOwnCompilationRootBoundary,
                         PaintingService.IsAntialias(svgFragment),
-                        isDrawable: true,
+                        isRenderable: true,
                         transform,
                         parentTotalTransform);
                     node.GeometryBounds = fragmentViewport;
@@ -694,7 +694,7 @@ public static class SvgSceneCompiler
         string? compilationRootKey,
         bool createOwnCompilationRootBoundary,
         bool isAntialias,
-        bool isDrawable,
+        bool isRenderable,
         SKMatrix transform,
         SKMatrix parentTotalTransform)
     {
@@ -713,7 +713,7 @@ public static class SvgSceneCompiler
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
             IsAntialias = isAntialias,
-            IsDrawable = isDrawable,
+            IsRenderable = isRenderable,
             HitTestTargetElement = null,
             Transform = transform,
             TotalTransform = parentTotalTransform.PreConcat(transform)
@@ -759,7 +759,7 @@ public static class SvgSceneCompiler
     {
         FinalizeDirectStructuralBounds(node, parentTotalTransform);
 
-        if (!node.IsDrawable)
+        if (!node.IsRenderable)
         {
             return;
         }
@@ -820,7 +820,7 @@ public static class SvgSceneCompiler
     {
         FinalizeDirectStructuralBounds(node, parentTotalTransform);
 
-        if (!node.IsDrawable)
+        if (!node.IsRenderable)
         {
             return;
         }
@@ -974,8 +974,8 @@ public static class SvgSceneCompiler
 
         var hasFeatures = HasFeatures(element, ignoreAttributes);
         var canDraw = MaskingService.CanDraw(visualElement, ignoreAttributes);
-        var isDrawable = hasFeatures && canDraw;
-        node.IsDrawable = isDrawable;
+        var isRenderable = hasFeatures && canDraw;
+        node.IsRenderable = isRenderable;
         node.IsAntialias = PaintingService.IsAntialias(visualElement);
         node.GeometryBounds = path?.Bounds ?? SKRect.Empty;
         node.Transform = TransformsService.ToMatrix(visualElement.Transforms);
@@ -988,12 +988,12 @@ public static class SvgSceneCompiler
         AssignRetainedVisualState(node, element);
         AssignRetainedResourceKeys(node, element);
 
-        if (!isDrawable || path is null || path.IsEmpty)
+        if (!isRenderable || path is null || path.IsEmpty)
         {
             return true;
         }
 
-        var localModel = CreateDirectPathModel(visualElement, path, node.GeometryBounds, assetLoader, ignoreAttributes, out var canKeepDrawable);
+        var localModel = CreateDirectPathModel(visualElement, path, node.GeometryBounds, assetLoader, ignoreAttributes, out var canKeepRenderable);
         node.LocalModel = localModel;
         node.Fill = SvgScenePaintingService.IsValidFill(visualElement)
             ? SvgScenePaintingService.GetFillPaint(visualElement, node.GeometryBounds, assetLoader, ignoreAttributes)
@@ -1002,9 +1002,9 @@ public static class SvgSceneCompiler
             ? SvgScenePaintingService.GetStrokePaint(visualElement, node.GeometryBounds, assetLoader, ignoreAttributes)
             : null;
         node.StrokeWidth = node.Stroke?.StrokeWidth ?? 0f;
-        if (!canKeepDrawable)
+        if (!canKeepRenderable)
         {
-            node.IsDrawable = false;
+            node.IsRenderable = false;
             return true;
         }
 
@@ -1056,7 +1056,7 @@ public static class SvgSceneCompiler
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
             IsAntialias = PaintingService.IsAntialias(svgUse),
-            IsDrawable = HasFeatures(svgUse, ignoreAttributes) && MaskingService.CanDraw(svgUse, ignoreAttributes),
+            IsRenderable = HasFeatures(svgUse, ignoreAttributes) && MaskingService.CanDraw(svgUse, ignoreAttributes),
             HitTestTargetElement = svgUse,
             Fill = null,
             Stroke = null
@@ -1088,11 +1088,11 @@ public static class SvgSceneCompiler
         useNode.Transform = useTransform;
         useNode.TotalTransform = parentTotalTransform.PreConcat(useTransform);
 
-        if (!useNode.IsDrawable ||
+        if (!useNode.IsRenderable ||
             SvgService.HasRecursiveReference(svgUse, static element => element.ReferencedElement, new HashSet<Uri>()) ||
             SvgService.GetReference<SvgElement>(svgUse, svgUse.ReferencedElement) is not { } referencedElement)
         {
-            useNode.IsDrawable = false;
+            useNode.IsRenderable = false;
             node = useNode;
             return true;
         }
@@ -1129,7 +1129,7 @@ public static class SvgSceneCompiler
 
         if (referencedNode is null)
         {
-            useNode.IsDrawable = false;
+            useNode.IsRenderable = false;
             node = useNode;
             return true;
         }
@@ -1168,7 +1168,7 @@ public static class SvgSceneCompiler
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
             IsAntialias = PaintingService.IsAntialias(svgImage),
-            IsDrawable = HasFeatures(svgImage, ignoreAttributes) && MaskingService.CanDraw(svgImage, ignoreAttributes),
+            IsRenderable = HasFeatures(svgImage, ignoreAttributes) && MaskingService.CanDraw(svgImage, ignoreAttributes),
             HitTestTargetElement = svgImage,
             SupportsFillHitTest = true,
             Fill = null,
@@ -1185,9 +1185,9 @@ public static class SvgSceneCompiler
         node.Transform = TransformsService.ToMatrix(svgImage.Transforms);
         node.TotalTransform = parentTotalTransform.PreConcat(node.Transform);
 
-        if (!node.IsDrawable || width <= 0f || height <= 0f || string.IsNullOrWhiteSpace(svgImage.Href))
+        if (!node.IsRenderable || width <= 0f || height <= 0f || string.IsNullOrWhiteSpace(svgImage.Href))
         {
-            node.IsDrawable = false;
+            node.IsRenderable = false;
             return true;
         }
 
@@ -1195,14 +1195,14 @@ public static class SvgSceneCompiler
         var references = CreateReferences(svgImage);
         if (references is { } && references.Contains(uri))
         {
-            node.IsDrawable = false;
+            node.IsRenderable = false;
             return true;
         }
 
         var image = SvgService.GetImage(svgImage.Href, svgImage.OwnerDocument, assetLoader);
         if (image is not SKImage && image is not SvgDocument)
         {
-            node.IsDrawable = false;
+            node.IsRenderable = false;
             return true;
         }
 
@@ -1215,7 +1215,7 @@ public static class SvgSceneCompiler
 
         if (srcRect.IsEmpty)
         {
-            node.IsDrawable = false;
+            node.IsRenderable = false;
             return true;
         }
 
@@ -1231,7 +1231,7 @@ public static class SvgSceneCompiler
                 node.LocalModel = CreateDirectImageModel(skImage, srcRect, destRect);
                 if (node.LocalModel is null)
                 {
-                    node.IsDrawable = false;
+                    node.IsRenderable = false;
                 }
                 break;
             case SvgDocument svgDocument:
@@ -1247,7 +1247,7 @@ public static class SvgSceneCompiler
                     compileContext);
                 if (fragmentNode is null)
                 {
-                    node.IsDrawable = false;
+                    node.IsRenderable = false;
                     return true;
                 }
 
@@ -1299,7 +1299,7 @@ public static class SvgSceneCompiler
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
             IsAntialias = PaintingService.IsAntialias(svgSymbol),
-            IsDrawable = true,
+            IsRenderable = true,
             HitTestTargetElement = null,
             Fill = null,
             Stroke = null
@@ -1381,7 +1381,7 @@ public static class SvgSceneCompiler
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
             IsAntialias = PaintingService.IsAntialias(svgImage),
-            IsDrawable = true,
+            IsRenderable = true,
             HitTestTargetElement = null,
             LocalModel = imagePicture,
             GeometryBounds = srcRect,
@@ -1742,7 +1742,7 @@ public static class SvgSceneCompiler
             isCompilationRootBoundary: false)
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
-            IsDrawable = true,
+            IsRenderable = true,
             IsAntialias = PaintingService.IsAntialias(svgMarker),
             Transform = transform,
             TotalTransform = parentTotalTransform.PreConcat(transform),
@@ -1852,7 +1852,7 @@ public static class SvgSceneCompiler
             isCompilationRootBoundary: false)
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
-            IsDrawable = true,
+            IsRenderable = true,
             IsAntialias = true,
             Transform = rootTransform,
             TotalTransform = rootTransform,
@@ -1943,9 +1943,9 @@ public static class SvgSceneCompiler
         SKRect geometryBounds,
         ISvgAssetLoader assetLoader,
         DrawAttributes ignoreAttributes,
-        out bool canKeepDrawable)
+        out bool canKeepRenderable)
     {
-        canKeepDrawable = true;
+        canKeepRenderable = true;
 
         var fill = default(SKPaint);
         var stroke = default(SKPaint);
@@ -1972,7 +1972,7 @@ public static class SvgSceneCompiler
 
         if (canDrawFill && !canDrawStroke)
         {
-            canKeepDrawable = false;
+            canKeepRenderable = false;
             return null;
         }
 
@@ -2307,7 +2307,7 @@ public static class SvgSceneCompiler
             isCompilationRootBoundary: false)
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
-            IsDrawable = true,
+            IsRenderable = true,
             IsAntialias = PaintingService.IsAntialias(svgMask),
             GeometryBounds = maskRect.Value,
             Transform = transform,

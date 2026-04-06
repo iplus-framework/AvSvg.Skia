@@ -110,7 +110,7 @@ public sealed class SvgSceneNode
 
     public float StrokeWidth { get; internal set; }
 
-    public bool IsDrawable { get; internal set; }
+    public bool IsRenderable { get; internal set; }
 
     public bool IsAntialias { get; internal set; }
 
@@ -177,7 +177,7 @@ public sealed class SvgSceneNode
         SupportsFillHitTest = replacement.SupportsFillHitTest;
         SupportsStrokeHitTest = replacement.SupportsStrokeHitTest;
         StrokeWidth = replacement.StrokeWidth;
-        IsDrawable = replacement.IsDrawable;
+        IsRenderable = replacement.IsRenderable;
         IsAntialias = replacement.IsAntialias;
         SuppressSubtreeRendering = replacement.SuppressSubtreeRendering;
 

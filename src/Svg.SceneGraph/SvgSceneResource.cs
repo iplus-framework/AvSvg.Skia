@@ -249,7 +249,7 @@ public sealed class SvgSceneResource
             isCompilationRootBoundary: false)
         {
             CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
-            IsDrawable = true,
+            IsRenderable = true,
             IsAntialias = PaintingService.IsAntialias(svgMask),
             GeometryBounds = SKRect.Empty,
             Transform = SKMatrix.Identity,

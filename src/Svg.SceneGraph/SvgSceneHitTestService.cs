@@ -29,7 +29,7 @@ internal static class SvgSceneHitTestService
             return false;
         }
 
-        if (!node.IsDrawable)
+        if (!node.IsRenderable)
         {
             return false;
         }
@@ -130,7 +130,7 @@ internal static class SvgSceneHitTestService
             return false;
         }
 
-        if (!node.IsDrawable)
+        if (!node.IsRenderable)
         {
             return false;
         }
@@ -147,7 +147,7 @@ internal static class SvgSceneHitTestService
             return false;
         }
 
-        if (!node.IsDrawable)
+        if (!node.IsRenderable)
         {
             return false;
         }
@@ -251,12 +251,12 @@ internal static class SvgSceneHitTestService
 
     private static bool HasMask(SvgSceneNode node)
     {
-        return node.MaskNode is { IsDrawable: true };
+        return node.MaskNode is { IsRenderable: true };
     }
 
     private static bool IsPointInMask(SvgSceneNode? maskNode, SKPoint point)
     {
-        if (maskNode is null || !maskNode.IsDrawable)
+        if (maskNode is null || !maskNode.IsRenderable)
         {
             return true;
         }
@@ -284,7 +284,7 @@ internal static class SvgSceneHitTestService
             }
         }
 
-        return node.IsDrawable &&
+        return node.IsRenderable &&
                ((node.SupportsFillHitTest && HitTestFillCore(node, point)) ||
                 (node.SupportsStrokeHitTest && HitTestStrokeCore(node, point)));
     }

@@ -798,7 +798,7 @@ public partial class SKSvg
             return true;
         }
 
-        if (!node.IsDrawable)
+        if (!node.IsRenderable)
         {
             return true;
         }

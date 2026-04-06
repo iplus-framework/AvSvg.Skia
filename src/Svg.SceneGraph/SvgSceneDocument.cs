@@ -499,7 +499,7 @@ public sealed class SvgSceneDocument
 
     private void ResolveRuntimePayload(SvgSceneNode node)
     {
-        if (!node.IsDrawable || node.Element is not SvgElement element)
+        if (!node.IsRenderable || node.Element is not SvgElement element)
         {
             return;
         }
