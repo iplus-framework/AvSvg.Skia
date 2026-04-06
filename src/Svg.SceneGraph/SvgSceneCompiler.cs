@@ -111,7 +111,13 @@ public static class SvgSceneCompiler
                 return false;
             }
 
-            sceneDocument = new SvgSceneDocument(sourceDocument, cullRect, viewport, rootNode, assetLoader, ignoreAttributes);
+            sceneDocument = new SvgSceneDocument(
+                sourceDocument,
+                GetEffectiveDocumentCullRect(cullRect, rootNode),
+                viewport,
+                rootNode,
+                assetLoader,
+                ignoreAttributes);
             return true;
         }
         finally
@@ -179,7 +185,7 @@ public static class SvgSceneCompiler
 
             sceneDocument = new SvgSceneDocument(
                 sourceFragment as SvgDocument ?? sourceFragment.OwnerDocument,
-                cullRect,
+                GetEffectiveDocumentCullRect(cullRect, rootNode),
                 viewport,
                 rootNode,
                 assetLoader,
@@ -1895,7 +1901,13 @@ public static class SvgSceneCompiler
         }
 
         FinalizeDirectStructuralBounds(root, SKMatrix.Identity);
-        return new SvgSceneDocument(owner.OwnerDocument, cullRect, viewport, root, assetLoader, ignoreAttributes);
+        return new SvgSceneDocument(
+            owner.OwnerDocument,
+            GetEffectiveDocumentCullRect(cullRect, root),
+            viewport,
+            root,
+            assetLoader,
+            ignoreAttributes);
     }
 
     private static HashSet<Uri>? CreateReferences(SvgElement element)
@@ -2001,6 +2013,31 @@ public static class SvgSceneCompiler
 
         var picture = recorder.EndRecording();
         return picture.Commands is { Count: > 0 } ? picture : null;
+    }
+
+    private static SKRect GetEffectiveDocumentCullRect(SKRect cullRect, SvgSceneNode rootNode)
+    {
+        if (HasPositiveArea(cullRect))
+        {
+            return cullRect;
+        }
+
+        var renderableBounds = SvgSceneNodeBoundsService.GetPixelAlignedBounds(
+            SvgSceneNodeBoundsService.GetRenderablePaintBounds(rootNode));
+        if (HasPositiveArea(renderableBounds))
+        {
+            return renderableBounds;
+        }
+
+        var transformedBounds = SvgSceneNodeBoundsService.GetPixelAlignedBounds(rootNode.TransformedBounds);
+        return HasPositiveArea(transformedBounds)
+            ? transformedBounds
+            : cullRect;
+    }
+
+    private static bool HasPositiveArea(SKRect rect)
+    {
+        return rect.Width > 0f && rect.Height > 0f;
     }
 
     private static bool ShouldCompileDomChildren(SvgElement element)
