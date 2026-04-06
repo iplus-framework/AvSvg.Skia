@@ -21,6 +21,45 @@ internal static class SvgSceneNodeBoundsService
         return bounds;
     }
 
+    public static SKRect GetRenderablePaintBounds(SvgSceneNode? node)
+    {
+        if (node is null)
+        {
+            return SKRect.Empty;
+        }
+
+        var bounds = node.IsRenderable
+            ? GetInflatedBounds(node, node.TransformedBounds)
+            : SKRect.Empty;
+
+        for (var i = 0; i < node.Children.Count; i++)
+        {
+            bounds = UnionNonEmpty(bounds, GetRenderablePaintBounds(node.Children[i]));
+        }
+
+        return bounds;
+    }
+
+    public static SKRect GetPixelAlignedBounds(SKRect bounds)
+    {
+        if (bounds.IsEmpty)
+        {
+            return bounds;
+        }
+
+        var left = (float)Math.Floor(bounds.Left);
+        var top = (float)Math.Floor(bounds.Top);
+        var right = (float)Math.Ceiling(bounds.Right);
+        var bottom = (float)Math.Ceiling(bounds.Bottom);
+
+        if (right <= left || bottom <= top)
+        {
+            return bounds;
+        }
+
+        return SKRect.Create(left, top, right - left, bottom - top);
+    }
+
     public static SKRect GetInflatedBounds(SvgSceneNode node, SKRect bounds)
     {
         if (bounds.IsEmpty || node.StrokeWidth <= 0f)

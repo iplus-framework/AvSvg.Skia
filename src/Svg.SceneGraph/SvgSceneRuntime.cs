@@ -23,8 +23,26 @@ public static class SvgSceneRuntime
 
         if (sourceFragment is SvgDocument sourceDocument)
         {
-            var cullRect = GetInitialViewport(sourceDocument);
-            return SvgSceneCompiler.TryCompile(sourceDocument, cullRect, assetLoader, ignoreAttributes, out sceneDocument);
+            var documentViewport = GetInitialViewport(sourceDocument);
+            if (!SvgSceneCompiler.TryCompile(sourceDocument, documentViewport, assetLoader, ignoreAttributes, out sceneDocument) ||
+                sceneDocument is null)
+            {
+                return false;
+            }
+
+            if (!NeedsViewportNormalization(sourceDocument, documentViewport))
+            {
+                return true;
+            }
+
+            var documentRenderableBounds = SvgSceneNodeBoundsService.GetPixelAlignedBounds(
+                SvgSceneNodeBoundsService.GetRenderablePaintBounds(sceneDocument.Root));
+            if (documentRenderableBounds.IsEmpty || documentRenderableBounds.Equals(documentViewport))
+            {
+                return true;
+            }
+
+            return SvgSceneCompiler.TryCompile(sourceDocument, documentRenderableBounds, assetLoader, ignoreAttributes, out sceneDocument);
         }
 
         var viewport = GetInitialViewport(sourceFragment);
@@ -39,7 +57,8 @@ public static class SvgSceneRuntime
             return true;
         }
 
-        var renderableBounds = SvgSceneNodeBoundsService.GetRenderableBounds(sceneDocument.Root);
+        var renderableBounds = SvgSceneNodeBoundsService.GetPixelAlignedBounds(
+            SvgSceneNodeBoundsService.GetRenderablePaintBounds(sceneDocument.Root));
         if (renderableBounds.IsEmpty || renderableBounds.Equals(viewport))
         {
             return true;
@@ -100,13 +119,22 @@ public static class SvgSceneRuntime
 
     private static bool NeedsViewportNormalization(SvgFragment fragment, SKRect viewport)
     {
-        if (fragment is SvgDocument)
+        if (viewport.Width > 1f || viewport.Height > 1f)
         {
             return false;
         }
 
-        return viewport.Width <= 1f &&
-               viewport.Height <= 1f &&
-               fragment.ViewBox.Equals(SvgViewBox.Empty);
+        if (!fragment.ViewBox.Equals(SvgViewBox.Empty))
+        {
+            return false;
+        }
+
+        if (fragment is SvgDocument)
+        {
+            return fragment.Width.Type == SvgUnitType.Percentage ||
+                   fragment.Height.Type == SvgUnitType.Percentage;
+        }
+
+        return true;
     }
 }
