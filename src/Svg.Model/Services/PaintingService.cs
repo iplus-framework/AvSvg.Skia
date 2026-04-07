@@ -115,7 +115,11 @@ internal static class PaintingService
                 var server = svgGradientStop.StopColor;
                 if (server is SvgDeferredPaintServer svgDeferredPaintServer)
                 {
-                    server = SvgDeferredPaintServer.TryGet<SvgPaintServer>(svgDeferredPaintServer, svgVisualElement);
+                    // Gradient stop paint servers resolve in the gradient definition context, not
+                    // on the consuming element. This matters for currentColor/inherit cases like
+                    // W3C pservers-grad-18-b where the gradient is defined under one color scope
+                    // and referenced from another.
+                    server = SvgDeferredPaintServer.TryGet<SvgPaintServer>(svgDeferredPaintServer, svgGradientStop);
                     if (server is null)
                     {
                         // TODO: server is sometimes null with currentColor

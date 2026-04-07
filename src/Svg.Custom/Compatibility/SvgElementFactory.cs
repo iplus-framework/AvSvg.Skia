@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Xml;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
+using System.Xml;
 using ExCSS;
 
 namespace Svg
@@ -246,6 +246,23 @@ namespace Svg
         }
         internal static bool SetPropertyValue(SvgElement element, string ns, string attributeName, string attributeValue, SvgDocument document, bool isStyle = false)
         {
+            if (attributeName == "stop-opacity" && string.Equals(attributeValue, "inherit", StringComparison.OrdinalIgnoreCase))
+            {
+                if (isStyle)
+                {
+                    // Keep style values staged exactly as authored so TryGetAttribute can still
+                    // see the inherit keyword later.
+                    return false;
+                }
+
+                // The upstream float conversion path accepts stop-opacity but loses the literal
+                // "inherit" token before gradient evaluation runs. Svg.Custom keeps the raw
+                // presentation attribute so the gradient stop/server overrides can follow the SVG
+                // inheritance chain at render time.
+                element.CustomAttributes[ns.Length == 0 ? attributeName : $"{ns}:{attributeName}"] = attributeValue;
+                return true;
+            }
+
             if (attributeName == "opacity" && attributeValue == "undefined")
             {
                 attributeValue = "1";

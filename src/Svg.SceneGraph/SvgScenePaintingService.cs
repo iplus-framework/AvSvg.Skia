@@ -401,7 +401,9 @@ internal static class SvgScenePaintingService
                 var server = svgGradientStop.StopColor;
                 if (server is SvgDeferredPaintServer svgDeferredPaintServer)
                 {
-                    server = SvgDeferredPaintServer.TryGet<SvgPaintServer>(svgDeferredPaintServer, svgVisualElement);
+                    // Match the model-path behavior: stop-level currentColor/inherit must resolve
+                    // against the gradient definition tree rather than the referencing element.
+                    server = SvgDeferredPaintServer.TryGet<SvgPaintServer>(svgDeferredPaintServer, svgGradientStop);
                 }
 
                 if (server is not SvgColourServer stopColorSvgColourServer)
