@@ -2,13 +2,17 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Xml;
 using Newtonsoft.Json;
 using Svg.Model;
+using Svg.Model.Services;
 
 namespace Svg.Skia.Converter;
 
 internal class SvgConverter
 {
+    private const string AndroidNamespace = "http://schemas.android.com/apk/res/android";
+
     public static void Log(string message)
     {
         Console.WriteLine(message);
@@ -36,11 +40,66 @@ internal class SvgConverter
         }
     }
 
+    private static void GetVectorDrawableFiles(System.IO.DirectoryInfo directory, List<System.IO.FileInfo> paths)
+    {
+        var files = System.IO.Directory.EnumerateFiles(directory.FullName, "*.xml");
+        foreach (var path in files)
+        {
+            var fileInfo = new System.IO.FileInfo(path);
+            if (IsVectorDrawableFile(fileInfo))
+            {
+                paths.Add(fileInfo);
+            }
+        }
+    }
+
+    private static bool IsVectorDrawableFile(System.IO.FileInfo file)
+    {
+        var settings = new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            IgnoreComments = true,
+            IgnoreProcessingInstructions = true
+        };
+
+        try
+        {
+            using var stream = System.IO.File.OpenRead(file.FullName);
+            using var reader = XmlReader.Create(stream, settings);
+            return reader.MoveToContent() == XmlNodeType.Element
+                && string.Equals(reader.LocalName, "vector", StringComparison.Ordinal)
+                && string.Equals(reader.LookupNamespace("android"), AndroidNamespace, StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static bool Save(System.IO.FileInfo inputPath, string outputPath, string format, int quality, string background, float scale, float scaleX, float scaleY, bool quiet, int i)
     {
         if (quiet == false)
         {
             Log($"[{i}] File: {inputPath}");
+        }
+
+        if (string.Compare(format, "svg", StringComparison.OrdinalIgnoreCase) == 0)
+        {
+            var svgDocument = SvgService.Open(inputPath.FullName);
+            if (svgDocument is null)
+            {
+                Log($"Error: Failed to load input file: {inputPath.FullName}");
+                return false;
+            }
+
+            svgDocument.Write(outputPath);
+
+            if (quiet == false)
+            {
+                Log($"[{i}] Success: {outputPath}");
+            }
+
+            return true;
         }
 
         using var svg = new SKSvg();
@@ -141,6 +200,7 @@ internal class SvgConverter
             {
                 GetFiles(directory, "*.svg", paths);
                 GetFiles(directory, "*.svgz", paths);
+                GetVectorDrawableFiles(directory, paths);
             }
             else
             {
@@ -236,7 +296,7 @@ internal class SvgConverter
         {
             var jsonSerializerSettings = new JsonSerializerSettings
             {
-                Formatting = Formatting.Indented,
+                Formatting = Newtonsoft.Json.Formatting.Indented,
                 NullValueHandling = NullValueHandling.Ignore,
                 Converters =
                 {
@@ -267,7 +327,7 @@ internal class SvgConverter
             {
                 var jsonSerializerSettings = new JsonSerializerSettings
                 {
-                    Formatting = Formatting.Indented,
+                    Formatting = Newtonsoft.Json.Formatting.Indented,
                     NullValueHandling = NullValueHandling.Ignore,
                     Converters =
                     {

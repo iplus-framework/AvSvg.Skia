@@ -170,6 +170,30 @@ using (var svg = new SKSvg())
 }
 ```
 
+#### Load Android VectorDrawable
+
+```C#
+using Svg.Skia;
+
+using (var svg = new SKSvg())
+{
+    if (svg.LoadVectorDrawable("icon.xml") is { })
+    {
+        svg.Save("icon.png", SkiaSharp.SKColors.Transparent);
+    }
+}
+```
+
+```C#
+using Svg.Model.Services;
+
+var document = SvgService.OpenVectorDrawable("icon.xml");
+document?.Write("icon.svg");
+```
+
+When loading from a file path, `SKSvg.Load("icon.xml")` also auto-detects
+Android `VectorDrawable` XML and routes it through the VectorDrawable importer.
+
 ### Hit Testing
 
 #### SKSvg

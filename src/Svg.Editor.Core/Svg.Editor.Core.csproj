@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFrameworks>netstandard2.0;net461;net6.0;net8.0;net10.0</TargetFrameworks>
+    <EnableDefaultCompileItems>False</EnableDefaultCompileItems>
+    <EnableDefaultItems>False</EnableDefaultItems>
+    <IsPackable>True</IsPackable>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Svg.Editor.Core</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Description>Core editor session and document state abstractions for SVG editing.</Description>
+    <PackageId>Svg.Editor.Core</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>svg;editor;state;session;avalonia;skia</PackageTags>
+  </PropertyGroup>
+
+  <Import Project="..\..\build\SourceLink.props" />
+  <Import Project="..\..\build\SignAssembly.props" />
+  <Import Project="..\..\build\ReferenceAssemblies.props" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\Svg.Model\Svg.Model.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="**\*.cs" Exclude="obj\**" />
+  </ItemGroup>
+
+</Project>

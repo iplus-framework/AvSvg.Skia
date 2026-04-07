@@ -685,8 +685,39 @@ public static class SvgService
         {
             ".svg" => OpenSvg(path, parameters),
             ".svgz" => OpenSvgz(path, parameters),
+            ".xml" => IsVectorDrawablePath(path) ? OpenVectorDrawable(path, parameters) : OpenSvg(path, parameters),
             _ => OpenSvg(path, parameters),
         };
+    }
+
+    public static SvgDocument? OpenVectorDrawable(string path, SvgParameters? parameters = null)
+    {
+        _ = parameters;
+
+        using var fileStream = System.IO.File.OpenRead(path);
+        var svgDocument = OpenVectorDrawable(fileStream);
+        if (svgDocument is { })
+        {
+            svgDocument.BaseUri = new Uri(System.IO.Path.GetFullPath(path));
+        }
+
+        return svgDocument;
+    }
+
+    public static SvgDocument? OpenVectorDrawable(System.IO.Stream stream, SvgParameters? parameters = null)
+    {
+        _ = parameters;
+        return VectorDrawableConverter.Open(stream);
+    }
+
+    public static SvgDocument? FromVectorDrawable(string xml)
+    {
+        return VectorDrawableConverter.FromXml(xml);
+    }
+
+    public static SvgDocument? OpenVectorDrawable(XmlReader reader)
+    {
+        return VectorDrawableConverter.Open(reader);
     }
 
     public static SvgDocument? Open(System.IO.Stream stream, SvgParameters? parameters = null)
@@ -702,5 +733,19 @@ public static class SvgService
     public static SvgDocument? Open(XmlReader reader)
     {
         return SvgDocument.Open<SvgDocument>(reader);
+    }
+
+    private static bool IsVectorDrawablePath(string path)
+    {
+        var settings = new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            IgnoreComments = true,
+            IgnoreProcessingInstructions = true
+        };
+
+        using var fileStream = System.IO.File.OpenRead(path);
+        using var xmlReader = XmlReader.Create(fileStream, settings);
+        return VectorDrawableConverter.IsVectorDrawable(xmlReader);
     }
 }

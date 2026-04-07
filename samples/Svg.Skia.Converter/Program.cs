@@ -86,7 +86,7 @@ internal class Program
 
         var rootCommand = new RootCommand
         {
-            Description = "Converts a svg file to an encoded bitmap image."
+            Description = "Converts SVG and Android VectorDrawable files to SVG or encoded bitmap output."
         };
 
         rootCommand.AddOption(optionInputFiles);

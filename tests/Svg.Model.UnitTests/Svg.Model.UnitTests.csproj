@@ -14,4 +14,10 @@
     <ProjectReference Include="..\..\src\Svg.Model\Svg.Model.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="TestAssets\**\*.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
