@@ -304,17 +304,28 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
         }
 
         var typeface = TryMatchCharacterFromCustomProviders(normalizedFamily, weight, width, slant, codepoint);
-        if (typeface is null)
+        if (typeface is null && normalizedFamily is not null)
         {
-            typeface = normalizedFamily is null
-                ? SkiaSharp.SKFontManager.Default.MatchCharacter(codepoint)
-                : SkiaSharp.SKFontManager.Default.MatchCharacter(
-                    normalizedFamily,
+            foreach (var candidate in SkiaModel.EnumerateFontFamilyCandidates(normalizedFamily))
+            {
+                typeface = SkiaSharp.SKFontManager.Default.MatchCharacter(
+                    candidate,
                     weight,
                     width,
                     slant,
                     null,
                     codepoint);
+
+                if (typeface is { })
+                {
+                    break;
+                }
+            }
+        }
+
+        if (typeface is null)
+        {
+            typeface = SkiaSharp.SKFontManager.Default.MatchCharacter(codepoint);
         }
 
         if (typeface is { } && typeface.Handle == IntPtr.Zero)

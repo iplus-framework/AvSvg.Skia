@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Avalonia.Headless.XUnit;
 using Avalonia.Svg.Skia;
 using ShimSkiaSharp;
+using ShimSkiaSharp.Editing;
 using Svg.Model;
 using Svg.Model.Services;
 using Xunit;
@@ -43,7 +44,7 @@ public class SvgSourceTests
         var original = source.Picture;
 
         Assert.NotNull(original);
-        var command = source.Svg?.Model?.Commands?.OfType<DrawPathCanvasCommand>().FirstOrDefault();
+        var command = source.Svg?.Model?.FindCommands<DrawPathCanvasCommand>().FirstOrDefault();
         Assert.NotNull(command);
 
         if (command?.Paint is { } paint)
@@ -54,6 +55,28 @@ public class SvgSourceTests
         source.RebuildFromModel();
 
         Assert.NotNull(source.Picture);
+        Assert.NotSame(original, source.Picture);
+    }
+
+    [AvaloniaFact]
+    public void Picture_TracksSkSvgRebuilds()
+    {
+        var source = SvgSource.LoadFromSvg(SampleSvg);
+        var original = source.Picture;
+
+        Assert.NotNull(original);
+        var command = source.Svg?.Model?.FindCommands<DrawPathCanvasCommand>().FirstOrDefault();
+        Assert.NotNull(command);
+
+        if (command?.Paint is { } paint)
+        {
+            paint.Color = new SKColor(0, 255, 0, 255);
+        }
+
+        var rebuilt = source.Svg?.RebuildFromModel();
+
+        Assert.NotNull(rebuilt);
+        Assert.Same(rebuilt, source.Picture);
         Assert.NotSame(original, source.Picture);
     }
 

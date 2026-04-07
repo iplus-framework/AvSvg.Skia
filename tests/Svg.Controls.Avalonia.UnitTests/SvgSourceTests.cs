@@ -2,6 +2,7 @@ using System.Linq;
 using Avalonia.Headless.XUnit;
 using Avalonia.Svg;
 using ShimSkiaSharp;
+using ShimSkiaSharp.Editing;
 using Xunit;
 
 namespace Avalonia.Svg.UnitTests;
@@ -17,7 +18,7 @@ public class SvgSourceTests
         var original = source.Picture;
 
         Assert.NotNull(original);
-        var command = source.Picture?.Commands?.OfType<DrawPathCanvasCommand>().FirstOrDefault();
+        var command = source.Picture?.FindCommands<DrawPathCanvasCommand>().FirstOrDefault();
         Assert.NotNull(command);
 
         if (command?.Paint is { } paint)

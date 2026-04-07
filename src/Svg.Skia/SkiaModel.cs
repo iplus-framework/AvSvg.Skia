@@ -191,7 +191,7 @@ public partial class SkiaModel
         };
     }
 
-    private IEnumerable<string> EnumerateFontFamilyCandidates(string? fontFamily)
+    internal static IEnumerable<string> EnumerateFontFamilyCandidates(string? fontFamily)
     {
         var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -975,7 +975,7 @@ public partial class SkiaModel
 
                     return SkiaSharp.SKImageFilter.CreatePicture(
                         ToSKPicture(pictureImageFilter.Picture),
-                        ToSKRect(pictureImageFilter.Picture.CullRect));
+                        ToSKRect(pictureImageFilter.Clip ?? pictureImageFilter.Picture.CullRect));
                 }
             case PointLitDiffuseImageFilter pointLitDiffuseImageFilter:
                 {
@@ -1042,12 +1042,12 @@ public partial class SkiaModel
                         ? SkiaSharp.SKImageFilter.CreateSpotLitSpecular(
                             ToSKPoint3(spotLitSpecularImageFilter.Location),
                             ToSKPoint3(spotLitSpecularImageFilter.Target),
-                            spotLitSpecularImageFilter.SpecularExponent,
+                            spotLitSpecularImageFilter.Shininess,
                             spotLitSpecularImageFilter.CutoffAngle,
                             ToSKColor(spotLitSpecularImageFilter.LightColor),
                             spotLitSpecularImageFilter.SurfaceScale,
                             spotLitSpecularImageFilter.Ks,
-                            spotLitSpecularImageFilter.SpecularExponent,
+                            spotLitSpecularImageFilter.Shininess,
                             ToSKImageFilter(spotLitSpecularImageFilter.Input),
                             ToSKRect(clip))
                         : SkiaSharp.SKImageFilter.CreateSpotLitSpecular(
@@ -1555,7 +1555,14 @@ public partial class SkiaModel
         using var skPictureRecorder = new SkiaSharp.SKPictureRecorder();
         using var skCanvas = skPictureRecorder.BeginRecording(skRect);
 
-        Draw(picture, skCanvas);
+        if (picture.Commands is { Count: > 0 })
+        {
+            Draw(picture, skCanvas);
+        }
+        else
+        {
+            PreserveCullRect(skCanvas, skRect);
+        }
 
         return skPictureRecorder.EndRecording();
     }
@@ -1571,9 +1578,28 @@ public partial class SkiaModel
         using var skPictureRecorder = new SkiaSharp.SKPictureRecorder();
         using var skCanvas = skPictureRecorder.BeginRecording(skRect);
 
-        Draw(picture, skCanvas, true);
+        if (picture.Commands is { Count: > 0 })
+        {
+            Draw(picture, skCanvas, true);
+        }
+        else
+        {
+            PreserveCullRect(skCanvas, skRect);
+        }
 
         return skPictureRecorder.EndRecording();
+    }
+
+    private static void PreserveCullRect(SkiaSharp.SKCanvas skCanvas, SkiaSharp.SKRect skRect)
+    {
+        using var paint = new SkiaSharp.SKPaint
+        {
+            Color = new SkiaSharp.SKColor(0, 0, 0, 0),
+            IsAntialias = false,
+            Style = SkiaSharp.SKPaintStyle.Fill
+        };
+
+        skCanvas.DrawRect(skRect, paint);
     }
 
     public void Draw(CanvasCommand canvasCommand, SkiaSharp.SKCanvas skCanvas, bool wireframe = false)
@@ -1611,8 +1637,8 @@ public partial class SkiaModel
                 }
             case SetMatrixCanvasCommand setMatrixCanvasCommand:
                 {
-                    var matrix = ToSKMatrix(setMatrixCanvasCommand.TotalMatrix);
-                    skCanvas.SetMatrix(matrix);
+                    var matrix = ToSKMatrix(setMatrixCanvasCommand.DeltaMatrix);
+                    skCanvas.Concat(ref matrix);
                     break;
                 }
             case SaveLayerCanvasCommand saveLayerCanvasCommand:
@@ -1647,6 +1673,21 @@ public partial class SkiaModel
                             var dest = ToSKRect(drawImageCanvasCommand.Dest);
                             var paint = ToSKPaint(drawImageCanvasCommand.Paint);
                             skCanvas.DrawImage(image, source, dest, paint);
+                        }
+                    }
+                    break;
+                }
+            case DrawPictureCanvasCommand drawPictureCanvasCommand:
+                {
+                    if (drawPictureCanvasCommand.Picture is { } picture)
+                    {
+                        if (!wireframe && TryGetCachedPicture(picture, out var cachedPicture))
+                        {
+                            skCanvas.DrawPicture(cachedPicture);
+                        }
+                        else
+                        {
+                            Draw(picture, skCanvas, wireframe);
                         }
                     }
                     break;
