@@ -1832,7 +1832,7 @@ public class resvgTests : SvgUnitTest
     [InlineData("e-use-005", 0.022)]
     [InlineData("e-use-006", 0.022)]
     [InlineData("e-use-007", 0.022)]
-    [InlineData("e-use-008", 0.022)]
+    [InlineData("e-use-008", 0.022, Skip = "Chrome renders external use content, but the resvg baseline omits it.")]
     [InlineData("e-use-009", 0.022)]
     [InlineData("e-use-010", 0.022)]
     [InlineData("e-use-011", 0.022)]

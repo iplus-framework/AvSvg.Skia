@@ -89,7 +89,20 @@ public static class SvgService
             return default;
         }
 
-        var svgElementById = svgElement.OwnerDocument?.GetElementById(uri.ToString());
+        var uriString = uri.OriginalString;
+        if (uri.IsAbsoluteUri)
+        {
+            if (string.IsNullOrEmpty(uri.Fragment))
+            {
+                return default;
+            }
+        }
+        else if (uriString.IndexOf('#') < 0)
+        {
+            return default;
+        }
+
+        var svgElementById = svgElement.OwnerDocument?.GetElementById(uri);
         if (svgElementById is { })
         {
             return svgElementById as T;
