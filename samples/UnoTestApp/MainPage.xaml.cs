@@ -13,8 +13,8 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.System;
 using SKPicture = SkiaSharp.SKPicture;
-using UnoSvgControl = Uno.Svg.Skia.Svg;
 using UnoDispatcherQueueTimer = Microsoft.UI.Dispatching.DispatcherQueueTimer;
+using UnoSvgControl = Uno.Svg.Skia.Svg;
 
 namespace UnoTestApp;
 

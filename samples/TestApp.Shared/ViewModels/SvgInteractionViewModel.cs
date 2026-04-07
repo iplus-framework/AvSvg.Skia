@@ -4,9 +4,9 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using Svg.Skia;
 using ShimPoint = ShimSkiaSharp.SKPoint;
+using SkiaColors = SkiaSharp.SKColors;
 using SkiaPaint = SkiaSharp.SKPaint;
 using SkiaPaintStyle = SkiaSharp.SKPaintStyle;
-using SkiaColors = SkiaSharp.SKColors;
 
 namespace TestApp.ViewModels;
 
