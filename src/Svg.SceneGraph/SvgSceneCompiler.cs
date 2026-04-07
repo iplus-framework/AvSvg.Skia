@@ -1125,18 +1125,28 @@ public static class SvgSceneCompiler
             height = new SvgUnit(SvgUnitType.Percentage, 100f).ToDeviceValue(UnitRenderingType.Vertical, svgUse, viewport);
         }
 
+        var hasRecursiveReference = SvgService.HasRecursiveReference(svgUse, static element => element.ReferencedElement, new HashSet<Uri>());
+        var referencedElement = hasRecursiveReference
+            ? null
+            : SvgService.GetReference<SvgElement>(svgUse, svgUse.ReferencedElement);
+
         var useTransform = TransformsService.ToMatrix(svgUse.Transforms);
-        if (SvgService.GetReference<SvgElement>(svgUse, svgUse.ReferencedElement) is not SvgSymbol)
+        if (referencedElement is not SvgSymbol)
         {
             useTransform = useTransform.PreConcat(SKMatrix.CreateTranslation(x, y));
+        }
+
+        if (referencedElement is SvgFragment svgFragment &&
+            TryCreateUseFragmentScaleTransform(svgFragment, width, height, out var fragmentScaleTransform))
+        {
+            useTransform = useTransform.PreConcat(fragmentScaleTransform);
         }
 
         useNode.Transform = useTransform;
         useNode.TotalTransform = parentTotalTransform.PreConcat(useTransform);
 
         if (!useNode.IsRenderable ||
-            SvgService.HasRecursiveReference(svgUse, static element => element.ReferencedElement, new HashSet<Uri>()) ||
-            SvgService.GetReference<SvgElement>(svgUse, svgUse.ReferencedElement) is not { } referencedElement)
+            referencedElement is null)
         {
             useNode.IsRenderable = false;
             node = useNode;
@@ -1185,6 +1195,28 @@ public static class SvgSceneCompiler
         useNode.AddChild(referencedNode);
         FinalizeDirectStructuralBounds(useNode, parentTotalTransform);
         node = useNode;
+        return true;
+    }
+
+    private static bool TryCreateUseFragmentScaleTransform(
+        SvgFragment svgFragment,
+        float width,
+        float height,
+        out SKMatrix transform)
+    {
+        transform = SKMatrix.Identity;
+
+        var viewBox = svgFragment.ViewBox;
+        if (viewBox == SvgViewBox.Empty ||
+            Math.Abs(viewBox.Width) <= float.Epsilon ||
+            Math.Abs(viewBox.Height) <= float.Epsilon ||
+            Math.Abs(width - viewBox.Width) <= float.Epsilon ||
+            Math.Abs(height - viewBox.Height) <= float.Epsilon)
+        {
+            return false;
+        }
+
+        transform = SKMatrix.CreateScale(width / viewBox.Width, height / viewBox.Height);
         return true;
     }
 
@@ -1237,7 +1269,7 @@ public static class SvgSceneCompiler
             return true;
         }
 
-        var uri = SvgService.GetImageDocumentUri(SvgService.GetImageUri(svgImage.Href, svgImage.OwnerDocument));
+        var uri = SvgService.GetImageDocumentUri(SvgService.GetImageUri(svgImage.Href, svgImage));
         var references = CreateReferences(svgImage);
         if (references is { } && references.Contains(uri))
         {
@@ -1245,7 +1277,7 @@ public static class SvgSceneCompiler
             return true;
         }
 
-        var image = SvgService.GetImage(svgImage.Href, svgImage.OwnerDocument, assetLoader);
+        var image = SvgService.GetImage(svgImage.Href, svgImage, assetLoader);
         if (image is not SKImage && image is not SvgDocument)
         {
             node.IsRenderable = false;

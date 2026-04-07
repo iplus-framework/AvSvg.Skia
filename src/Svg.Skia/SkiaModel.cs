@@ -1637,8 +1637,8 @@ public partial class SkiaModel
                 }
             case SetMatrixCanvasCommand setMatrixCanvasCommand:
                 {
-                    var matrix = ToSKMatrix(setMatrixCanvasCommand.TotalMatrix);
-                    skCanvas.SetMatrix(matrix);
+                    var matrix = ToSKMatrix(setMatrixCanvasCommand.DeltaMatrix);
+                    skCanvas.Concat(ref matrix);
                     break;
                 }
             case SaveLayerCanvasCommand saveLayerCanvasCommand:

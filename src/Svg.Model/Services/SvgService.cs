@@ -347,6 +347,11 @@ public static class SvgService
 
     internal static Uri GetImageUri(string uriString, SvgDocument svgOwnerDocument)
     {
+        return GetImageUri(uriString, (SvgElement)svgOwnerDocument);
+    }
+
+    internal static Uri GetImageUri(string uriString, SvgElement svgOwnerElement)
+    {
         // Uri MaxLength is 65519 (https://msdn.microsoft.com/en-us/library/z6c2z492.aspx)
         // if using data URI scheme, very long URI may happen.
         var safeUriString = uriString.Length > 65519 ? uriString.Substring(0, 65519) : uriString;
@@ -360,10 +365,68 @@ public static class SvgService
 
         if (!uri.IsAbsoluteUri)
         {
-            uri = new Uri(svgOwnerDocument.BaseUri, uri);
+            if (TryGetBaseUri(svgOwnerElement, out var baseUri))
+            {
+                uri = new Uri(baseUri, uri);
+            }
         }
 
         return uri;
+    }
+
+    private static bool TryGetBaseUri(SvgElement? svgOwnerElement, out Uri baseUri)
+    {
+        baseUri = default!;
+
+        if (svgOwnerElement is null)
+        {
+            return false;
+        }
+
+        var baseUriFragments = new Stack<string>();
+        for (var current = svgOwnerElement; current is not null; current = current.Parent)
+        {
+            if (TryGetXmlBase(current, out var baseUriFragment) &&
+                !string.IsNullOrWhiteSpace(baseUriFragment))
+            {
+                baseUriFragments.Push(baseUriFragment.Trim());
+            }
+        }
+
+        var resolvedBaseUri = svgOwnerElement.OwnerDocument?.BaseUri;
+        while (baseUriFragments.Count > 0)
+        {
+            var nextBaseUri = new Uri(baseUriFragments.Pop(), UriKind.RelativeOrAbsolute);
+            if (!nextBaseUri.IsAbsoluteUri)
+            {
+                if (resolvedBaseUri is null)
+                {
+                    return false;
+                }
+
+                nextBaseUri = new Uri(resolvedBaseUri, nextBaseUri);
+            }
+
+            resolvedBaseUri = nextBaseUri;
+        }
+
+        if (resolvedBaseUri is null)
+        {
+            return false;
+        }
+
+        baseUri = resolvedBaseUri;
+        return true;
+    }
+
+    private static bool TryGetXmlBase(SvgElement element, out string value)
+    {
+        if (element.TryGetAttribute("base", out value))
+        {
+            return true;
+        }
+
+        return element.CustomAttributes.TryGetValue($"{SvgNamespaces.XmlNamespace}:base", out value);
     }
 
     internal static Uri GetImageDocumentUri(Uri uri)
@@ -398,12 +461,17 @@ public static class SvgService
 
     internal static object? GetImage(string uriString, SvgDocument svgOwnerDocument, ISvgAssetLoader assetLoader)
     {
+        return GetImage(uriString, (SvgElement)svgOwnerDocument, assetLoader);
+    }
+
+    internal static object? GetImage(string uriString, SvgElement svgOwnerElement, ISvgAssetLoader assetLoader)
+    {
         try
         {
-            var uri = GetImageUri(uriString, svgOwnerDocument);
+            var uri = GetImageUri(uriString, svgOwnerElement);
             if (uri.IsAbsoluteUri && uri.Scheme == "data")
             {
-                return GetImageFromDataUri(uriString, svgOwnerDocument, assetLoader);
+                return GetImageFromDataUri(uriString, svgOwnerElement, assetLoader);
             }
 
             return GetImageFromWeb(uri, assetLoader);
@@ -452,14 +520,14 @@ public static class SvgService
         return assetLoader.LoadImage(stream);
     }
 
-    internal static object? GetImageFromDataUri(string? uriString, SvgDocument svgOwnerDocument, ISvgAssetLoader assetLoader)
+    internal static object? GetImageFromDataUri(string? uriString, SvgElement svgOwnerElement, ISvgAssetLoader assetLoader)
     {
         if (uriString is null)
         {
             return default;
         }
 
-        var imageBaseUri = GetImageUri(uriString, svgOwnerDocument);
+        var imageBaseUri = GetImageUri(uriString, svgOwnerElement);
 
         var headerStartIndex = 5;
         var headerEndIndex = uriString.IndexOf(",", headerStartIndex, StringComparison.Ordinal);
@@ -539,7 +607,7 @@ public static class SvgService
                     if (isCompressed)
                     {
                         using var bytesStream = new System.IO.MemoryStream(bytes);
-                        return LoadSvgz(bytesStream, svgOwnerDocument.BaseUri);
+                        return LoadSvgz(bytesStream, svgOwnerElement.OwnerDocument.BaseUri);
                     }
                 }
 

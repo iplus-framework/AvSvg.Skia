@@ -1483,13 +1483,13 @@ internal sealed class SvgSceneFilterContext
 
     private SKImageFilter? CreateImage(FilterEffects.SvgImage svgImage, ISvgAssetLoader assetLoader, HashSet<Uri>? references, SKRect skFilterPrimitiveRegion, SKRect? cropRect = default)
     {
-        var uri = SvgService.GetImageDocumentUri(SvgService.GetImageUri(svgImage.Href, svgImage.OwnerDocument));
+        var uri = SvgService.GetImageDocumentUri(SvgService.GetImageUri(svgImage.Href, svgImage));
         if (references is { } && references.Contains(uri))
         {
             return default;
         }
 
-        var image = SvgService.GetImage(svgImage.Href, svgImage.OwnerDocument, assetLoader);
+        var image = SvgService.GetImage(svgImage.Href, svgImage, assetLoader);
         var skImage = image as SKImage;
         var svgDocument = image as SvgDocument;
         if (skImage is null && svgDocument is null)
