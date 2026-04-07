@@ -1299,8 +1299,13 @@ public static class SvgSceneCompiler
 
         var destClip = SKRect.Create(x, y, width, height);
         var destRect = TransformsService.CalculateRect(svgImage.AspectRatio, srcRect, destClip);
-        node.GeometryBounds = destRect;
-        node.TransformedBounds = node.TotalTransform.MapRect(destRect);
+        var usesReferencedSvgViewport =
+            image is SvgDocument svgDocumentImage &&
+            ShouldUseReferencedSvgViewport(svgDocumentImage, uri) &&
+            svgImage.AspectRatio.Align != SvgPreserveAspectRatio.none;
+        var geometryBounds = usesReferencedSvgViewport ? destClip : destRect;
+        node.GeometryBounds = geometryBounds;
+        node.TransformedBounds = node.TotalTransform.MapRect(geometryBounds);
         node.Clip = MaskingService.GetClipRect(svgImage.Clip, destClip) ?? destClip;
 
         switch (image)
@@ -1313,16 +1318,26 @@ public static class SvgSceneCompiler
                 }
                 break;
             case SvgDocument svgDocument:
-                var fragmentNode = CompileEmbeddedImageSceneNode(
-                    svgImage,
-                    svgDocument,
-                    srcRect,
-                    destRect,
-                    assetLoader,
-                    ignoreAttributes,
-                    node.TotalTransform,
-                    node.CompilationRootKey,
-                    compileContext);
+                var fragmentNode = usesReferencedSvgViewport
+                    ? CompileEmbeddedSvgDocumentImageSceneNode(
+                        svgImage,
+                        svgDocument,
+                        destClip,
+                        assetLoader,
+                        ignoreAttributes,
+                        node.TotalTransform,
+                        node.CompilationRootKey,
+                        compileContext)
+                    : CompileEmbeddedImageSceneNode(
+                        svgImage,
+                        svgDocument,
+                        srcRect,
+                        destRect,
+                        assetLoader,
+                        ignoreAttributes,
+                        node.TotalTransform,
+                        node.CompilationRootKey,
+                        compileContext);
                 if (fragmentNode is null)
                 {
                     node.IsRenderable = false;
@@ -1448,6 +1463,7 @@ public static class SvgSceneCompiler
 
         var fragmentTransform = SKMatrix.CreateTranslation(destRect.Left, destRect.Top)
             .PreConcat(SKMatrix.CreateScale(destRect.Width / srcRect.Width, destRect.Height / srcRect.Height));
+        var totalTransform = parentTotalTransform.PreConcat(fragmentTransform);
 
         var node = new SvgSceneNode(
             SvgSceneNodeKind.Fragment,
@@ -1463,11 +1479,77 @@ public static class SvgSceneCompiler
             HitTestTargetElement = null,
             LocalModel = imagePicture,
             GeometryBounds = srcRect,
-            TransformedBounds = parentTotalTransform.PreConcat(fragmentTransform).MapRect(srcRect),
+            TransformedBounds = totalTransform.MapRect(srcRect),
             Transform = fragmentTransform,
-            TotalTransform = parentTotalTransform.PreConcat(fragmentTransform)
+            TotalTransform = totalTransform
         };
         return node;
+    }
+
+    private static SvgSceneNode? CompileEmbeddedSvgDocumentImageSceneNode(
+        SvgImage svgImage,
+        SvgDocument imageDocument,
+        SKRect destClip,
+        ISvgAssetLoader assetLoader,
+        DrawAttributes ignoreAttributes,
+        SKMatrix parentTotalTransform,
+        string? compilationRootKey,
+        SvgSceneCompileContext compileContext)
+    {
+        var nestedViewport = SKRect.Create(0f, 0f, destClip.Width, destClip.Height);
+        if (!TryCompile(imageDocument, nestedViewport, assetLoader, ignoreAttributes, compileContext, out var imageSceneDocument) ||
+            imageSceneDocument is null)
+        {
+            return null;
+        }
+
+        var imagePicture = SvgSceneRenderer.Render(imageSceneDocument);
+        if (imagePicture is null)
+        {
+            return null;
+        }
+
+        var fragmentTransform = SKMatrix.CreateTranslation(destClip.Left, destClip.Top);
+        var totalTransform = parentTotalTransform.PreConcat(fragmentTransform);
+
+        var node = new SvgSceneNode(
+            SvgSceneNodeKind.Fragment,
+            element: null,
+            elementAddressKey: null,
+            elementTypeName: svgImage.GetType().Name,
+            compilationRootKey,
+            isCompilationRootBoundary: false)
+        {
+            CompilationStrategy = SvgSceneCompilationStrategy.DirectRetained,
+            IsAntialias = PaintingService.IsAntialias(svgImage),
+            IsRenderable = true,
+            HitTestTargetElement = null,
+            LocalModel = imagePicture,
+            GeometryBounds = nestedViewport,
+            TransformedBounds = totalTransform.MapRect(nestedViewport),
+            Transform = fragmentTransform,
+            TotalTransform = totalTransform
+        };
+
+        return node;
+    }
+
+    private static bool ShouldUseReferencedSvgViewport(SvgDocument imageDocument, Uri imageUri)
+    {
+        if (imageUri.Scheme.Equals("data", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return HasImplicitDocumentSize(imageDocument);
+    }
+
+    private static bool HasImplicitDocumentSize(SvgDocument imageDocument)
+    {
+        return imageDocument.Width.Type == SvgUnitType.Percentage &&
+               imageDocument.Height.Type == SvgUnitType.Percentage &&
+               Math.Abs(imageDocument.Width.Value - 100f) <= float.Epsilon &&
+               Math.Abs(imageDocument.Height.Value - 100f) <= float.Epsilon;
     }
 
     private static SKPicture? CreateDirectImageModel(SKImage image, SKRect srcRect, SKRect destRect)
