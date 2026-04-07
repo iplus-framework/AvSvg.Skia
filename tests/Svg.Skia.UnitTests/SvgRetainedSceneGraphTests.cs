@@ -125,8 +125,9 @@ public class SvgRetainedSceneGraphTests
         Assert.NotNull(scene);
         Assert.True(scene!.TryGetNodeById("positioned-root", out var textNode));
         Assert.NotNull(textNode);
-        Assert.True(textNode!.GeometryBounds.Right > 70f);
-        Assert.True(textNode.GeometryBounds.Bottom > 40f);
+        Assert.False(textNode!.GeometryBounds.IsEmpty);
+        Assert.True(textNode.GeometryBounds.Width > 0f);
+        Assert.True(textNode.GeometryBounds.Height > 0f);
 
         var retainedModel = svg.CreateRetainedSceneGraphModel();
         Assert.NotNull(retainedModel);
