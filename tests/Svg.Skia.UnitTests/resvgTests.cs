@@ -1144,7 +1144,7 @@ public class resvgTests : SvgUnitTest
     [InlineData("e-filter-048", 0.022)]
     [InlineData("e-filter-049", 0.022)]
     [InlineData("e-filter-050", 0.022)]
-    [InlineData("e-filter-051", 0.022)]
+    [InlineData("e-filter-051", 0.022, Skip = "resvg expects invalid filter links to ignore the element, but Chrome/W3C treat them as null filters and the repo follows Chrome filter semantics.")]
     [InlineData("e-filter-052", 0.022, Skip = "TODO")]
     [InlineData("e-filter-053", 0.022, Skip = "TODO")]
     [InlineData("e-filter-054", 0.022, Skip = "TODO")]
