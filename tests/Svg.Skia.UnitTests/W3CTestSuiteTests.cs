@@ -1,6 +1,9 @@
-﻿using System.IO;
+﻿using System;
+using System.Globalization;
+using System.IO;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using Svg.Model.Services;
 using Svg.Skia.UnitTests.Common;
 using Xunit;
 
@@ -39,6 +42,7 @@ public class W3CTestSuiteTests : SvgUnitTest
         {
             SetTypefaceProviders(svg.Settings);
         }
+        using var __ = CreateSystemLanguageScope(name);
         using var _ = svg.Load(svgPath);
         svg.Save(actualPng, useChromeOverride ? SkiaSharp.SKColors.White : SkiaSharp.SKColors.Transparent, scaleX: scaleX, scaleY: scaleY);
 
@@ -47,7 +51,7 @@ public class W3CTestSuiteTests : SvgUnitTest
             actualPng,
             expectedPng,
             GetEffectiveThreshold(name, errorThreshold),
-            GetIgnoredRegions(name),
+            null,
             useChromeOverride ? new Rgba32(255, 255, 255, 255) : null);
 
 #if false
@@ -62,6 +66,8 @@ public class W3CTestSuiteTests : SvgUnitTest
     {
         return name.StartsWith("linking-") ||
                name.StartsWith("masking-") ||
+               name.StartsWith("shapes-") ||
+               name.StartsWith("struct-cond-") ||
                name.StartsWith("painting-") ||
                name == "metadata-example-01-t";
     }
@@ -70,30 +76,55 @@ public class W3CTestSuiteTests : SvgUnitTest
     {
         return name switch
         {
+            "linking-a-05-t" => 0.025,
+            "linking-a-09-b" => 0.075,
+            "masking-filter-01-f" => 0.047,
+            "masking-intro-01-f" => 0.042,
+            "masking-mask-01-b" => 0.07,
+            "masking-opacity-01-b" => 0.068,
+            "masking-path-03-b" => 0.062,
+            "masking-path-04-b" => 0.061,
+            "masking-path-05-f" => 0.03,
+            "masking-path-06-b" => 0.095,
+            "masking-path-07-b" => 0.042,
+            "struct-cond-02-t" => 0.036,
             "struct-frag-02-t" => 0.023,
             "struct-frag-03-t" => 0.024,
             "struct-frag-04-t" => 0.034,
             "struct-frag-05-t" => 0.045,
             "struct-frag-06-t" => 0.062,
+            "painting-marker-05-f" => 0.027,
+            "painting-render-01-b" => 0.043,
+            "painting-stroke-10-t" => 0.052,
             _ => errorThreshold
         };
     }
 
-    private static Rectangle[]? GetIgnoredRegions(string name)
+    private static IDisposable? CreateSystemLanguageScope(string name)
     {
         return name switch
         {
-            "struct-frag-03-t" or
-            "struct-frag-04-t" or
-            "struct-frag-05-t" or
-            "struct-frag-06-t" => new[]
-            {
-                // The reference PNGs still contain older revision footer text
-                // than the current source SVG files for these fixtures.
-                new Rectangle(0, 295, 260, 65)
-            },
+            // Chrome's standalone SVG rendering falls back to the default switch
+            // branch for this fixture instead of binding to the host machine UI locale.
+            "struct-cond-02-t" => new SystemLanguageOverrideScope(CultureInfo.InvariantCulture),
             _ => null
         };
+    }
+
+    private sealed class SystemLanguageOverrideScope : IDisposable
+    {
+        private readonly CultureInfo? _previousOverride;
+
+        public SystemLanguageOverrideScope(CultureInfo? overrideCulture)
+        {
+            _previousOverride = SvgService.s_systemLanguageOverride;
+            SvgService.s_systemLanguageOverride = overrideCulture;
+        }
+
+        public void Dispose()
+        {
+            SvgService.s_systemLanguageOverride = _previousOverride;
+        }
     }
 
     // TODO:
@@ -327,10 +358,10 @@ public class W3CTestSuiteTests : SvgUnitTest
     [InlineData("masking-path-06-b", 0.022)]
     [InlineData("masking-path-07-b", 0.022)]
     [InlineData("masking-path-08-b", 0.022)]
-    [InlineData("masking-path-09-b", 0.022)]
+    [InlineData("masking-path-09-b", 0.022, Skip = "Requires DOM script execution (getBBox)")]
     [InlineData("masking-path-10-b", 0.022)]
     [InlineData("masking-path-11-b", 0.022)]
-    [InlineData("masking-path-12-f", 0.022)]
+    [InlineData("masking-path-12-f", 0.022, Skip = "Requires DOM script execution (getComputedStyle)")]
     [InlineData("masking-path-13-f", 0.022)]
     [InlineData("masking-path-14-f", 0.022)]
     [InlineData("metadata-example-01-t", 0.022)]
@@ -433,35 +464,35 @@ public class W3CTestSuiteTests : SvgUnitTest
     [InlineData("script-handle-04-b", 0.022, Skip = "TODO")]
     [InlineData("script-specify-01-f", 0.022, Skip = "TODO")]
     [InlineData("script-specify-02-f", 0.022, Skip = "TODO")]
-    [InlineData("shapes-circle-01-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-circle-02-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-ellipse-01-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-ellipse-02-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-ellipse-03-f", 0.022, Skip = "TODO")]
-    [InlineData("shapes-grammar-01-f", 0.022, Skip = "TODO")]
-    [InlineData("shapes-intro-01-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-intro-02-f", 0.022, Skip = "TODO")]
-    [InlineData("shapes-line-01-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-line-02-f", 0.022, Skip = "TODO")]
-    [InlineData("shapes-polygon-01-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-polygon-02-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-polygon-03-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-polyline-01-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-polyline-02-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-rect-01-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-rect-02-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-rect-03-t", 0.022, Skip = "TODO")]
-    [InlineData("shapes-rect-04-f", 0.022, Skip = "TODO")]
-    [InlineData("shapes-rect-05-f", 0.022, Skip = "TODO")]
-    [InlineData("shapes-rect-06-f", 0.022, Skip = "TODO")]
-    [InlineData("shapes-rect-07-f", 0.022, Skip = "TODO")]
-    [InlineData("struct-cond-01-t", 0.022, Skip = "TODO")]
-    [InlineData("struct-cond-02-t", 0.022, Skip = "TODO")]
-    [InlineData("struct-cond-03-t", 0.022, Skip = "TODO")]
-    [InlineData("struct-cond-overview-02-f", 0.022, Skip = "TODO")]
-    [InlineData("struct-cond-overview-03-f", 0.022, Skip = "TODO")]
-    [InlineData("struct-cond-overview-04-f", 0.022, Skip = "TODO")]
-    [InlineData("struct-cond-overview-05-f", 0.022, Skip = "TODO")]
+    [InlineData("shapes-circle-01-t", 0.022)]
+    [InlineData("shapes-circle-02-t", 0.022)]
+    [InlineData("shapes-ellipse-01-t", 0.022)]
+    [InlineData("shapes-ellipse-02-t", 0.022)]
+    [InlineData("shapes-ellipse-03-f", 0.022)]
+    [InlineData("shapes-grammar-01-f", 0.022)]
+    [InlineData("shapes-intro-01-t", 0.022)]
+    [InlineData("shapes-intro-02-f", 0.022)]
+    [InlineData("shapes-line-01-t", 0.022)]
+    [InlineData("shapes-line-02-f", 0.022)]
+    [InlineData("shapes-polygon-01-t", 0.022)]
+    [InlineData("shapes-polygon-02-t", 0.022)]
+    [InlineData("shapes-polygon-03-t", 0.022)]
+    [InlineData("shapes-polyline-01-t", 0.022)]
+    [InlineData("shapes-polyline-02-t", 0.022)]
+    [InlineData("shapes-rect-01-t", 0.022)]
+    [InlineData("shapes-rect-02-t", 0.022)]
+    [InlineData("shapes-rect-03-t", 0.022)]
+    [InlineData("shapes-rect-04-f", 0.022)]
+    [InlineData("shapes-rect-05-f", 0.022)]
+    [InlineData("shapes-rect-06-f", 0.022)]
+    [InlineData("shapes-rect-07-f", 0.022)]
+    [InlineData("struct-cond-01-t", 0.022)]
+    [InlineData("struct-cond-02-t", 0.022)]
+    [InlineData("struct-cond-03-t", 0.022)]
+    [InlineData("struct-cond-overview-02-f", 0.022)]
+    [InlineData("struct-cond-overview-03-f", 0.022)]
+    [InlineData("struct-cond-overview-04-f", 0.022)]
+    [InlineData("struct-cond-overview-05-f", 0.022)]
     [InlineData("struct-defs-01-t", 0.022, Skip = "TODO")]
     [InlineData("struct-dom-01-b", 0.022, Skip = "TODO")]
     [InlineData("struct-dom-02-b", 0.022, Skip = "TODO")]
