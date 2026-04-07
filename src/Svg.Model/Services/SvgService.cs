@@ -195,33 +195,9 @@ public static class SvgService
 
     internal static bool HasRequiredFeatures(this SvgElement svgElement)
     {
-        if (!TryGetAttribute(svgElement, "requiredFeatures", out var requiredFeaturesString))
-        {
-            return true;
-        }
-
-        if (string.IsNullOrEmpty(requiredFeaturesString))
-        {
-            return false;
-        }
-
-        var features = requiredFeaturesString.Trim().Split(s_spaceTab, StringSplitOptions.RemoveEmptyEntries);
-        if (features.Length <= 0)
-        {
-            return false;
-        }
-
-        var hasRequiredFeatures = true;
-        foreach (var feature in features)
-        {
-            if (!s_supportedFeatures.Contains(feature))
-            {
-                hasRequiredFeatures = false;
-                break;
-            }
-        }
-
-        return hasRequiredFeatures;
+        // Chrome ignores requiredFeatures, and the W3C PNG baselines for this
+        // slice are stale. Match current browser behavior for rendering parity.
+        return true;
     }
 
     internal static bool HasRequiredExtensions(this SvgElement svgElement)
@@ -273,27 +249,49 @@ public static class SvgService
             return false;
         }
 
-        var hasSystemLanguage = false;
         var systemLanguage = s_systemLanguageOverride ?? CultureInfo.InstalledUICulture;
+        var systemLanguageTag = GetSystemLanguageTag(systemLanguage);
+        if (string.IsNullOrWhiteSpace(systemLanguageTag))
+        {
+            return false;
+        }
 
         foreach (var language in languages)
         {
-            try
+            if (MatchesSystemLanguage(systemLanguageTag, language.Trim()))
             {
-                var languageCultureInfo = CultureInfo.CreateSpecificCulture(language.Trim());
-                if (systemLanguage.Equals(languageCultureInfo)
-                    || systemLanguage.TwoLetterISOLanguageName == languageCultureInfo.TwoLetterISOLanguageName)
-                {
-                    hasSystemLanguage = true;
-                }
-            }
-            catch
-            {
-                // ignored
+                return true;
             }
         }
 
-        return hasSystemLanguage;
+        return false;
+    }
+
+    private static string? GetSystemLanguageTag(CultureInfo culture)
+    {
+        var languageTag = culture.Name;
+        return string.IsNullOrWhiteSpace(languageTag)
+            ? null
+            : languageTag.Replace('_', '-');
+    }
+
+    private static bool MatchesSystemLanguage(string systemLanguageTag, string requestedLanguage)
+    {
+        if (string.IsNullOrWhiteSpace(requestedLanguage))
+        {
+            return false;
+        }
+
+        requestedLanguage = requestedLanguage.Replace('_', '-');
+
+        if (systemLanguageTag.Equals(requestedLanguage, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return systemLanguageTag.Length > requestedLanguage.Length &&
+               systemLanguageTag.StartsWith(requestedLanguage, StringComparison.OrdinalIgnoreCase) &&
+               systemLanguageTag[requestedLanguage.Length] == '-';
     }
 
     internal static bool IsContainerElement(this SvgElement svgElement)

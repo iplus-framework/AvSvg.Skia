@@ -81,7 +81,7 @@ public sealed class SvgSceneResource
         }
     }
 
-    internal SvgSceneClipPayload? ResolveClipPayload(SvgSceneNode targetNode)
+    internal SvgSceneClipPayload? ResolveClipPayload(SvgSceneDocument sceneDocument, SvgSceneNode targetNode)
     {
         if (Kind != SvgSceneResourceKind.ClipPath || SourceElement is not SvgClipPath svgClipPath)
         {
@@ -94,7 +94,7 @@ public sealed class SvgSceneResource
             return cachedPayload;
         }
 
-        var clipPath = SvgSceneClipCompiler.CompileClipPath(svgClipPath, targetNode.GeometryBounds);
+        var clipPath = SvgSceneClipCompiler.CompileClipPath(svgClipPath, targetNode.GeometryBounds, sceneDocument.AssetLoader);
         if (clipPath?.Clips is not { Count: > 0 })
         {
             return null;
@@ -134,7 +134,12 @@ public sealed class SvgSceneResource
 
         try
         {
-            var maskNode = SvgSceneCompiler.CompileMaskNode(svgMask, targetBounds, sceneDocument.AssetLoader, sceneDocument.IgnoreAttributes);
+            var maskNode = SvgSceneCompiler.CompileMaskNode(
+                svgMask,
+                targetBounds,
+                sceneDocument.CompilationViewport,
+                sceneDocument.AssetLoader,
+                sceneDocument.IgnoreAttributes);
             if (maskNode is null)
             {
                 return null;

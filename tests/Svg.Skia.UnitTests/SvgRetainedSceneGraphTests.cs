@@ -290,6 +290,31 @@ public class SvgRetainedSceneGraphTests
     }
 
     [Fact]
+    public void RetainedSceneGraph_CompilesMarkersFromHiddenMarkerDefinitions()
+    {
+        var path = Path.Combine("..", "..", "..", "..", "..", "externals", "W3C_SVG_11_TestSuite", "W3C_SVG_11_TestSuite", "svg", "painting-marker-07-f.svg");
+
+        using var svg = new SKSvg();
+        svg.Settings.StandaloneViewport = new SkiaSharp.SKRect(0f, 0f, 480f, 360f);
+        svg.Load(path);
+
+        var scene = svg.RetainedSceneGraph;
+        Assert.NotNull(scene);
+
+        var markerNodes = scene!.Traverse()
+            .Where(static node => node.Kind == SvgSceneNodeKind.Marker)
+            .ToList();
+
+        Assert.Equal(2, markerNodes.Count);
+        Assert.All(markerNodes, static node =>
+        {
+            Assert.True(node.IsRenderable);
+            Assert.False(node.IsDisplayNone);
+            Assert.True(node.IsVisible);
+        });
+    }
+
+    [Fact]
     public void RetainedSceneGraph_CompilesHardDocumentsWithoutDrawableBridge()
     {
         using var maskedSvg = new SKSvg();
@@ -465,6 +490,62 @@ public class SvgRetainedSceneGraphTests
 
         Assert.True(framePixel.Alpha > 0, $"Expected frame pixel to remain visible but was {framePixel}.");
         Assert.Equal(0, filteredPixel.Alpha);
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_HandlesConditionalAttributesWithChromeCompatibleBehavior()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(ConditionalReferenceSvg);
+
+        var scene = svg.RetainedSceneGraph;
+        Assert.NotNull(scene);
+        Assert.True(scene!.TryGetNodeById("feature-group", out var featureGroup));
+        Assert.True(scene.TryGetNodeById("extension-group", out var extensionGroup));
+        Assert.True(scene.TryGetNodeById("language-group", out var languageGroup));
+        Assert.False(featureGroup!.SuppressSubtreeRendering);
+        Assert.True(extensionGroup!.SuppressSubtreeRendering);
+        Assert.True(languageGroup!.SuppressSubtreeRendering);
+
+        Assert.NotNull(svg.Picture);
+
+        using var bitmap = ToBitmap(svg, svg.Picture!);
+
+        var directFeaturePixel = bitmap.GetPixel(6, 6);
+        Assert.Equal(0, bitmap.GetPixel(6, 22).Alpha);
+        Assert.Equal(0, bitmap.GetPixel(6, 38).Alpha);
+
+        var featurePixel = bitmap.GetPixel(22, 6);
+        var extensionPixel = bitmap.GetPixel(22, 22);
+        var languagePixel = bitmap.GetPixel(22, 38);
+
+        Assert.True(directFeaturePixel.Red > 200 && directFeaturePixel.Alpha > 0, $"Expected requiredFeatures rect to render but was {directFeaturePixel}.");
+        Assert.True(featurePixel.Red > 200 && featurePixel.Alpha > 0, $"Expected referenced feature rect to render but was {featurePixel}.");
+        Assert.True(extensionPixel.Green > 200 && extensionPixel.Alpha > 0, $"Expected referenced extension rect to render but was {extensionPixel}.");
+        Assert.True(languagePixel.Blue > 200 && languagePixel.Alpha > 0, $"Expected referenced language rect to render but was {languagePixel}.");
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_AllowsVisibleChildInsideHiddenGroup()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(VisibilityOverrideSvg);
+
+        var scene = svg.RetainedSceneGraph;
+        Assert.NotNull(scene);
+        Assert.True(scene!.TryGetNodeById("visible-group", out var visibleGroup));
+        Assert.False(visibleGroup!.SuppressSubtreeRendering);
+
+        Assert.NotNull(svg.Picture);
+
+        using var bitmap = ToBitmap(svg, svg.Picture!);
+
+        var topLeftPixel = bitmap.GetPixel(110, 110);
+        var bottomRightPixel = bitmap.GetPixel(220, 220);
+
+        Assert.True(topLeftPixel.Green > 200 && topLeftPixel.Alpha > 0, $"Expected top-left rect to stay green but was {topLeftPixel}.");
+        Assert.True(bottomRightPixel.Green > 200 && bottomRightPixel.Alpha > 0, $"Expected visible child override to render green but was {bottomRightPixel}.");
+        Assert.True(bottomRightPixel.Red < 50, $"Expected hidden parent red rect to be fully covered, but was {bottomRightPixel}.");
     }
 
     [Fact]
@@ -1177,6 +1258,43 @@ public class SvgRetainedSceneGraphTests
           </symbol>
           <foreignObject id="fo" x="0" y="0" width="10" height="10" />
           <use id="instance" xlink:href="#sym" x="10" y="0" />
+        </svg>
+        """;
+
+    private const string ConditionalReferenceSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="40"
+             height="48"
+             viewBox="0 0 40 48">
+          <g id="feature-group" requiredFeatures="http://example.invalid/unsupported-feature">
+            <rect id="feature-rect" x="0" y="0" width="12" height="12" fill="#ff0000" />
+          </g>
+          <use id="feature-use" xlink:href="#feature-rect" x="16" y="0" />
+          <g id="extension-group" requiredExtensions="http://example.invalid/unsupported-extension">
+            <rect id="extension-rect" x="0" y="16" width="12" height="12" fill="#00ff00" />
+          </g>
+          <use id="extension-use" xlink:href="#extension-rect" x="16" y="0" />
+          <g id="language-group" systemLanguage="invalid-language-tag">
+            <rect id="language-rect" x="0" y="32" width="12" height="12" fill="#0000ff" />
+          </g>
+          <use id="language-use" xlink:href="#language-rect" x="16" y="0" />
+        </svg>
+        """;
+
+    private const string VisibilityOverrideSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="320"
+             height="320"
+             viewBox="0 0 320 320">
+          <rect x="96" y="96" width="96" height="96" fill="lime" />
+          <g visibility="hidden">
+            <rect x="96" y="96" width="96" height="96" fill="red" />
+          </g>
+          <rect x="196.5" y="196.5" width="95" height="95" fill="red" />
+          <g id="visible-group" visibility="hidden">
+            <rect x="196" y="196" width="96" height="96" fill="lime" visibility="visible" />
+          </g>
         </svg>
         """;
 

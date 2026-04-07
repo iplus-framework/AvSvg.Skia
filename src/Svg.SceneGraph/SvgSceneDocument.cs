@@ -506,6 +506,12 @@ public sealed class SvgSceneDocument
 
         SvgSceneCompiler.AssignRetainedVisualState(node, element);
 
+        if (node.Kind == SvgSceneNodeKind.Marker)
+        {
+            node.IsVisible = true;
+            node.IsDisplayNone = false;
+        }
+
         if (element is SvgVisualElement visualElement)
         {
             node.ClipPath = ResolveClipPath(node);
@@ -571,7 +577,7 @@ public sealed class SvgSceneDocument
         }
 
         return _resourcesByKey.TryGetValue(node.ClipResourceKey!, out var resource)
-            ? resource.ResolveClipPayload(node)?.ClipPath
+            ? resource.ResolveClipPayload(this, node)?.ClipPath
             : null;
     }
 

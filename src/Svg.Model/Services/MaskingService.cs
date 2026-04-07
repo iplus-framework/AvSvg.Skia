@@ -11,10 +11,19 @@ internal static class MaskingService
 {
     internal static bool CanDraw(SvgVisualElement svgVisualElement, DrawAttributes ignoreAttributes)
     {
-        var visible = svgVisualElement.Visible;
-        var ignoreDisplay = ignoreAttributes.HasFlag(DrawAttributes.Display);
-        var display = ignoreDisplay || !string.Equals(svgVisualElement.Display, "none", StringComparison.OrdinalIgnoreCase);
-        return visible && display;
+        return IsVisible(svgVisualElement, ignoreAttributes) &&
+               IsDisplayRendered(svgVisualElement, ignoreAttributes);
+    }
+
+    internal static bool IsVisible(SvgVisualElement svgVisualElement, DrawAttributes ignoreAttributes)
+    {
+        return ignoreAttributes.HasFlag(DrawAttributes.Visibility) || svgVisualElement.Visible;
+    }
+
+    internal static bool IsDisplayRendered(SvgVisualElement svgVisualElement, DrawAttributes ignoreAttributes)
+    {
+        return ignoreAttributes.HasFlag(DrawAttributes.Display) ||
+               !string.Equals(svgVisualElement.Display, "none", StringComparison.OrdinalIgnoreCase);
     }
 
     private static SvgFillRule ToFillRule(SvgVisualElement svgVisualElement, SvgClipRule? svgClipPathClipRule)
