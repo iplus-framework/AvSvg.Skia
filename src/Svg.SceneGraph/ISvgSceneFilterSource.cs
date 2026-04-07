@@ -6,6 +6,6 @@ internal interface ISvgSceneFilterSource
 {
     SKPicture? SourceGraphic(SKRect? clip);
     SKPicture? BackgroundImage(SKRect? clip);
-    SKPaint? FillPaint();
-    SKPaint? StrokePaint();
+    SKPicture? FillPaint(SKRect? clip);
+    SKPicture? StrokePaint(SKRect? clip);
 }

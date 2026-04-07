@@ -1,3 +1,4 @@
+using System;
 using ShimSkiaSharp;
 using Svg.Model;
 using Svg.Model.Services;
@@ -150,6 +151,134 @@ public static class SvgSceneRenderer
 
         RestoreNode(canvas, node, enableMask, enableOpacity, enableFilter);
         return true;
+    }
+
+    internal static bool RenderBackgroundToCanvas(
+        SvgSceneDocument sceneDocument,
+        SvgSceneNode node,
+        SKCanvas canvas,
+        SvgSceneNode until,
+        bool enableTransform = true)
+    {
+        if (until is null)
+        {
+            throw new ArgumentNullException(nameof(until));
+        }
+
+        return RenderBackgroundToCanvasCore(sceneDocument, node, canvas, until, enableTransform);
+    }
+
+    private static bool RenderBackgroundToCanvasCore(
+        SvgSceneDocument sceneDocument,
+        SvgSceneNode node,
+        SKCanvas canvas,
+        SvgSceneNode until,
+        bool enableTransform)
+    {
+        if (ReferenceEquals(node, until))
+        {
+            return false;
+        }
+
+        if (node.IsDisplayNone)
+        {
+            return true;
+        }
+
+        if (node.SuppressSubtreeRendering)
+        {
+            return true;
+        }
+
+        var isOnUntilPath = IsSelfOrAncestor(node, until);
+
+        canvas.Save();
+
+        if (node.Overflow is { } overflow)
+        {
+            canvas.ClipRect(overflow, SKClipOperation.Intersect);
+        }
+
+        if (enableTransform && !node.Transform.IsIdentity)
+        {
+            canvas.SetMatrix(node.Transform);
+        }
+
+        if (node.Clip is { } clip)
+        {
+            canvas.ClipRect(clip, SKClipOperation.Intersect);
+        }
+
+        if (node.ClipPath is { } clipPath)
+        {
+            canvas.ClipPath(clipPath, SKClipOperation.Intersect, node.IsAntialias);
+        }
+
+        if (node.InnerClip is { } innerClip)
+        {
+            canvas.ClipRect(innerClip, SKClipOperation.Intersect);
+        }
+
+        var enableMask = node.MaskPaint is not null && node.MaskNode is not null && !isOnUntilPath;
+        var enableOpacity = node.Opacity is not null && !isOnUntilPath;
+        var enableFilter = node.Filter is not null && !isOnUntilPath;
+
+        if (enableMask)
+        {
+            canvas.SaveLayer(node.MaskPaint!);
+        }
+
+        if (enableOpacity)
+        {
+            canvas.SaveLayer(node.Opacity!);
+        }
+
+        if (enableFilter)
+        {
+            if (node.FilterClip is { } filterClip)
+            {
+                canvas.ClipRect(filterClip, SKClipOperation.Intersect);
+            }
+
+            canvas.SaveLayer(node.Filter!);
+        }
+
+        if (node.IsRenderable && node.LocalModel is { } localModel)
+        {
+            canvas.DrawPicture(localModel);
+        }
+
+        for (var i = 0; i < node.Children.Count; i++)
+        {
+            if (!RenderBackgroundToCanvasCore(sceneDocument, node.Children[i], canvas, until, enableTransform: true))
+            {
+                RestoreNode(canvas, node, enableMask, enableOpacity, enableFilter);
+                return false;
+            }
+        }
+
+        if (enableMask && node.MaskNode is { } maskNode && node.MaskDstIn is { } maskDstIn)
+        {
+            canvas.SaveLayer(maskDstIn);
+            RenderNodeToCanvas(sceneDocument, maskNode, canvas, until: null);
+            canvas.Restore();
+        }
+
+        RestoreNode(canvas, node, enableMask, enableOpacity, enableFilter);
+        return true;
+    }
+
+    private static bool IsSelfOrAncestor(SvgSceneNode node, SvgSceneNode descendant)
+    {
+        for (var current = descendant; current is not null; current = current.Parent)
+        {
+            if (ReferenceEquals(current, node))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void RestoreNode(

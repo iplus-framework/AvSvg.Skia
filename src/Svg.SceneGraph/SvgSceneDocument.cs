@@ -551,7 +551,8 @@ public sealed class SvgSceneDocument
                     !FilterEffectsService.IsNone(filter) &&
                     string.IsNullOrWhiteSpace(node.FilterResourceKey))
                 {
-                    node.SuppressSubtreeRendering = true;
+                    node.Filter = null;
+                    node.FilterClip = null;
                 }
                 else if (ResolveFilterPayload(node) is { } filterPayload)
                 {

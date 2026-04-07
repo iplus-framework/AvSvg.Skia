@@ -975,7 +975,7 @@ public partial class SkiaModel
 
                     return SkiaSharp.SKImageFilter.CreatePicture(
                         ToSKPicture(pictureImageFilter.Picture),
-                        ToSKRect(pictureImageFilter.Picture.CullRect));
+                        ToSKRect(pictureImageFilter.Clip ?? pictureImageFilter.Picture.CullRect));
                 }
             case PointLitDiffuseImageFilter pointLitDiffuseImageFilter:
                 {
@@ -1042,12 +1042,12 @@ public partial class SkiaModel
                         ? SkiaSharp.SKImageFilter.CreateSpotLitSpecular(
                             ToSKPoint3(spotLitSpecularImageFilter.Location),
                             ToSKPoint3(spotLitSpecularImageFilter.Target),
-                            spotLitSpecularImageFilter.SpecularExponent,
+                            spotLitSpecularImageFilter.Shininess,
                             spotLitSpecularImageFilter.CutoffAngle,
                             ToSKColor(spotLitSpecularImageFilter.LightColor),
                             spotLitSpecularImageFilter.SurfaceScale,
                             spotLitSpecularImageFilter.Ks,
-                            spotLitSpecularImageFilter.SpecularExponent,
+                            spotLitSpecularImageFilter.Shininess,
                             ToSKImageFilter(spotLitSpecularImageFilter.Input),
                             ToSKRect(clip))
                         : SkiaSharp.SKImageFilter.CreateSpotLitSpecular(
