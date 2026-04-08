@@ -13,6 +13,29 @@
 [![Github All Releases](https://img.shields.io/github/downloads/wieslawsoltes/svg.skia/total.svg)](https://github.com/wieslawsoltes/svg.skia)
 [![Github Releases](https://img.shields.io/github/downloads/wieslawsoltes/svg.skia/latest/total.svg)](https://github.com/wieslawsoltes/svg.skia)
 
+| Package ID | NuGet | Downloads |
+| --- | --- | --- |
+| `ShimSkiaSharp` | [![NuGet](https://img.shields.io/nuget/v/ShimSkiaSharp.svg)](https://www.nuget.org/packages/ShimSkiaSharp/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/ShimSkiaSharp.svg)](https://www.nuget.org/packages/ShimSkiaSharp/) |
+| `Skia.Controls.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Skia.Controls.Avalonia.svg)](https://www.nuget.org/packages/Skia.Controls.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Skia.Controls.Avalonia.svg)](https://www.nuget.org/packages/Skia.Controls.Avalonia/) |
+| `Svg.Animation` | [![NuGet](https://img.shields.io/nuget/v/Svg.Animation.svg)](https://www.nuget.org/packages/Svg.Animation/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Animation.svg)](https://www.nuget.org/packages/Svg.Animation/) |
+| `Svg.CodeGen.Skia` | [![NuGet](https://img.shields.io/nuget/v/Svg.CodeGen.Skia.svg)](https://www.nuget.org/packages/Svg.CodeGen.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.CodeGen.Skia.svg)](https://www.nuget.org/packages/Svg.CodeGen.Skia/) |
+| `Svg.Controls.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Controls.Avalonia.svg)](https://www.nuget.org/packages/Svg.Controls.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Controls.Avalonia.svg)](https://www.nuget.org/packages/Svg.Controls.Avalonia/) |
+| `Svg.Controls.Skia.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Controls.Skia.Avalonia.svg)](https://www.nuget.org/packages/Svg.Controls.Skia.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Controls.Skia.Avalonia.svg)](https://www.nuget.org/packages/Svg.Controls.Skia.Avalonia/) |
+| `Svg.Controls.Skia.Uno` | [![NuGet](https://img.shields.io/nuget/v/Svg.Controls.Skia.Uno.svg)](https://www.nuget.org/packages/Svg.Controls.Skia.Uno/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Controls.Skia.Uno.svg)](https://www.nuget.org/packages/Svg.Controls.Skia.Uno/) |
+| `Svg.Custom` | [![NuGet](https://img.shields.io/nuget/v/Svg.Custom.svg)](https://www.nuget.org/packages/Svg.Custom/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Custom.svg)](https://www.nuget.org/packages/Svg.Custom/) |
+| `Svg.Editor.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Editor.Avalonia.svg)](https://www.nuget.org/packages/Svg.Editor.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Editor.Avalonia.svg)](https://www.nuget.org/packages/Svg.Editor.Avalonia/) |
+| `Svg.Editor.Core` | [![NuGet](https://img.shields.io/nuget/v/Svg.Editor.Core.svg)](https://www.nuget.org/packages/Svg.Editor.Core/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Editor.Core.svg)](https://www.nuget.org/packages/Svg.Editor.Core/) |
+| `Svg.Editor.Skia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Editor.Skia.svg)](https://www.nuget.org/packages/Svg.Editor.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Editor.Skia.svg)](https://www.nuget.org/packages/Svg.Editor.Skia/) |
+| `Svg.Editor.Skia.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Editor.Skia.Avalonia.svg)](https://www.nuget.org/packages/Svg.Editor.Skia.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Editor.Skia.Avalonia.svg)](https://www.nuget.org/packages/Svg.Editor.Skia.Avalonia/) |
+| `Svg.Editor.Svg` | [![NuGet](https://img.shields.io/nuget/v/Svg.Editor.Svg.svg)](https://www.nuget.org/packages/Svg.Editor.Svg/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Editor.Svg.svg)](https://www.nuget.org/packages/Svg.Editor.Svg/) |
+| `Svg.Model` | [![NuGet](https://img.shields.io/nuget/v/Svg.Model.svg)](https://www.nuget.org/packages/Svg.Model/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Model.svg)](https://www.nuget.org/packages/Svg.Model/) |
+| `Svg.SceneGraph` | [![NuGet](https://img.shields.io/nuget/v/Svg.SceneGraph.svg)](https://www.nuget.org/packages/Svg.SceneGraph/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.SceneGraph.svg)](https://www.nuget.org/packages/Svg.SceneGraph/) |
+| `Svg.Skia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Skia.svg)](https://www.nuget.org/packages/Svg.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Skia.svg)](https://www.nuget.org/packages/Svg.Skia/) |
+| `Svg.Skia.Converter` | [![NuGet](https://img.shields.io/nuget/v/Svg.Skia.Converter.svg)](https://www.nuget.org/packages/Svg.Skia.Converter/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Skia.Converter.svg)](https://www.nuget.org/packages/Svg.Skia.Converter/) |
+| `Svg.SourceGenerator.Skia` | [![NuGet](https://img.shields.io/nuget/v/Svg.SourceGenerator.Skia.svg)](https://www.nuget.org/packages/Svg.SourceGenerator.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.SourceGenerator.Skia.svg)](https://www.nuget.org/packages/Svg.SourceGenerator.Skia/) |
+| `svgc` | [![NuGet](https://img.shields.io/nuget/v/svgc.svg)](https://www.nuget.org/packages/svgc/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/svgc.svg)](https://www.nuget.org/packages/svgc/) |
+| `SvgToPng` | [![NuGet](https://img.shields.io/nuget/v/SvgToPng.svg)](https://www.nuget.org/packages/SvgToPng/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SvgToPng.svg)](https://www.nuget.org/packages/SvgToPng/) |
+
 *Svg.Skia* is an [SVG](https://en.wikipedia.org/wiki/Scalable_Vector_Graphics) rendering library.
 
 ## About
