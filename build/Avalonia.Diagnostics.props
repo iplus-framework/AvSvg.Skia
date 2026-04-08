@@ -4,6 +4,6 @@
     <UseAvaloniaDiagnostics Condition="'$(UseAvaloniaDiagnostics)' == ''">false</UseAvaloniaDiagnostics>
   </PropertyGroup>
   <ItemGroup Condition="'$(UseAvaloniaDiagnostics)' == 'true'">
-    <PackageReference Include="AvaloniaUI.DiagnosticsSupport" />
+    <PackageReference Include="ProDiagnostics" />
   </ItemGroup>
 </Project>
