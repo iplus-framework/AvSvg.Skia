@@ -8,11 +8,11 @@ namespace Svg.Skia.UnitTests;
 public class SKSvgSettingsTests : SvgUnitTest
 {
     [Fact]
-    public void Defaults_DisableSvgFonts()
+    public void Defaults_EnableSvgFonts()
     {
         var settings = new SKSvgSettings();
 
-        Assert.False(settings.EnableSvgFonts);
+        Assert.True(settings.EnableSvgFonts);
     }
 
     [Theory]

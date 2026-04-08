@@ -71,8 +71,7 @@ public partial class SkiaModel
         SkiaSharp.SKPaint paint,
         out ShapedTextResult result)
     {
-        if (Settings.EnableSvgFonts ||
-            string.IsNullOrEmpty(text) ||
+        if (string.IsNullOrEmpty(text) ||
             paint.Typeface is null)
         {
             result = default;

@@ -1674,7 +1674,7 @@ internal static class SvgSceneTextCompiler
 
     private static string GetBrowserCompatibleFallbackText(SvgTextBase svgTextBase, string text, ISvgAssetLoader assetLoader)
     {
-        if (assetLoader.EnableSvgFonts || svgTextBase.FontVariant != SvgFontVariant.SmallCaps || string.IsNullOrEmpty(text))
+        if (svgTextBase.FontVariant != SvgFontVariant.SmallCaps || string.IsNullOrEmpty(text))
         {
             return text;
         }

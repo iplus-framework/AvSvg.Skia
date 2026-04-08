@@ -374,8 +374,7 @@ public partial class SkiaModel
         var matched = fontManager.MatchFamily(candidate, style);
         if (matched is { } && matched.Handle != IntPtr.Zero)
         {
-            if (Settings.EnableSvgFonts ||
-                IsGenericFontFamilyName(candidate) ||
+            if (IsGenericFontFamilyName(candidate) ||
                 string.Equals(matched.FamilyName, candidate, StringComparison.OrdinalIgnoreCase))
             {
                 resolved = matched;
@@ -390,9 +389,8 @@ public partial class SkiaModel
         {
             var requested = SkiaSharp.SKTypeface.FromFamilyName(candidate, style.Weight, style.Width, style.Slant);
             if (requested is { } && requested.Handle != IntPtr.Zero &&
-                (Settings.EnableSvgFonts ||
-                 IsGenericFontFamilyName(candidate) ||
-                 string.Equals(requested.FamilyName, candidate, StringComparison.OrdinalIgnoreCase)))
+                (IsGenericFontFamilyName(candidate) ||
+                  string.Equals(requested.FamilyName, candidate, StringComparison.OrdinalIgnoreCase)))
             {
                 resolved = requested;
             }
@@ -431,7 +429,7 @@ public partial class SkiaModel
             _typefaceCache.TryRemove(cacheKey, out _);
         }
 
-        var browserCompatibleFontFallback = !Settings.EnableSvgFonts;
+        const bool browserCompatibleFontFallback = true;
         foreach (var candidate in EnumerateFontFamilyCandidates(fontFamily, browserCompatibleFontFallback))
         {
             if (Settings.TypefaceProviders is { } && Settings.TypefaceProviders.Count > 0)
@@ -457,7 +455,7 @@ public partial class SkiaModel
             }
         }
 
-        if (browserCompatibleFontFallback && !string.IsNullOrWhiteSpace(fontFamily))
+        if (!string.IsNullOrWhiteSpace(fontFamily))
         {
             foreach (var candidate in EnumerateFontFamilyCandidates("serif", browserCompatibleFontFallback))
             {

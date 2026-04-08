@@ -310,27 +310,46 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
         var typeface = TryMatchCharacterFromCustomProviders(normalizedFamily, weight, width, slant, codepoint);
         if (typeface is null && normalizedFamily is not null)
         {
-            if (EnableSvgFonts)
+            foreach (var candidate in SkiaModel.EnumerateFontFamilyCandidates(normalizedFamily, browserCompatible: true))
             {
-                foreach (var candidate in SkiaModel.EnumerateFontFamilyCandidates(normalizedFamily, browserCompatible: false))
+                if (IsGenericFamilyName(candidate))
                 {
-                    typeface = SkiaSharp.SKFontManager.Default.MatchCharacter(
-                        candidate,
-                        weight,
-                        width,
-                        slant,
-                        null,
-                        codepoint);
+                    continue;
+                }
 
-                    if (typeface is { })
-                    {
-                        break;
-                    }
+                var matchedFamily = SkiaSharp.SKFontManager.Default.MatchFamily(
+                    candidate,
+                    new SkiaSharp.SKFontStyle(weight, width, slant));
+                if (matchedFamily is null ||
+                    matchedFamily.Handle == IntPtr.Zero ||
+                    !string.Equals(matchedFamily.FamilyName, candidate, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedFamily?.Dispose();
+                    continue;
+                }
+
+                matchedFamily.Dispose();
+                typeface = SkiaSharp.SKFontManager.Default.MatchCharacter(
+                    candidate,
+                    weight,
+                    width,
+                    slant,
+                    null,
+                    codepoint);
+
+                if (typeface is { })
+                {
+                    break;
                 }
             }
-            else
+
+            if (typeface is null && ShouldUseSerifDefaultFallback(codepoint))
             {
-                foreach (var candidate in SkiaModel.EnumerateFontFamilyCandidates(normalizedFamily, browserCompatible: true))
+                // Browsers fall back from an unresolved named family to the CSS initial serif default
+                // for Latin/common text before they abandon family preferences entirely. Complex scripts
+                // still rely on platform fallback so rows like the Arabic font fixtures can pick the same
+                // per-script faces Chrome uses.
+                foreach (var candidate in SkiaModel.EnumerateFontFamilyCandidates("serif", browserCompatible: true))
                 {
                     if (IsGenericFamilyName(candidate))
                     {
@@ -360,46 +379,6 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
                     if (typeface is { })
                     {
                         break;
-                    }
-                }
-
-                if (typeface is null && ShouldUseSerifDefaultFallback(codepoint))
-                {
-                    // Browsers fall back from an unresolved named family to the CSS initial serif default
-                    // for Latin/common text before they abandon family preferences entirely. Complex scripts
-                    // still rely on platform fallback so rows like the Arabic font fixtures can pick the same
-                    // per-script faces Chrome uses.
-                    foreach (var candidate in SkiaModel.EnumerateFontFamilyCandidates("serif", browserCompatible: true))
-                    {
-                        if (IsGenericFamilyName(candidate))
-                        {
-                            continue;
-                        }
-
-                        var matchedFamily = SkiaSharp.SKFontManager.Default.MatchFamily(
-                            candidate,
-                            new SkiaSharp.SKFontStyle(weight, width, slant));
-                        if (matchedFamily is null ||
-                            matchedFamily.Handle == IntPtr.Zero ||
-                            !string.Equals(matchedFamily.FamilyName, candidate, StringComparison.OrdinalIgnoreCase))
-                        {
-                            matchedFamily?.Dispose();
-                            continue;
-                        }
-
-                        matchedFamily.Dispose();
-                        typeface = SkiaSharp.SKFontManager.Default.MatchCharacter(
-                            candidate,
-                            weight,
-                            width,
-                            slant,
-                            null,
-                            codepoint);
-
-                        if (typeface is { })
-                        {
-                            break;
-                        }
                     }
                 }
             }
