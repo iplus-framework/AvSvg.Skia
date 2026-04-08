@@ -66,9 +66,8 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
         void YieldCurrentTypefaceText()
         {
             var currentTypefaceText = text.Substring(currentTypefaceStartIndex, i - currentTypefaceStartIndex);
-            var currentTypefaceAdvance = _skiaModel.GetTextAdvance(currentTypefaceText, runningPaint);
 
-            ret.Add(new(currentTypefaceText, currentTypefaceAdvance,
+            ret.Add(new(currentTypefaceText, _skiaModel.GetTextAdvance(currentTypefaceText, runningPaint),
                 runningPaint.Typeface is null
                     ? null
                     : ShimSkiaSharp.SKTypeface.FromFamilyName(

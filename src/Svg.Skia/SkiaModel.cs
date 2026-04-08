@@ -457,7 +457,7 @@ public partial class SkiaModel
             }
         }
 
-        if (!Settings.EnableSvgFonts && !string.IsNullOrWhiteSpace(fontFamily))
+        if (browserCompatibleFontFallback && !string.IsNullOrWhiteSpace(fontFamily))
         {
             foreach (var candidate in EnumerateFontFamilyCandidates("serif", browserCompatibleFontFallback))
             {

@@ -38,6 +38,6 @@ public class SKSvgSettings
         };
 
         StandaloneViewport = null;
-        EnableSvgFonts = true;
+        EnableSvgFonts = false;
     }
 }

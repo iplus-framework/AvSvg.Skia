@@ -1,12 +1,20 @@
 using SkiaSharp;
-using Svg.Skia.UnitTests.Common;
 using Svg.Skia.TypefaceProviders;
+using Svg.Skia.UnitTests.Common;
 using Xunit;
 
 namespace Svg.Skia.UnitTests;
 
 public class SKSvgSettingsTests : SvgUnitTest
 {
+    [Fact]
+    public void Defaults_DisableSvgFonts()
+    {
+        var settings = new SKSvgSettings();
+
+        Assert.False(settings.EnableSvgFonts);
+    }
+
     [Theory]
     [InlineData("Amiri", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
     [InlineData("Mplus 1p", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
@@ -58,11 +66,11 @@ public class SKSvgSettingsTests : SvgUnitTest
     public void Clone_PreservesEnableSvgFonts()
     {
         var svg = new SKSvg();
-        svg.Settings.EnableSvgFonts = false;
+        svg.Settings.EnableSvgFonts = true;
 
         var clone = svg.Clone();
 
-        Assert.False(clone.Settings.EnableSvgFonts);
+        Assert.True(clone.Settings.EnableSvgFonts);
     }
 
     [Fact]
