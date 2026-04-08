@@ -11,6 +11,7 @@ The generated API reference under `/api` is built from these projects:
 - `../src/Svg.Custom/Svg.Custom.csproj`
 - `../src/Svg.Controls.Avalonia/Svg.Controls.Avalonia.csproj`
 - `../src/Svg.Controls.Skia.Avalonia/Svg.Controls.Skia.Avalonia.csproj`
+- `../src/Svg.Controls.Skia.Uno/Svg.Controls.Skia.Uno.csproj`
 - `../src/Skia.Controls.Avalonia/Skia.Controls.Avalonia.csproj`
 - `../src/Svg.Editor.Core/Svg.Editor.Core.csproj`
 - `../src/Svg.Editor.Svg/Svg.Editor.Svg.csproj`
@@ -36,9 +37,10 @@ This repository mixes:
 
 - multi-target runtime packages,
 - multi-target editor packages,
+- a `net10.0` Uno control package,
 - `netstandard2.0`-only generator packages.
 
-The docs build keeps `netstandard2.0` as the default extraction target for the shared runtime and generator-facing packages, while overriding the Avalonia 12 packages to `net8.0`. That keeps a single API site without forcing the Avalonia projects back onto a framework they no longer target.
+The docs build keeps `netstandard2.0` as the default extraction target for the shared runtime and generator-facing packages, while overriding the Avalonia 12 packages to `net8.0`. The Uno control project uses a per-project override of `TargetFramework=net10.0` because it does not target `netstandard2.0`. That keeps a single API site without forcing the Avalonia or Uno projects back onto frameworks they no longer target.
 
 ## `Svg.CodeGen.Skia`
 
@@ -49,6 +51,6 @@ The docs build keeps `netstandard2.0` as the default extraction target for the s
 To keep the authored docs and generated API aligned:
 
 1. Add the project to `site/config.scriban` under `api.dotnet.projects`.
-2. Add any new Avalonia or external assembly xrefs under `api.dotnet.external_apis` if the public API links out to assemblies that are not already covered.
+2. Add any new Avalonia, Uno, or external assembly xrefs under `api.dotnet.external_apis` if the public API links out to assemblies that are not already covered.
 3. Update [Packages and Namespaces](packages-and-namespaces) and the package article under `site/articles/packages/`.
 4. Rebuild the site with `./build-docs.sh`.

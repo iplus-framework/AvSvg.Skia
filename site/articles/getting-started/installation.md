@@ -12,6 +12,12 @@ Core renderer:
 dotnet add package Svg.Skia
 ```
 
+Uno control package:
+
+```bash
+dotnet add package Svg.Controls.Skia.Uno
+```
+
 Avalonia controls backed by Skia:
 
 ```bash
@@ -66,6 +72,12 @@ The local docs pipeline also uses a .NET tool manifest for Lunet:
 
 ```bash
 dotnet tool restore
+```
+
+The standalone Uno sample app additionally needs Uno workloads configured through `uno-check`, but the default repository solution does not:
+
+```bash
+uno-check --target desktop --target web --target android --target ios
 ```
 
 ## Project workflow commands

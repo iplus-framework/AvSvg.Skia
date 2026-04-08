@@ -15,6 +15,8 @@ dotnet build Svg.Skia.slnx -c Release
 dotnet test Svg.Skia.slnx -c Release
 ```
 
+The Uno sample app is intentionally not part of `Svg.Skia.slnx`, so those default commands do not require Uno workloads.
+
 ## CI workflows
 
 The repository now has dedicated workflows for:
@@ -31,6 +33,7 @@ The repository ships more than one NuGet package. The main runtime packages are:
 
 - `Svg.Skia`
 - `Svg.Model`
+- `Svg.Controls.Skia.Uno`
 - `Svg.Controls.Avalonia`
 - `Svg.Controls.Skia.Avalonia`
 - `Skia.Controls.Avalonia`
@@ -49,3 +52,15 @@ The `release.yml` workflow:
 - packs the NuGet artifacts,
 - pushes packages to NuGet,
 - creates a GitHub release with the packaged artifacts attached.
+
+## Uno sample publishing
+
+Use the standalone sample project when validating the Uno control package:
+
+```bash
+uno-check --target desktop --target web --target android --target ios
+dotnet build samples/UnoSvgSkiaSample/UnoSvgSkiaSample.csproj -c Release -f net10.0-desktop
+dotnet publish samples/UnoSvgSkiaSample/UnoSvgSkiaSample.csproj -c Release -f net10.0-browserwasm
+dotnet build samples/UnoSvgSkiaSample/UnoSvgSkiaSample.csproj -c Release -f net10.0-android
+dotnet build samples/UnoSvgSkiaSample/UnoSvgSkiaSample.csproj -c Release -f net10.0-ios
+```

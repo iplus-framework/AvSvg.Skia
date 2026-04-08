@@ -8,13 +8,14 @@ The `samples/` directory covers both end-user scenarios and repository-internal 
 
 ## Avalonia samples
 
+- `UnoSvgSkiaSample`: standalone Uno Platform sample for `Svg.Controls.Skia.Uno`, including `Path`, `Source`, `SvgSource`, runtime CSS changes, hit testing, zoom/pan, and wireframe/filter toggles.
 - `AvaloniaSvgSkiaSample`: end-to-end sample for `Avalonia.Svg.Skia`, including `Svg`, `SvgImage`, `SvgSource`, resource usage, and draw-control integration.
 - `AvaloniaSvgSkiaStylingSample`: CSS-based restyling and pointer-over behavior.
 - `AvaloniaSvgSample`: equivalent non-Skia Avalonia stack sample.
 - `AvaloniaControlsSample`: `SKCanvasControl`, `SKBitmapControl`, `SKPathControl`, and `SKPictureControl`.
 - `AvaloniaSKPictureImageSample`: `SKPictureImage` and animation examples.
 - `AvalonDraw`: larger sample application for SVG editing-oriented scenarios.
-- `TestApp`: extra Avalonia test host.
+- `TestApp`: extra Avalonia test host with animation-backend selection, playback-rate control, play, pause, restart, resolved-backend diagnostics, and native-composition verification.
 
 ## CLI and generation samples
 

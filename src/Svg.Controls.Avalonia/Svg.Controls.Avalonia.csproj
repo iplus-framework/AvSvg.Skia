@@ -29,6 +29,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Svg.SceneGraph\Svg.SceneGraph.csproj" />
     <ProjectReference Include="..\Svg.Model\Svg.Model.csproj" />
   </ItemGroup>
 
