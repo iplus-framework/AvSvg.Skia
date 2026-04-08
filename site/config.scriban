@@ -74,6 +74,8 @@ with api.dotnet
     }
     projects = [
         { name: "Svg.Skia", path: "../src/Svg.Skia/Svg.Skia.csproj" },
+        { name: "Svg.Animation", path: "../src/Svg.Animation/Svg.Animation.csproj" },
+        { name: "Svg.SceneGraph", path: "../src/Svg.SceneGraph/Svg.SceneGraph.csproj" },
         { name: "Svg.Model", path: "../src/Svg.Model/Svg.Model.csproj" },
         { name: "Svg.Custom", path: "../src/Svg.Custom/Svg.Custom.csproj" },
         { name: "Svg.Controls.Avalonia", path: "../src/Svg.Controls.Avalonia/Svg.Controls.Avalonia.csproj", properties: { TargetFramework: "net8.0" } },

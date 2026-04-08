@@ -7,6 +7,8 @@ title: "API Coverage Index"
 The generated API reference under `/api` is built from these projects:
 
 - `../src/Svg.Skia/Svg.Skia.csproj`
+- `../src/Svg.Animation/Svg.Animation.csproj`
+- `../src/Svg.SceneGraph/Svg.SceneGraph.csproj`
 - `../src/Svg.Model/Svg.Model.csproj`
 - `../src/Svg.Custom/Svg.Custom.csproj`
 - `../src/Svg.Controls.Avalonia/Svg.Controls.Avalonia.csproj`
@@ -36,6 +38,8 @@ Current API settings:
 This repository mixes:
 
 - multi-target runtime packages,
+- shared animation/runtime-host packages,
+- retained-scene graph packages,
 - multi-target editor packages,
 - a `net10.0` Uno control package,
 - `netstandard2.0`-only generator packages.
