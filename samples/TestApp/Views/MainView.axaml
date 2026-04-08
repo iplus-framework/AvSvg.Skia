@@ -21,7 +21,7 @@
              Grid.Row="0"
              Margin="6"
              Text="{Binding ItemQuery}"
-             Watermark="Filter...">
+             PlaceholderText="Filter...">
       <TextBox.InnerRightContent>
         <Button Content="X"
                 Command="{Binding ResetQueryCommand}" />

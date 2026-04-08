@@ -159,10 +159,11 @@ internal sealed class StorageService : ITestAppStorageService
             return window.StorageProvider;
         }
 
-        if (Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime { MainView: { } mainView })
+        if (Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime { MainView: { } mainView } &&
+            mainView is Visual visual)
         {
-            var visualRoot = mainView.GetVisualRoot();
-            if (visualRoot is TopLevel topLevel)
+            var topLevel = TopLevel.GetTopLevel(visual);
+            if (topLevel is not null)
             {
                 return topLevel.StorageProvider;
             }

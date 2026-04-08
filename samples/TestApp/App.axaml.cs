@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Diagnostics;
 using Avalonia.Markup.Xaml;
 using TestApp.Services;
 using TestApp.ViewModels;
@@ -79,5 +80,8 @@ public class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+#if DEBUG
+        this.AttachDevTools();
+#endif
     }
 }

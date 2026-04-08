@@ -8,6 +8,9 @@
     <RootNamespace>TestApp</RootNamespace>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
@@ -26,5 +29,4 @@
     <ProjectReference Include="..\..\src\Svg.Controls.Skia.Avalonia\Svg.Controls.Skia.Avalonia.csproj" />
     <ProjectReference Include="..\..\src\Svg.Skia\Svg.Skia.csproj" />
   </ItemGroup>
-
 </Project>
