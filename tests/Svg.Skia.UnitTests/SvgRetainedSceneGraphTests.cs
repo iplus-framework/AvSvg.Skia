@@ -181,6 +181,61 @@ public class SvgRetainedSceneGraphTests
     }
 
     [Fact]
+    public void RetainedSceneGraph_UsesArabicJoiningTypes_ForSvgFontArabicForms()
+    {
+        const string arabicFormSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="320" height="260" viewBox="0 0 320 260">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'TestArabic';
+                    src: url('#TestArabicFont') format('svg');
+                  }
+                ]]></style>
+                <font id="TestArabicFont" horiz-adv-x="100">
+                  <font-face font-family="TestArabic" units-per-em="100" ascent="100" descent="0" />
+                  <missing-glyph horiz-adv-x="100" />
+                  <glyph unicode="ب" arabic-form="isolated" d="M0 0H20V100H0Z" />
+                  <glyph unicode="ب" arabic-form="initial" d="M25 0H45V100H25Z" />
+                  <glyph unicode="ب" arabic-form="medial" d="M50 0H70V100H50Z" />
+                  <glyph unicode="ب" arabic-form="terminal" d="M75 0H95V100H75Z" />
+                  <glyph unicode="ا" horiz-adv-x="100" d="M40 0H60V100H40Z" />
+                  <glyph unicode="،" horiz-adv-x="100" d="M40 0H60V100H40Z" />
+                </font>
+              </defs>
+              <g fill="black" font-family="TestArabic" font-size="100">
+                <text x="10" y="110">ب،ب</text>
+                <text x="10" y="240">باب</text>
+              </g>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = true;
+        svg.FromSvg(arabicFormSvg);
+
+        Assert.NotNull(svg.Picture);
+
+        using var bitmap = ToBitmap(svg, svg.Picture!);
+
+        var punctuationLeft = bitmap.GetPixel(15, 60);
+        var punctuationLeftInitialBand = bitmap.GetPixel(40, 60);
+        var punctuationRight = bitmap.GetPixel(215, 60);
+        var punctuationRightTerminalBand = bitmap.GetPixel(290, 60);
+        var rightJoiningInitial = bitmap.GetPixel(40, 190);
+        var rightJoiningFinal = bitmap.GetPixel(215, 190);
+        var rightJoiningFinalTerminalBand = bitmap.GetPixel(290, 190);
+
+        Assert.True(punctuationLeft.Alpha > 0, $"Expected punctuation-broken run to use the isolated form on the first glyph, but was {punctuationLeft}.");
+        Assert.Equal(0, punctuationLeftInitialBand.Alpha);
+        Assert.True(punctuationRight.Alpha > 0, $"Expected punctuation-broken run to keep the trailing glyph isolated, but was {punctuationRight}.");
+        Assert.Equal(0, punctuationRightTerminalBand.Alpha);
+        Assert.True(rightJoiningInitial.Alpha > 0, $"Expected the leading beh before alef to use the initial form, but was {rightJoiningInitial}.");
+        Assert.True(rightJoiningFinal.Alpha > 0, $"Expected the trailing beh after alef to remain isolated, but was {rightJoiningFinal}.");
+        Assert.Equal(0, rightJoiningFinalTerminalBand.Alpha);
+    }
+
+    [Fact]
     public void RetainedSceneGraph_ResolvesRetainedMaskPayloadsForDirectNodes()
     {
         using var svg = new SKSvg();

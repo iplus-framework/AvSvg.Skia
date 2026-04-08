@@ -105,6 +105,15 @@ namespace Svg.Skia
             Terminal
         }
 
+        private enum ArabicJoiningType
+        {
+            NonJoining,
+            RightJoining,
+            DualJoining,
+            JoinCausing,
+            Transparent
+        }
+
         private readonly record struct SvgFontRequest(
             string Text,
             float TextSize,
@@ -843,8 +852,15 @@ namespace Svg.Skia
 
             private static SvgArabicForm GetArabicForm(IReadOnlyList<CodepointInfo> codepoints, int currentIndex)
             {
-                var joinsPrevious = currentIndex > 0 && !codepoints[currentIndex - 1].IsWhitespace;
-                var joinsNext = currentIndex < codepoints.Count - 1 && !codepoints[currentIndex + 1].IsWhitespace;
+                var currentType = codepoints[currentIndex].JoiningType;
+                var joinsPrevious =
+                    TryGetJoiningNeighbor(codepoints, currentIndex, -1, out var previousType) &&
+                    CanJoinToNext(previousType) &&
+                    CanJoinToPrevious(currentType);
+                var joinsNext =
+                    TryGetJoiningNeighbor(codepoints, currentIndex, 1, out var nextType) &&
+                    CanJoinToNext(currentType) &&
+                    CanJoinToPrevious(nextType);
 
                 if (joinsPrevious && joinsNext)
                 {
@@ -861,6 +877,27 @@ namespace Svg.Skia
 
                 return SvgArabicForm.Isolated;
             }
+
+            private static bool TryGetJoiningNeighbor(IReadOnlyList<CodepointInfo> codepoints, int currentIndex, int step, out ArabicJoiningType joiningType)
+            {
+                for (var i = currentIndex + step; i >= 0 && i < codepoints.Count; i += step)
+                {
+                    joiningType = codepoints[i].JoiningType;
+                    if (joiningType != ArabicJoiningType.Transparent)
+                    {
+                        return true;
+                    }
+                }
+
+                joiningType = ArabicJoiningType.NonJoining;
+                return false;
+            }
+
+            private static bool CanJoinToPrevious(ArabicJoiningType joiningType)
+                => joiningType is ArabicJoiningType.RightJoining or ArabicJoiningType.DualJoining or ArabicJoiningType.JoinCausing;
+
+            private static bool CanJoinToNext(ArabicJoiningType joiningType)
+                => joiningType is ArabicJoiningType.DualJoining or ArabicJoiningType.JoinCausing;
 
             private static bool LanguageMatches(string requestedLanguage, string glyphLanguage)
             {
@@ -1376,7 +1413,7 @@ namespace Svg.Skia
             }
         }
 
-        private readonly record struct CodepointInfo(string Value, int CharIndex, bool IsWhitespace)
+        private readonly record struct CodepointInfo(string Value, int CharIndex, ArabicJoiningType JoiningType)
         {
             public static IReadOnlyList<CodepointInfo> Parse(string text)
             {
@@ -1390,11 +1427,114 @@ namespace Svg.Skia
                     }
 
                     var value = text.Substring(start, i - start + 1);
-                    codepoints.Add(new CodepointInfo(value, start, string.IsNullOrWhiteSpace(value)));
+                    codepoints.Add(new CodepointInfo(value, start, GetJoiningType(value)));
                 }
 
                 return codepoints;
             }
+
+            private static ArabicJoiningType GetJoiningType(string value)
+            {
+                var scalar = char.ConvertToUtf32(value, 0);
+                if (scalar == 0x200C)
+                {
+                    return ArabicJoiningType.NonJoining;
+                }
+
+                if (scalar == 0x0640 || scalar == 0x0883 || scalar == 0x0884 || scalar == 0x0885 || scalar == 0x200D)
+                {
+                    return ArabicJoiningType.JoinCausing;
+                }
+
+                var category = CharUnicodeInfo.GetUnicodeCategory(value, 0);
+                if (category is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark ||
+                    category == UnicodeCategory.Format)
+                {
+                    return ArabicJoiningType.Transparent;
+                }
+
+                if (IsDualJoiningCodepoint(scalar))
+                {
+                    return ArabicJoiningType.DualJoining;
+                }
+
+                if (IsRightJoiningCodepoint(scalar))
+                {
+                    return ArabicJoiningType.RightJoining;
+                }
+
+                return ArabicJoiningType.NonJoining;
+            }
+
+            private static bool IsRightJoiningCodepoint(int scalar)
+                => scalar switch
+                {
+                    >= 0x0622 and <= 0x0625 => true,
+                    0x0627 => true,
+                    0x0629 => true,
+                    >= 0x062F and <= 0x0632 => true,
+                    0x0648 => true,
+                    >= 0x0671 and <= 0x0673 => true,
+                    >= 0x0675 and <= 0x0677 => true,
+                    >= 0x0688 and <= 0x0699 => true,
+                    0x06C0 => true,
+                    >= 0x06C3 and <= 0x06CB => true,
+                    0x06CD => true,
+                    0x06CF => true,
+                    >= 0x06D2 and <= 0x06D3 => true,
+                    0x06D5 => true,
+                    >= 0x06EE and <= 0x06EF => true,
+                    >= 0x0759 and <= 0x075B => true,
+                    >= 0x076B and <= 0x076C => true,
+                    0x0771 => true,
+                    >= 0x0773 and <= 0x0774 => true,
+                    >= 0x0778 and <= 0x0779 => true,
+                    >= 0x0870 and <= 0x0882 => true,
+                    0x088E => true,
+                    >= 0x08AA and <= 0x08AC => true,
+                    0x08AE => true,
+                    >= 0x08B1 and <= 0x08B2 => true,
+                    0x08B9 => true,
+                    _ => false
+                };
+
+            private static bool IsDualJoiningCodepoint(int scalar)
+                => scalar switch
+                {
+                    0x0620 => true,
+                    0x0626 => true,
+                    0x0628 => true,
+                    >= 0x062A and <= 0x062E => true,
+                    >= 0x0633 and <= 0x063F => true,
+                    >= 0x0641 and <= 0x0647 => true,
+                    >= 0x0649 and <= 0x064A => true,
+                    >= 0x066E and <= 0x066F => true,
+                    >= 0x0678 and <= 0x0687 => true,
+                    >= 0x069A and <= 0x06BF => true,
+                    >= 0x06C1 and <= 0x06C2 => true,
+                    0x06CC => true,
+                    0x06CE => true,
+                    >= 0x06D0 and <= 0x06D1 => true,
+                    >= 0x06FA and <= 0x06FC => true,
+                    0x06FF => true,
+                    >= 0x074E and <= 0x0758 => true,
+                    >= 0x075C and <= 0x076A => true,
+                    >= 0x076D and <= 0x0770 => true,
+                    0x0772 => true,
+                    >= 0x0775 and <= 0x0777 => true,
+                    >= 0x077A and <= 0x077F => true,
+                    0x0860 => true,
+                    >= 0x0862 and <= 0x0865 => true,
+                    0x0868 => true,
+                    0x0886 => true,
+                    >= 0x0889 and <= 0x088D => true,
+                    0x088F => true,
+                    >= 0x08A0 and <= 0x08A9 => true,
+                    >= 0x08AF and <= 0x08B0 => true,
+                    >= 0x08B3 and <= 0x08B8 => true,
+                    >= 0x08BA and <= 0x08C8 => true,
+                    _ => false
+                };
         }
 
         private static bool TryReadAttribute(SvgElement element, string name, out string value)
