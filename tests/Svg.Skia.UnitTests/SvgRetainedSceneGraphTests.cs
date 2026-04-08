@@ -148,8 +148,10 @@ public class SvgRetainedSceneGraphTests
         Assert.Equal("c", tailCommand.Text);
     }
 
-    [Fact]
-    public void RetainedSceneGraph_PreservesPositionedTextPoints_ForSmallCapsFallbackWithoutCodepointExpansion()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RetainedSceneGraph_PreservesPositionedTextPoints_ForSmallCapsFallbackWithoutCodepointExpansion(bool enableSvgFonts)
     {
         const string positionedTextSvg = """
             <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">
@@ -160,7 +162,7 @@ public class SvgRetainedSceneGraphTests
             """;
 
         using var svg = new SKSvg();
-        svg.Settings.EnableSvgFonts = false;
+        svg.Settings.EnableSvgFonts = enableSvgFonts;
         svg.FromSvg(positionedTextSvg);
 
         var retainedModel = svg.CreateRetainedSceneGraphModel();
@@ -178,6 +180,30 @@ public class SvgRetainedSceneGraphTests
         var tailCommand = Assert.Single(retainedModel.FindCommands<DrawTextCanvasCommand>(),
             static cmd => cmd.X == 30f && cmd.Y == 20f);
         Assert.Equal("A", tailCommand.Text);
+    }
+
+    [Fact]
+    public void SystemTextRendering_IsStable_WhenSvgFontsSettingChanges()
+    {
+        const string systemTextSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="240" height="100">
+              <text x="10" y="24" font-size="18" font-family="sans-serif" font-weight="bold">Bold Text 20px</text>
+              <text x="10" y="54" font-size="18" font-family="Times New Roman" font-variant="small-caps">ßa</text>
+              <text x="10" y="84" font-size="18" font-family="Missing Family, serif">Fallback serif sample</text>
+            </svg>
+            """;
+
+        using var disabledSvg = new SKSvg();
+        disabledSvg.Settings.EnableSvgFonts = false;
+        disabledSvg.FromSvg(systemTextSvg);
+
+        using var enabledSvg = new SKSvg();
+        enabledSvg.Settings.EnableSvgFonts = true;
+        enabledSvg.FromSvg(systemTextSvg);
+
+        Assert.NotNull(disabledSvg.Picture);
+        Assert.NotNull(enabledSvg.Picture);
+        AssertPicturesEqual(disabledSvg, disabledSvg.Picture!, enabledSvg.Picture!);
     }
 
     [Fact]
