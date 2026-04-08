@@ -86,8 +86,17 @@ public partial class SkiaModel
             return false;
         }
 
-        using var shaper = new HarfBuzzTextShaper(font.Typeface);
-        result = shaper.Shape(text, x, y, font);
+        if (!HarfBuzzTextShaper.TryCreate(font.Typeface, out var shaper))
+        {
+            result = default;
+            return false;
+        }
+
+        using (shaper)
+        {
+            result = shaper.Shape(text, x, y, font);
+        }
+
         return result.Codepoints.Length > 0;
     }
 
@@ -130,19 +139,38 @@ public partial class SkiaModel
     {
         private readonly Font _font;
 
-        public HarfBuzzTextShaper(SkiaSharp.SKTypeface typeface)
+        private HarfBuzzTextShaper(SkiaSharp.SKTypeface typeface, Font font)
         {
             Typeface = typeface ?? throw new ArgumentNullException(nameof(typeface));
+            _font = font ?? throw new ArgumentNullException(nameof(font));
+        }
+
+        public static bool TryCreate(SkiaSharp.SKTypeface typeface, out HarfBuzzTextShaper shaper)
+        {
+            if (typeface is null)
+            {
+                throw new ArgumentNullException(nameof(typeface));
+            }
 
             int index;
-            using var blob = ToHarfBuzzBlob(Typeface.OpenStream(out index));
+            var stream = typeface.OpenStream(out index);
+            if (stream is null)
+            {
+                shaper = null!;
+                return false;
+            }
+
+            using var blob = ToHarfBuzzBlob(stream);
             using var face = new Face(blob, index);
             face.Index = index;
-            face.UnitsPerEm = Typeface.UnitsPerEm;
+            face.UnitsPerEm = typeface.UnitsPerEm;
 
-            _font = new Font(face);
-            _font.SetScale(HarfBuzzFontScale, HarfBuzzFontScale);
-            _font.SetFunctionsOpenType();
+            var font = new Font(face);
+            font.SetScale(HarfBuzzFontScale, HarfBuzzFontScale);
+            font.SetFunctionsOpenType();
+
+            shaper = new HarfBuzzTextShaper(typeface, font);
+            return true;
         }
 
         public SkiaSharp.SKTypeface Typeface { get; }
