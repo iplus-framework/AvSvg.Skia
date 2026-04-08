@@ -207,6 +207,51 @@ public class SvgRetainedSceneGraphTests
     }
 
     [Fact]
+    public void DefaultSettings_RenderSvgFontGlyphCommands()
+    {
+        const string svgFontGlyphSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'DefaultFont';
+                    src: url('#DefaultFontFace') format('svg');
+                  }
+                ]]></style>
+                <font id="DefaultFontFace" horiz-adv-x="100">
+                  <font-face font-family="DefaultFont" units-per-em="100" ascent="100" descent="0" />
+                  <glyph unicode="A" horiz-adv-x="100" d="M10 0H30V100H10Z" />
+                </font>
+              </defs>
+              <text x="10" y="110" fill="black" font-family="DefaultFont" font-size="100">A</text>
+            </svg>
+            """;
+
+        using var defaultSvg = new SKSvg();
+        defaultSvg.FromSvg(svgFontGlyphSvg);
+
+        using var enabledSvg = new SKSvg();
+        enabledSvg.Settings.EnableSvgFonts = true;
+        enabledSvg.FromSvg(svgFontGlyphSvg);
+
+        using var disabledSvg = new SKSvg();
+        disabledSvg.Settings.EnableSvgFonts = false;
+        disabledSvg.FromSvg(svgFontGlyphSvg);
+
+        Assert.NotNull(defaultSvg.Model);
+        Assert.NotNull(enabledSvg.Model);
+        Assert.NotNull(disabledSvg.Model);
+        Assert.NotNull(defaultSvg.Picture);
+        Assert.NotNull(enabledSvg.Picture);
+
+        AssertPicturesEqual(defaultSvg, defaultSvg.Picture!, enabledSvg.Picture!);
+        Assert.NotEmpty(defaultSvg.Model!.FindCommands<DrawPathCanvasCommand>());
+        Assert.Empty(defaultSvg.Model.FindCommands<DrawTextCanvasCommand>());
+        Assert.Empty(defaultSvg.Model.FindCommands<DrawTextBlobCanvasCommand>());
+        Assert.Empty(disabledSvg.Model!.FindCommands<DrawPathCanvasCommand>());
+    }
+
+    [Fact]
     public void RetainedSceneGraph_UsesArabicJoiningTypes_ForSvgFontArabicForms()
     {
         const string arabicFormSvg = """
