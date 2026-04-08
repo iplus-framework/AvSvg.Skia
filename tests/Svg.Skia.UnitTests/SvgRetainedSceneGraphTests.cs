@@ -149,6 +149,38 @@ public class SvgRetainedSceneGraphTests
     }
 
     [Fact]
+    public void RetainedSceneGraph_PreservesPositionedTextPoints_ForSmallCapsFallbackWithoutCodepointExpansion()
+    {
+        const string positionedTextSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">
+              <text id="positioned-root" x="10" y="20" font-size="16" font-family="Times New Roman">
+                <tspan id="positioned-run" x="10 30" y="20 20" font-variant="small-caps">ßa</tspan>
+              </text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = false;
+        svg.FromSvg(positionedTextSvg);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var blobPoints = retainedModel!
+            .FindCommands<DrawTextBlobCanvasCommand>()
+            .Where(static cmd => cmd.TextBlob?.Points is { Length: > 0 })
+            .SelectMany(static cmd => cmd.TextBlob!.Points!)
+            .ToList();
+
+        Assert.Single(blobPoints);
+        Assert.Equal(new SKPoint(10f, 20f), blobPoints[0]);
+
+        var tailCommand = Assert.Single(retainedModel.FindCommands<DrawTextCanvasCommand>(),
+            static cmd => cmd.X == 30f && cmd.Y == 20f);
+        Assert.Equal("A", tailCommand.Text);
+    }
+
+    [Fact]
     public void RetainedSceneGraph_ResolvesRetainedMaskPayloadsForDirectNodes()
     {
         using var svg = new SKSvg();

@@ -22,7 +22,7 @@ public sealed class DefaultTypefaceProvider : ITypefaceProvider
                 skTypeface = SkiaSharp.SKTypeface.FromFamilyName(fontFamilyName, fontWeight, fontWidth, fontStyle);
                 if (skTypeface is { })
                 {
-                    if (!skTypeface.FamilyName.Equals(fontFamilyName, StringComparison.OrdinalIgnoreCase) ||
+                    if (!skTypeface.FamilyName.Equals(fontFamilyName, StringComparison.OrdinalIgnoreCase) &&
                         defaultName.Equals(skTypeface.FamilyName, StringComparison.Ordinal))
                     {
                         skTypeface.Dispose();

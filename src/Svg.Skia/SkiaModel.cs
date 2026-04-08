@@ -14,6 +14,15 @@ public partial class SkiaModel
 
     private static readonly Dictionary<string, string[]> s_genericFontFamilyMap = new(StringComparer.OrdinalIgnoreCase)
     {
+        ["sans-serif"] = new[] { "sans-serif", "Helvetica Neue", "Helvetica", "Arial", "Roboto", "Segoe UI", "DejaVu Sans" },
+        ["serif"] = new[] { "serif", "Times New Roman", "Times", "Georgia", "Droid Serif", "DejaVu Serif" },
+        ["monospace"] = new[] { "monospace", "Courier New", "Courier", "Menlo", "Consolas", "Roboto Mono", "DejaVu Sans Mono" },
+        ["cursive"] = new[] { "cursive", "Snell Roundhand", "Comic Sans MS", "Apple Chancery" },
+        ["fantasy"] = new[] { "fantasy", "Impact", "Papyrus" }
+    };
+
+    private static readonly Dictionary<string, string[]> s_browserCompatibleGenericFontFamilyMap = new(StringComparer.OrdinalIgnoreCase)
+    {
         ["sans-serif"] = new[] { "sans-serif", "Helvetica", "Helvetica Neue", "Arial", "Roboto", "Segoe UI", "DejaVu Sans" },
         ["serif"] = new[] { "serif", "Times", "Times New Roman", "Georgia", "Droid Serif", "DejaVu Serif" },
         ["monospace"] = new[] { "monospace", "Courier New", "Courier", "Menlo", "Consolas", "Roboto Mono", "DejaVu Sans Mono" },
@@ -191,8 +200,11 @@ public partial class SkiaModel
         };
     }
 
-    internal static IEnumerable<string> EnumerateFontFamilyCandidates(string? fontFamily)
+    internal static IEnumerable<string> EnumerateFontFamilyCandidates(string? fontFamily, bool browserCompatible = false)
     {
+        var genericFontFamilyMap = browserCompatible
+            ? s_browserCompatibleGenericFontFamilyMap
+            : s_genericFontFamilyMap;
         var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         if (!string.IsNullOrWhiteSpace(fontFamily))
@@ -213,7 +225,7 @@ public partial class SkiaModel
 
                 yield return candidate;
 
-                if (s_genericFontFamilyMap.TryGetValue(candidate, out var mappedFamilies))
+                if (genericFontFamilyMap.TryGetValue(candidate, out var mappedFamilies))
                 {
                     foreach (var mapped in mappedFamilies)
                     {
@@ -226,7 +238,7 @@ public partial class SkiaModel
             }
         }
 
-        if (yielded.Count == 0 && s_genericFontFamilyMap.TryGetValue("sans-serif", out var fallbackFamilies))
+        if (yielded.Count == 0 && genericFontFamilyMap.TryGetValue("sans-serif", out var fallbackFamilies))
         {
             foreach (var mapped in fallbackFamilies)
             {
@@ -362,7 +374,8 @@ public partial class SkiaModel
         var matched = fontManager.MatchFamily(candidate, style);
         if (matched is { } && matched.Handle != IntPtr.Zero)
         {
-            if (IsGenericFontFamilyName(candidate) ||
+            if (Settings.EnableSvgFonts ||
+                IsGenericFontFamilyName(candidate) ||
                 string.Equals(matched.FamilyName, candidate, StringComparison.OrdinalIgnoreCase))
             {
                 resolved = matched;
@@ -377,7 +390,8 @@ public partial class SkiaModel
         {
             var requested = SkiaSharp.SKTypeface.FromFamilyName(candidate, style.Weight, style.Width, style.Slant);
             if (requested is { } && requested.Handle != IntPtr.Zero &&
-                (IsGenericFontFamilyName(candidate) ||
+                (Settings.EnableSvgFonts ||
+                 IsGenericFontFamilyName(candidate) ||
                  string.Equals(requested.FamilyName, candidate, StringComparison.OrdinalIgnoreCase)))
             {
                 resolved = requested;
@@ -417,7 +431,8 @@ public partial class SkiaModel
             _typefaceCache.TryRemove(cacheKey, out _);
         }
 
-        foreach (var candidate in EnumerateFontFamilyCandidates(fontFamily))
+        var browserCompatibleFontFallback = !Settings.EnableSvgFonts;
+        foreach (var candidate in EnumerateFontFamilyCandidates(fontFamily, browserCompatibleFontFallback))
         {
             if (Settings.TypefaceProviders is { } && Settings.TypefaceProviders.Count > 0)
             {
@@ -442,9 +457,9 @@ public partial class SkiaModel
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(fontFamily))
+        if (!Settings.EnableSvgFonts && !string.IsNullOrWhiteSpace(fontFamily))
         {
-            foreach (var candidate in EnumerateFontFamilyCandidates("serif"))
+            foreach (var candidate in EnumerateFontFamilyCandidates("serif", browserCompatibleFontFallback))
             {
                 if (Settings.TypefaceProviders is { } && Settings.TypefaceProviders.Count > 0)
                 {

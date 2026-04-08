@@ -1,5 +1,6 @@
-﻿using SkiaSharp;
+using SkiaSharp;
 using Svg.Skia.UnitTests.Common;
+using Svg.Skia.TypefaceProviders;
 using Xunit;
 
 namespace Svg.Skia.UnitTests;
@@ -62,5 +63,29 @@ public class SKSvgSettingsTests : SvgUnitTest
         var clone = svg.Clone();
 
         Assert.False(clone.Settings.EnableSvgFonts);
+    }
+
+    [Fact]
+    public void DefaultTypefaceProvider_AllowsExplicitDefaultFamilyRequest()
+    {
+        var provider = new DefaultTypefaceProvider();
+        var familyName = SKTypeface.Default.FamilyName;
+
+        using var typeface = provider.FromFamilyName(familyName, SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
+
+        Assert.NotNull(typeface);
+        Assert.Equal(familyName, typeface!.FamilyName);
+    }
+
+    [Fact]
+    public void FontManagerTypefaceProvider_AllowsExplicitDefaultFamilyRequest()
+    {
+        var provider = new FontManagerTypefaceProvider();
+        var familyName = SKTypeface.Default.FamilyName;
+
+        using var typeface = provider.FromFamilyName(familyName, SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
+
+        Assert.NotNull(typeface);
+        Assert.Equal(familyName, typeface!.FamilyName);
     }
 }

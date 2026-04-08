@@ -1679,7 +1679,22 @@ internal static class SvgSceneTextCompiler
             return text;
         }
 
-        return text.ToUpperInvariant();
+        var builder = new StringBuilder(text.Length);
+        var charIndex = 0;
+        while (TryReadNextCodepoint(text, ref charIndex, out var codepoint))
+        {
+            builder.Append(GetCodepointStableUpperInvariant(codepoint));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string GetCodepointStableUpperInvariant(string codepoint)
+    {
+        var upper = codepoint.ToUpperInvariant();
+        return CountCodepoints(upper) == CountCodepoints(codepoint)
+            ? upper
+            : codepoint;
     }
 
     private static string? ApplyTransformation(SvgTextBase svgTextBase, string? value)
