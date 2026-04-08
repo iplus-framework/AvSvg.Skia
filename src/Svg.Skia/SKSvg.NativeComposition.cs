@@ -9,6 +9,13 @@ namespace Svg.Skia;
 
 public partial class SKSvg
 {
+    private SvgDocument? _nativeCompositionSourceDocument;
+    private SvgSceneDocument? _nativeCompositionSourceScene;
+    private int[]? _nativeCompositionAnimatedChildIndexes;
+    private string[]? _nativeCompositionAnimatedTargetKeys;
+    private SKRect _nativeCompositionSourceBounds;
+    private DrawAttributes _nativeCompositionIgnoreAttributes;
+
     public bool SupportsNativeComposition
     {
         get
@@ -128,6 +135,16 @@ public partial class SKSvg
             return false;
         }
 
+        if (TryGetCachedNativeCompositionSourceState(
+                currentSourceDocument,
+                animatedTargetKeys,
+                sourceBounds,
+                out sourceScene,
+                out animatedChildIndexes))
+        {
+            return true;
+        }
+
         if (!TryGetRetainedSceneForDocument(currentSourceDocument, sourceBounds, out sourceScene))
         {
             return false;
@@ -144,11 +161,74 @@ public partial class SKSvg
 
         if (renderableIndexes.Count == 0)
         {
+            InvalidateNativeCompositionState();
             return false;
         }
 
         animatedChildIndexes = renderableIndexes.ToArray();
+        CacheNativeCompositionSourceState(currentSourceDocument, sourceScene, animatedTargetKeys, animatedChildIndexes, sourceBounds);
         return true;
+    }
+
+    private bool TryGetCachedNativeCompositionSourceState(
+        SvgDocument sourceDocument,
+        IReadOnlyList<string> animatedTargetKeys,
+        SKRect sourceBounds,
+        out SvgSceneDocument sourceScene,
+        out int[] animatedChildIndexes)
+    {
+        sourceScene = null!;
+        animatedChildIndexes = Array.Empty<int>();
+
+        if (_nativeCompositionSourceScene is null ||
+            _nativeCompositionAnimatedChildIndexes is null ||
+            _nativeCompositionAnimatedTargetKeys is null ||
+            !ReferenceEquals(_nativeCompositionSourceDocument, sourceDocument) ||
+            _nativeCompositionIgnoreAttributes != IgnoreAttributes ||
+            !AreRectsEqual(_nativeCompositionSourceBounds, sourceBounds) ||
+            _nativeCompositionAnimatedTargetKeys.Length != animatedTargetKeys.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < animatedTargetKeys.Count; i++)
+        {
+            if (!string.Equals(_nativeCompositionAnimatedTargetKeys[i], animatedTargetKeys[i], StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        sourceScene = _nativeCompositionSourceScene;
+        animatedChildIndexes = _nativeCompositionAnimatedChildIndexes;
+        return true;
+    }
+
+    private void CacheNativeCompositionSourceState(
+        SvgDocument sourceDocument,
+        SvgSceneDocument sourceScene,
+        IReadOnlyList<string> animatedTargetKeys,
+        int[] animatedChildIndexes,
+        SKRect sourceBounds)
+    {
+        _nativeCompositionSourceDocument = sourceDocument;
+        _nativeCompositionSourceScene = sourceScene;
+        _nativeCompositionAnimatedChildIndexes = animatedChildIndexes;
+        _nativeCompositionAnimatedTargetKeys = animatedTargetKeys is string[] keys
+            ? (string[])keys.Clone()
+            : new List<string>(animatedTargetKeys).ToArray();
+        _nativeCompositionSourceBounds = sourceBounds;
+        _nativeCompositionIgnoreAttributes = IgnoreAttributes;
+    }
+
+    private void InvalidateNativeCompositionState()
+    {
+        _nativeCompositionSourceDocument = null;
+        _nativeCompositionSourceScene = null;
+        _nativeCompositionAnimatedChildIndexes = null;
+        _nativeCompositionAnimatedTargetKeys = null;
+        _nativeCompositionSourceBounds = SKRect.Empty;
+        _nativeCompositionIgnoreAttributes = DrawAttributes.None;
     }
 
     private static bool TryAddRenderableNativeCompositionAnimatedChildIndexes(
