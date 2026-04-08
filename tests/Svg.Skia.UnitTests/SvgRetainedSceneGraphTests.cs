@@ -148,6 +148,258 @@ public class SvgRetainedSceneGraphTests
         Assert.Equal("c", tailCommand.Text);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RetainedSceneGraph_PreservesPositionedTextPoints_ForSmallCapsFallbackWithoutCodepointExpansion(bool enableSvgFonts)
+    {
+        const string positionedTextSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">
+              <text id="positioned-root" x="10" y="20" font-size="16" font-family="Times New Roman">
+                <tspan id="positioned-run" x="10 30" y="20 20" font-variant="small-caps">ßa</tspan>
+              </text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = enableSvgFonts;
+        svg.FromSvg(positionedTextSvg);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var blobPoints = retainedModel!
+            .FindCommands<DrawTextBlobCanvasCommand>()
+            .Where(static cmd => cmd.TextBlob?.Points is { Length: > 0 })
+            .SelectMany(static cmd => cmd.TextBlob!.Points!)
+            .ToList();
+
+        Assert.Single(blobPoints);
+        Assert.Equal(new SKPoint(10f, 20f), blobPoints[0]);
+
+        var tailCommand = Assert.Single(retainedModel.FindCommands<DrawTextCanvasCommand>(),
+            static cmd => cmd.X == 30f && cmd.Y == 20f);
+        Assert.Equal("A", tailCommand.Text);
+    }
+
+    [Fact]
+    public void SystemTextRendering_IsStable_WhenSvgFontsSettingChanges()
+    {
+        const string systemTextSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="240" height="100">
+              <text x="10" y="24" font-size="18" font-family="sans-serif" font-weight="bold">Bold Text 20px</text>
+              <text x="10" y="54" font-size="18" font-family="Times New Roman" font-variant="small-caps">ßa</text>
+              <text x="10" y="84" font-size="18" font-family="Missing Family, serif">Fallback serif sample</text>
+            </svg>
+            """;
+
+        using var disabledSvg = new SKSvg();
+        disabledSvg.Settings.EnableSvgFonts = false;
+        disabledSvg.FromSvg(systemTextSvg);
+
+        using var enabledSvg = new SKSvg();
+        enabledSvg.Settings.EnableSvgFonts = true;
+        enabledSvg.FromSvg(systemTextSvg);
+
+        Assert.NotNull(disabledSvg.Picture);
+        Assert.NotNull(enabledSvg.Picture);
+        AssertPicturesEqual(disabledSvg, disabledSvg.Picture!, enabledSvg.Picture!);
+    }
+
+    [Fact]
+    public void DefaultSettings_RenderSvgFontGlyphCommands()
+    {
+        const string svgFontGlyphSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'DefaultFont';
+                    src: url('#DefaultFontFace') format('svg');
+                  }
+                ]]></style>
+                <font id="DefaultFontFace" horiz-adv-x="100">
+                  <font-face font-family="DefaultFont" units-per-em="100" ascent="100" descent="0" />
+                  <glyph unicode="A" horiz-adv-x="100" d="M10 0H30V100H10Z" />
+                </font>
+              </defs>
+              <text x="10" y="110" fill="black" font-family="DefaultFont" font-size="100">A</text>
+            </svg>
+            """;
+
+        using var defaultSvg = new SKSvg();
+        defaultSvg.FromSvg(svgFontGlyphSvg);
+
+        using var enabledSvg = new SKSvg();
+        enabledSvg.Settings.EnableSvgFonts = true;
+        enabledSvg.FromSvg(svgFontGlyphSvg);
+
+        using var disabledSvg = new SKSvg();
+        disabledSvg.Settings.EnableSvgFonts = false;
+        disabledSvg.FromSvg(svgFontGlyphSvg);
+
+        Assert.NotNull(defaultSvg.Model);
+        Assert.NotNull(enabledSvg.Model);
+        Assert.NotNull(disabledSvg.Model);
+        Assert.NotNull(defaultSvg.Picture);
+        Assert.NotNull(enabledSvg.Picture);
+
+        AssertPicturesEqual(defaultSvg, defaultSvg.Picture!, enabledSvg.Picture!);
+        Assert.NotEmpty(defaultSvg.Model!.FindCommands<DrawPathCanvasCommand>());
+        Assert.Empty(defaultSvg.Model.FindCommands<DrawTextCanvasCommand>());
+        Assert.Empty(defaultSvg.Model.FindCommands<DrawTextBlobCanvasCommand>());
+        Assert.Empty(disabledSvg.Model!.FindCommands<DrawPathCanvasCommand>());
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_UsesArabicJoiningTypes_ForSvgFontArabicForms()
+    {
+        const string arabicFormSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="320" height="260" viewBox="0 0 320 260">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'TestArabic';
+                    src: url('#TestArabicFont') format('svg');
+                  }
+                ]]></style>
+                <font id="TestArabicFont" horiz-adv-x="100">
+                  <font-face font-family="TestArabic" units-per-em="100" ascent="100" descent="0" />
+                  <missing-glyph horiz-adv-x="100" />
+                  <glyph unicode="ب" arabic-form="isolated" d="M0 0H20V100H0Z" />
+                  <glyph unicode="ب" arabic-form="initial" d="M25 0H45V100H25Z" />
+                  <glyph unicode="ب" arabic-form="medial" d="M50 0H70V100H50Z" />
+                  <glyph unicode="ب" arabic-form="terminal" d="M75 0H95V100H75Z" />
+                  <glyph unicode="ا" horiz-adv-x="100" d="M40 0H60V100H40Z" />
+                  <glyph unicode="،" horiz-adv-x="100" d="M40 0H60V100H40Z" />
+                </font>
+              </defs>
+              <g fill="black" font-family="TestArabic" font-size="100">
+                <text x="10" y="110">ب،ب</text>
+                <text x="10" y="240">باب</text>
+              </g>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = true;
+        svg.FromSvg(arabicFormSvg);
+
+        Assert.NotNull(svg.Picture);
+
+        using var bitmap = ToBitmap(svg, svg.Picture!);
+
+        var punctuationLeft = bitmap.GetPixel(15, 60);
+        var punctuationLeftInitialBand = bitmap.GetPixel(40, 60);
+        var punctuationRight = bitmap.GetPixel(215, 60);
+        var punctuationRightTerminalBand = bitmap.GetPixel(290, 60);
+        var rightJoiningInitial = bitmap.GetPixel(40, 190);
+        var rightJoiningFinal = bitmap.GetPixel(215, 190);
+        var rightJoiningFinalTerminalBand = bitmap.GetPixel(290, 190);
+
+        Assert.True(punctuationLeft.Alpha > 0, $"Expected punctuation-broken run to use the isolated form on the first glyph, but was {punctuationLeft}.");
+        Assert.Equal(0, punctuationLeftInitialBand.Alpha);
+        Assert.True(punctuationRight.Alpha > 0, $"Expected punctuation-broken run to keep the trailing glyph isolated, but was {punctuationRight}.");
+        Assert.Equal(0, punctuationRightTerminalBand.Alpha);
+        Assert.True(rightJoiningInitial.Alpha > 0, $"Expected the leading beh before alef to use the initial form, but was {rightJoiningInitial}.");
+        Assert.True(rightJoiningFinal.Alpha > 0, $"Expected the trailing beh after alef to remain isolated, but was {rightJoiningFinal}.");
+        Assert.Equal(0, rightJoiningFinalTerminalBand.Alpha);
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_PrefersLongestSvgFontUnicodeMatch()
+    {
+        const string ligatureSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="220" height="140" viewBox="0 0 220 140">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'LigatureFont';
+                    src: url('#LigatureFont') format('svg');
+                  }
+                ]]></style>
+                <font id="LigatureFont" horiz-adv-x="100">
+                  <font-face font-family="LigatureFont" units-per-em="100" ascent="100" descent="0" />
+                  <missing-glyph horiz-adv-x="100" />
+                  <glyph unicode="ff" horiz-adv-x="100" d="M0 0H20V100H0Z" />
+                  <glyph unicode="ffi" horiz-adv-x="100" d="M40 0H60V100H40Z" />
+                  <glyph unicode="i" horiz-adv-x="100" d="M80 0H100V100H80Z" />
+                </font>
+              </defs>
+              <text x="10" y="110" fill="black" font-family="LigatureFont" font-size="100">ffi</text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = true;
+        svg.FromSvg(ligatureSvg);
+
+        Assert.NotNull(svg.Picture);
+
+        using var bitmap = ToBitmap(svg, svg.Picture!);
+
+        var ligaturePixel = bitmap.GetPixel(55, 60);
+        var shorterPrefixPixel = bitmap.GetPixel(15, 60);
+        var trailingGlyphPixel = bitmap.GetPixel(195, 60);
+
+        Assert.True(ligaturePixel.Alpha > 0, $"Expected the longest ffi ligature glyph to render, but was {ligaturePixel}.");
+        Assert.Equal(0, shorterPrefixPixel.Alpha);
+        Assert.Equal(0, trailingGlyphPixel.Alpha);
+    }
+
+    [Fact]
+    public void SvgFontLayout_AllowsMixedUnicodeRangeRuns_WithPerGlyphFallback()
+    {
+        const string actualSvgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'MixedRange';
+                    src: url('#MixedRangeFont') format('svg');
+                  }
+                ]]></style>
+                <font id="MixedRangeFont" horiz-adv-x="100">
+                  <font-face font-family="MixedRange" units-per-em="100" ascent="100" descent="0" unicode-range="U+0041" />
+                  <glyph unicode="A" horiz-adv-x="100" d="M0 0H20V100H0Z" />
+                  <glyph unicode="Ω" horiz-adv-x="100" d="M70 10H90V30H70Z" />
+                </font>
+              </defs>
+              <text x="10" y="110" fill="black" font-family="MixedRange, serif" font-size="100">AΩ</text>
+            </svg>
+            """;
+
+        const string expectedSvgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'MixedRange';
+                    src: url('#MixedRangeFont') format('svg');
+                  }
+                ]]></style>
+                <font id="MixedRangeFont" horiz-adv-x="100">
+                  <font-face font-family="MixedRange" units-per-em="100" ascent="100" descent="0" unicode-range="U+0041" />
+                  <glyph unicode="A" horiz-adv-x="100" d="M0 0H20V100H0Z" />
+                </font>
+              </defs>
+              <text x="10" y="110" fill="black" font-family="MixedRange, serif" font-size="100">AΩ</text>
+            </svg>
+            """;
+
+        using var actualSvg = new SKSvg();
+        actualSvg.Settings.EnableSvgFonts = true;
+        actualSvg.FromSvg(actualSvgMarkup);
+
+        using var expectedSvg = new SKSvg();
+        expectedSvg.Settings.EnableSvgFonts = true;
+        expectedSvg.FromSvg(expectedSvgMarkup);
+
+        Assert.NotNull(actualSvg.Picture);
+        Assert.NotNull(expectedSvg.Picture);
+        AssertPicturesEqual(expectedSvg, expectedSvg.Picture!, actualSvg.Picture!);
+    }
+
     [Fact]
     public void RetainedSceneGraph_ResolvesRetainedMaskPayloadsForDirectNodes()
     {

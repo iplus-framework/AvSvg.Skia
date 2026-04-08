@@ -298,3 +298,4 @@ __pycache__/
 /output
 /.playwright-cli
 TestApp.json
+/run-artifacts

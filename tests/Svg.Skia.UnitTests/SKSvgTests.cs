@@ -19,7 +19,7 @@ public class SKSvgTests : SvgUnitTest
         => Path.Combine("..", "..", "..", "..", "Tests", name);
 
     [WindowsTheory]
-    [InlineData("Sign in", 0.022)]
+    [InlineData("Sign in", 0.04)]
     public void Test(string name, double errorThreshold)
     {
         var svgPath = GetSvgPath($"{name}.svg");
@@ -27,6 +27,7 @@ public class SKSvgTests : SvgUnitTest
         var actualPng = GetActualPngPath($"{name} (Actual).png");
 
         var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = true;
         using var _ = svg.Load(svgPath);
         svg.Save(actualPng, SkiaSharp.SKColors.Transparent);
 

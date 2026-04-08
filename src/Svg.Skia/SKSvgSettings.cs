@@ -19,6 +19,8 @@ public class SKSvgSettings
 
     public SkiaSharp.SKRect? StandaloneViewport { get; set; }
 
+    public bool EnableSvgFonts { get; set; }
+
     public SKSvgSettings()
     {
         AlphaType = SkiaSharp.SKAlphaType.Unpremul;
@@ -36,5 +38,6 @@ public class SKSvgSettings
         };
 
         StandaloneViewport = null;
+        EnableSvgFonts = true;
     }
 }

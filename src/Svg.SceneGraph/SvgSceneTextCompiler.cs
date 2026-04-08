@@ -482,21 +482,34 @@ internal static class SvgSceneTextCompiler
         PaintingService.SetPaintText(svgTextBase, geometryBounds, paint);
 
         var currentX = anchorX;
+        SvgFontTextRenderer.SvgFontLayout? svgFontLayout = null;
+        if (SvgFontTextRenderer.TryGetLayout(svgTextBase, text, paint, assetLoader, out var candidateLayout))
+        {
+            svgFontLayout = candidateLayout;
+        }
+
         if (!forceLeftAlign)
         {
             var totalAdvance = 0f;
-            var typefaceSpans = assetLoader.FindTypefaces(text, paint);
-            if (typefaceSpans.Count > 0)
+            if (svgFontLayout is not null)
             {
-                for (var i = 0; i < typefaceSpans.Count; i++)
-                {
-                    totalAdvance += typefaceSpans[i].Advance;
-                }
+                totalAdvance = svgFontLayout.Advance;
             }
             else
             {
-                var bounds = new SKRect();
-                totalAdvance = assetLoader.MeasureText(text, paint, ref bounds);
+                var typefaceSpans = assetLoader.FindTypefaces(text, paint);
+                if (typefaceSpans.Count > 0)
+                {
+                    for (var i = 0; i < typefaceSpans.Count; i++)
+                    {
+                        totalAdvance += typefaceSpans[i].Advance;
+                    }
+                }
+                else
+                {
+                    var bounds = new SKRect();
+                    totalAdvance = assetLoader.MeasureText(text, paint, ref bounds);
+                }
             }
 
             if (paint.TextAlign == SKTextAlign.Center)
@@ -510,17 +523,28 @@ internal static class SvgSceneTextCompiler
         }
 
         paint.TextAlign = SKTextAlign.Left;
+        var isRightToLeft = IsRightToLeft(svgTextBase);
 
-        var advance = 0f;
-        var spans = assetLoader.FindTypefaces(text, paint);
-        if (spans.Count == 0)
+        if (svgFontLayout is not null)
         {
-            AppendPathCommands(targetPath, assetLoader.GetTextPath(text, paint, currentX, anchorY));
-            var bounds = new SKRect();
-            return assetLoader.MeasureText(text, paint, ref bounds);
+            svgFontLayout.AppendPath(targetPath, currentX, anchorY);
+            return svgFontLayout.Advance;
         }
 
-        for (var i = 0; i < spans.Count; i++)
+        var fallbackText = GetBrowserCompatibleFallbackText(svgTextBase, text, assetLoader);
+        var advance = 0f;
+        var spans = assetLoader.FindTypefaces(fallbackText, paint);
+        if (spans.Count == 0)
+        {
+            AppendPathCommands(targetPath, assetLoader.GetTextPath(fallbackText, paint, currentX, anchorY));
+            var bounds = new SKRect();
+            return assetLoader.MeasureText(fallbackText, paint, ref bounds);
+        }
+
+        var startIndex = isRightToLeft ? spans.Count - 1 : 0;
+        var endIndex = isRightToLeft ? -1 : spans.Count;
+        var step = isRightToLeft ? -1 : 1;
+        for (var i = startIndex; i != endIndex; i += step)
         {
             var span = spans[i];
             var localPaint = paint.Clone();
@@ -549,15 +573,23 @@ internal static class SvgSceneTextCompiler
         var charIndex = 0;
         while (TryReadNextCodepoint(text, ref charIndex, out var codepoint))
         {
+            var point = points[pointIndex++];
             var localPaint = paint.Clone();
-            var typefaceSpans = assetLoader.FindTypefaces(codepoint, paint);
+            if (SvgFontTextRenderer.TryGetLayout(svgTextBase, codepoint, localPaint, assetLoader, out var svgFontLayout) &&
+                svgFontLayout is not null)
+            {
+                svgFontLayout.AppendPath(path, point.X, point.Y);
+                continue;
+            }
+
+            var fallbackCodepoint = GetBrowserCompatibleFallbackText(svgTextBase, codepoint, assetLoader);
+            var typefaceSpans = assetLoader.FindTypefaces(fallbackCodepoint, localPaint);
             if (typefaceSpans.Count > 0)
             {
                 localPaint.Typeface = typefaceSpans[0].Typeface;
             }
 
-            var point = points[pointIndex++];
-            AppendPathCommands(path, assetLoader.GetTextPath(codepoint, localPaint, point.X, point.Y));
+            AppendPathCommands(path, assetLoader.GetTextPath(fallbackCodepoint, localPaint, point.X, point.Y));
         }
     }
 
@@ -574,7 +606,25 @@ internal static class SvgSceneTextCompiler
         PaintingService.SetPaintText(svgTextBase, geometryBounds, paint);
 
         var textAlign = paint.TextAlign;
-        var typefaceSpans = assetLoader.FindTypefaces(text, paint);
+        if (SvgFontTextRenderer.TryGetLayout(svgTextBase, text, paint, assetLoader, out var svgFontLayout) && svgFontLayout is not null)
+        {
+            var startX = anchorX;
+            if (textAlign == SKTextAlign.Center)
+            {
+                startX -= svgFontLayout.Advance * 0.5f;
+            }
+            else if (textAlign == SKTextAlign.Right)
+            {
+                startX -= svgFontLayout.Advance;
+            }
+
+            paint.TextAlign = SKTextAlign.Left;
+            svgFontLayout.Draw(canvas, paint, startX, anchorY);
+            return svgFontLayout.Advance;
+        }
+
+        var fallbackText = GetBrowserCompatibleFallbackText(svgTextBase, text, assetLoader);
+        var typefaceSpans = assetLoader.FindTypefaces(fallbackText, paint);
         if (typefaceSpans.Count == 0)
         {
             return 0f;
@@ -597,9 +647,14 @@ internal static class SvgSceneTextCompiler
         }
 
         paint.TextAlign = SKTextAlign.Left;
+        var isRightToLeft = IsRightToLeft(svgTextBase);
 
-        foreach (var typefaceSpan in typefaceSpans)
+        var startIndex = isRightToLeft ? typefaceSpans.Count - 1 : 0;
+        var endIndex = isRightToLeft ? -1 : typefaceSpans.Count;
+        var step = isRightToLeft ? -1 : 1;
+        for (var i = startIndex; i != endIndex; i += step)
         {
+            var typefaceSpan = typefaceSpans[i];
             paint.Typeface = typefaceSpan.Typeface;
             canvas.DrawText(typefaceSpan.Text, currentX, anchorY, paint);
             currentX += typefaceSpan.Advance;
@@ -607,6 +662,12 @@ internal static class SvgSceneTextCompiler
         }
 
         return totalAdvance;
+    }
+
+    private static bool IsRightToLeft(SvgTextBase svgTextBase)
+    {
+        return svgTextBase.TryGetAttribute("direction", out var direction) &&
+               direction.Equals("rtl", StringComparison.OrdinalIgnoreCase);
     }
 
     private static float DrawPositionedTextRuns(
@@ -619,7 +680,79 @@ internal static class SvgSceneTextCompiler
         ISvgAssetLoader assetLoader)
     {
         PaintingService.SetPaintText(svgTextBase, geometryBounds, paint);
+        paint.TextAlign = SKTextAlign.Left;
 
+        var fallbackText = GetBrowserCompatibleFallbackText(svgTextBase, text, assetLoader);
+        if (!HasPositionedSvgFontLayouts(svgTextBase, text, paint, assetLoader))
+        {
+            return DrawPositionedTextRunsFallback(fallbackText, points, paint, canvas, assetLoader);
+        }
+
+        var advance = 0f;
+        var pointIndex = 0;
+        var charIndex = 0;
+        while (TryReadNextCodepoint(text, ref charIndex, out var codepoint))
+        {
+            var point = points[pointIndex++];
+            var localPaint = paint.Clone();
+            if (SvgFontTextRenderer.TryGetLayout(svgTextBase, codepoint, localPaint, assetLoader, out var svgFontLayout) &&
+                svgFontLayout is not null)
+            {
+                svgFontLayout.Draw(canvas, localPaint, point.X, point.Y);
+                advance = svgFontLayout.Advance;
+                continue;
+            }
+
+            var fallbackCodepoint = GetBrowserCompatibleFallbackText(svgTextBase, codepoint, assetLoader);
+            var typefaceSpans = assetLoader.FindTypefaces(fallbackCodepoint, localPaint);
+            if (typefaceSpans.Count > 0)
+            {
+                localPaint.Typeface = typefaceSpans[0].Typeface;
+                canvas.DrawText(typefaceSpans[0].Text, point.X, point.Y, localPaint);
+                advance = typefaceSpans[0].Advance;
+                continue;
+            }
+
+            canvas.DrawText(fallbackCodepoint, point.X, point.Y, localPaint);
+            var fallbackBounds = new SKRect();
+            advance = assetLoader.MeasureText(fallbackCodepoint, localPaint, ref fallbackBounds);
+        }
+
+        return advance;
+    }
+
+    private static bool HasPositionedSvgFontLayouts(
+        SvgTextBase svgTextBase,
+        string text,
+        SKPaint paint,
+        ISvgAssetLoader assetLoader)
+    {
+        if (!assetLoader.EnableSvgFonts)
+        {
+            return false;
+        }
+
+        var charIndex = 0;
+        while (TryReadNextCodepoint(text, ref charIndex, out var codepoint))
+        {
+            var localPaint = paint.Clone();
+            if (SvgFontTextRenderer.TryGetLayout(svgTextBase, codepoint, localPaint, assetLoader, out var svgFontLayout) &&
+                svgFontLayout is not null)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static float DrawPositionedTextRunsFallback(
+        string text,
+        SKPoint[] points,
+        SKPaint paint,
+        SKCanvas canvas,
+        ISvgAssetLoader assetLoader)
+    {
         var lastCodepointStart = GetLastCodepointStart(text);
         var leadingText = text.Substring(0, lastCodepointStart);
         if (!string.IsNullOrEmpty(leadingText))
@@ -963,8 +1096,25 @@ internal static class SvgSceneTextCompiler
         var paint = new SKPaint();
         PaintingService.SetPaintText(svgTextBase, viewport, paint);
 
+        if (SvgFontTextRenderer.TryGetLayout(svgTextBase, text, paint, assetLoader, out var svgFontLayout) && svgFontLayout is not null)
+        {
+            advance = svgFontLayout.Advance;
+            var svgStartX = anchorX;
+            if (paint.TextAlign == SKTextAlign.Center)
+            {
+                svgStartX -= svgFontLayout.Advance * 0.5f;
+            }
+            else if (paint.TextAlign == SKTextAlign.Right)
+            {
+                svgStartX -= svgFontLayout.Advance;
+            }
+
+            return svgFontLayout.GetBounds(svgStartX, anchorY);
+        }
+
+        var fallbackText = GetBrowserCompatibleFallbackText(svgTextBase, text, assetLoader);
         var totalAdvance = 0f;
-        var typefaceSpans = assetLoader.FindTypefaces(text, paint);
+        var typefaceSpans = assetLoader.FindTypefaces(fallbackText, paint);
         if (typefaceSpans.Count > 0)
         {
             foreach (var span in typefaceSpans)
@@ -975,7 +1125,7 @@ internal static class SvgSceneTextCompiler
         else
         {
             var scratchBounds = new SKRect();
-            totalAdvance = assetLoader.MeasureText(text, paint, ref scratchBounds);
+            totalAdvance = assetLoader.MeasureText(fallbackText, paint, ref scratchBounds);
         }
 
         var startX = anchorX;
@@ -1003,23 +1153,36 @@ internal static class SvgSceneTextCompiler
     {
         var paint = new SKPaint();
         PaintingService.SetPaintText(svgTextBase, viewport, paint);
+        paint.TextAlign = SKTextAlign.Left;
 
         var bounds = SKRect.Empty;
         advance = 0f;
 
         var pointIndex = 0;
-        var spans = assetLoader.FindTypefaces(text, paint);
-        if (spans.Count == 0)
+        var charIndex = 0;
+        while (TryReadNextCodepoint(text, ref charIndex, out var codepoint))
         {
-            MeasurePositionedCodepoints(text, points, paint, assetLoader, ref bounds, ref pointIndex, ref advance);
-            return bounds;
-        }
-
-        foreach (var span in spans)
-        {
+            var point = points[pointIndex];
             var localPaint = paint.Clone();
-            localPaint.Typeface = span.Typeface;
-            MeasurePositionedCodepoints(span.Text, points, localPaint, assetLoader, ref bounds, ref pointIndex, ref advance);
+            if (SvgFontTextRenderer.TryGetLayout(svgTextBase, codepoint, localPaint, assetLoader, out var svgFontLayout) &&
+                svgFontLayout is not null)
+            {
+                UnionBounds(ref bounds, svgFontLayout.GetBounds(point.X, point.Y));
+                advance = svgFontLayout.Advance;
+                pointIndex++;
+                continue;
+            }
+
+            var fallbackCodepoint = GetBrowserCompatibleFallbackText(svgTextBase, codepoint, assetLoader);
+            var typefaceSpans = assetLoader.FindTypefaces(fallbackCodepoint, localPaint);
+            if (typefaceSpans.Count > 0)
+            {
+                localPaint.Typeface = typefaceSpans[0].Typeface;
+                MeasurePositionedCodepoints(typefaceSpans[0].Text, points, localPaint, assetLoader, ref bounds, ref pointIndex, ref advance);
+                continue;
+            }
+
+            MeasurePositionedCodepoints(fallbackCodepoint, points, localPaint, assetLoader, ref bounds, ref pointIndex, ref advance);
         }
 
         return bounds;
@@ -1357,7 +1520,13 @@ internal static class SvgSceneTextCompiler
         PaintingService.SetPaintText(svgTextBase, geometryBounds, paint);
         paint.TextAlign = SKTextAlign.Left;
 
-        var spans = assetLoader.FindTypefaces(text, paint);
+        if (SvgFontTextRenderer.TryGetLayout(svgTextBase, text, paint, assetLoader, out var svgFontLayout) && svgFontLayout is not null)
+        {
+            return svgFontLayout.Advance;
+        }
+
+        var fallbackText = GetBrowserCompatibleFallbackText(svgTextBase, text, assetLoader);
+        var spans = assetLoader.FindTypefaces(fallbackText, paint);
         if (spans.Count > 0)
         {
             var totalAdvance = 0f;
@@ -1370,7 +1539,7 @@ internal static class SvgSceneTextCompiler
         }
 
         var bounds = new SKRect();
-        return assetLoader.MeasureText(text, paint, ref bounds);
+        return assetLoader.MeasureText(fallbackText, paint, ref bounds);
     }
 
     private static float ApplyTextAnchor(SvgTextBase svgTextBase, float anchorX, SKRect geometryBounds, float totalAdvance)
@@ -1432,7 +1601,14 @@ internal static class SvgSceneTextCompiler
         PaintingService.SetPaintText(svgTextBase, geometryBounds, paint);
         paint.TextAlign = SKTextAlign.Left;
 
-        var typefaceSpans = assetLoader.FindTypefaces(text, paint);
+        if (SvgFontTextRenderer.TryGetLayout(svgTextBase, text, paint, assetLoader, out var svgFontLayout) && svgFontLayout is not null)
+        {
+            svgFontLayout.Draw(canvas, paint, anchorX, anchorY);
+            return svgFontLayout.Advance;
+        }
+
+        var fallbackText = GetBrowserCompatibleFallbackText(svgTextBase, text, assetLoader);
+        var typefaceSpans = assetLoader.FindTypefaces(fallbackText, paint);
         if (typefaceSpans.Count == 0)
         {
             return 0f;
@@ -1465,6 +1641,12 @@ internal static class SvgSceneTextCompiler
         PaintingService.SetPaintText(svgTextBase, viewport, paint);
         paint.TextAlign = SKTextAlign.Left;
 
+        if (SvgFontTextRenderer.TryGetLayout(svgTextBase, text, paint, assetLoader, out var svgFontLayout) && svgFontLayout is not null)
+        {
+            advance = svgFontLayout.Advance;
+            return svgFontLayout.GetBounds(anchorX, anchorY);
+        }
+
         advance = MeasureTextAdvance(svgTextBase, text, viewport, assetLoader);
         var metrics = assetLoader.GetFontMetrics(paint);
         return new SKRect(anchorX, anchorY + metrics.Ascent, anchorX + advance, anchorY + metrics.Descent);
@@ -1488,6 +1670,31 @@ internal static class SvgSceneTextCompiler
         return svgTextBase.SpaceHandling == XmlSpaceHandling.Preserve
             ? value
             : s_multipleSpaces.Replace(trimLeadingWhitespace ? value.TrimStart() : value, " ");
+    }
+
+    private static string GetBrowserCompatibleFallbackText(SvgTextBase svgTextBase, string text, ISvgAssetLoader assetLoader)
+    {
+        if (svgTextBase.FontVariant != SvgFontVariant.SmallCaps || string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+
+        var builder = new StringBuilder(text.Length);
+        var charIndex = 0;
+        while (TryReadNextCodepoint(text, ref charIndex, out var codepoint))
+        {
+            builder.Append(GetCodepointStableUpperInvariant(codepoint));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string GetCodepointStableUpperInvariant(string codepoint)
+    {
+        var upper = codepoint.ToUpperInvariant();
+        return CountCodepoints(upper) == CountCodepoints(codepoint)
+            ? upper
+            : codepoint;
     }
 
     private static string? ApplyTransformation(SvgTextBase svgTextBase, string? value)
