@@ -778,6 +778,17 @@ namespace Svg.Skia
 
                 glyph = formCandidates[0];
                 consumedCodepoints = CountCodepoints(glyph.Unicode);
+                for (var i = 1; i < formCandidates.Count; i++)
+                {
+                    var candidate = formCandidates[i];
+                    var candidateCodepoints = CountCodepoints(candidate.Unicode);
+                    if (candidateCodepoints > consumedCodepoints)
+                    {
+                        glyph = candidate;
+                        consumedCodepoints = candidateCodepoints;
+                    }
+                }
+
                 requiresFontFallback = false;
                 return true;
             }

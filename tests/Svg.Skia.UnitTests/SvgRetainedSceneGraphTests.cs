@@ -236,6 +236,47 @@ public class SvgRetainedSceneGraphTests
     }
 
     [Fact]
+    public void RetainedSceneGraph_PrefersLongestSvgFontUnicodeMatch()
+    {
+        const string ligatureSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="220" height="140" viewBox="0 0 220 140">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'LigatureFont';
+                    src: url('#LigatureFont') format('svg');
+                  }
+                ]]></style>
+                <font id="LigatureFont" horiz-adv-x="100">
+                  <font-face font-family="LigatureFont" units-per-em="100" ascent="100" descent="0" />
+                  <missing-glyph horiz-adv-x="100" />
+                  <glyph unicode="ff" horiz-adv-x="100" d="M0 0H20V100H0Z" />
+                  <glyph unicode="ffi" horiz-adv-x="100" d="M40 0H60V100H40Z" />
+                  <glyph unicode="i" horiz-adv-x="100" d="M80 0H100V100H80Z" />
+                </font>
+              </defs>
+              <text x="10" y="110" fill="black" font-family="LigatureFont" font-size="100">ffi</text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = true;
+        svg.FromSvg(ligatureSvg);
+
+        Assert.NotNull(svg.Picture);
+
+        using var bitmap = ToBitmap(svg, svg.Picture!);
+
+        var ligaturePixel = bitmap.GetPixel(55, 60);
+        var shorterPrefixPixel = bitmap.GetPixel(15, 60);
+        var trailingGlyphPixel = bitmap.GetPixel(195, 60);
+
+        Assert.True(ligaturePixel.Alpha > 0, $"Expected the longest ffi ligature glyph to render, but was {ligaturePixel}.");
+        Assert.Equal(0, shorterPrefixPixel.Alpha);
+        Assert.Equal(0, trailingGlyphPixel.Alpha);
+    }
+
+    [Fact]
     public void RetainedSceneGraph_ResolvesRetainedMaskPayloadsForDirectNodes()
     {
         using var svg = new SKSvg();
