@@ -75,7 +75,7 @@ namespace Svg.Skia
                 for (var i = 0; i < compatibleEntries.Count; i++)
                 {
                     var entry = compatibleEntries[i];
-                    if (!entry.SupportsText(text))
+                    if (!entry.SupportsAnyText(text))
                     {
                         continue;
                     }
@@ -502,6 +502,11 @@ namespace Svg.Skia
                 return Descriptor.UnicodeRange is null || Descriptor.UnicodeRange.Supports(text);
             }
 
+            public bool SupportsAnyText(string text)
+            {
+                return Descriptor.UnicodeRange is null || Descriptor.UnicodeRange.SupportsAny(text);
+            }
+
             public bool IsVariantCompatible(SvgFontRequest request)
             {
                 return Descriptor.Variant == request.Variant;
@@ -552,6 +557,13 @@ namespace Svg.Skia
                 for (var codepointIndex = 0; codepointIndex < codepoints.Count;)
                 {
                     var start = codepoints[codepointIndex];
+                    if (!SupportsText(start.Value))
+                    {
+                        logicalItems.Add(new SvgFallbackTextItem(start.Value));
+                        codepointIndex++;
+                        continue;
+                    }
+
                     var remaining = request.Text.Substring(start.CharIndex);
                     if (!TryResolveGlyph(remaining, codepoints, codepointIndex, request.Language, out var glyph, out var consumedCodepoints, out var requiresFontFallback))
                     {
@@ -744,7 +756,9 @@ namespace Svg.Skia
                 for (var i = 0; i < _glyphs.Count; i++)
                 {
                     var candidate = _glyphs[i];
-                    if (!string.IsNullOrEmpty(candidate.Unicode) && remainingText.StartsWith(candidate.Unicode, StringComparison.Ordinal))
+                    if (!string.IsNullOrEmpty(candidate.Unicode) &&
+                        remainingText.StartsWith(candidate.Unicode, StringComparison.Ordinal) &&
+                        SupportsText(candidate.Unicode))
                     {
                         candidates.Add(candidate);
                     }
@@ -1135,17 +1149,7 @@ namespace Svg.Skia
                 for (var i = 0; i < text.Length; i++)
                 {
                     var codepoint = char.ConvertToUtf32(text, i);
-                    var matched = false;
-                    for (var tokenIndex = 0; tokenIndex < _tokens.Count; tokenIndex++)
-                    {
-                        if (_tokens[tokenIndex].Matches(codepoint))
-                        {
-                            matched = true;
-                            break;
-                        }
-                    }
-
-                    if (!matched)
+                    if (!Supports(codepoint))
                     {
                         return false;
                     }
@@ -1157,6 +1161,42 @@ namespace Svg.Skia
                 }
 
                 return true;
+            }
+
+            public bool SupportsAny(string text)
+            {
+                if (_tokens.Count == 0)
+                {
+                    return true;
+                }
+
+                for (var i = 0; i < text.Length; i++)
+                {
+                    if (Supports(char.ConvertToUtf32(text, i)))
+                    {
+                        return true;
+                    }
+
+                    if (char.IsHighSurrogate(text[i]))
+                    {
+                        i++;
+                    }
+                }
+
+                return false;
+            }
+
+            private bool Supports(int codepoint)
+            {
+                for (var tokenIndex = 0; tokenIndex < _tokens.Count; tokenIndex++)
+                {
+                    if (_tokens[tokenIndex].Matches(codepoint))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
             }
 
             public static bool TryCreate(string? value, out SvgUnicodeRangeMatcher? matcher)

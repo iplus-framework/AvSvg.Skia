@@ -303,6 +303,59 @@ public class SvgRetainedSceneGraphTests
     }
 
     [Fact]
+    public void SvgFontLayout_AllowsMixedUnicodeRangeRuns_WithPerGlyphFallback()
+    {
+        const string actualSvgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'MixedRange';
+                    src: url('#MixedRangeFont') format('svg');
+                  }
+                ]]></style>
+                <font id="MixedRangeFont" horiz-adv-x="100">
+                  <font-face font-family="MixedRange" units-per-em="100" ascent="100" descent="0" unicode-range="U+0041" />
+                  <glyph unicode="A" horiz-adv-x="100" d="M0 0H20V100H0Z" />
+                  <glyph unicode="Ω" horiz-adv-x="100" d="M70 10H90V30H70Z" />
+                </font>
+              </defs>
+              <text x="10" y="110" fill="black" font-family="MixedRange, serif" font-size="100">AΩ</text>
+            </svg>
+            """;
+
+        const string expectedSvgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'MixedRange';
+                    src: url('#MixedRangeFont') format('svg');
+                  }
+                ]]></style>
+                <font id="MixedRangeFont" horiz-adv-x="100">
+                  <font-face font-family="MixedRange" units-per-em="100" ascent="100" descent="0" unicode-range="U+0041" />
+                  <glyph unicode="A" horiz-adv-x="100" d="M0 0H20V100H0Z" />
+                </font>
+              </defs>
+              <text x="10" y="110" fill="black" font-family="MixedRange, serif" font-size="100">AΩ</text>
+            </svg>
+            """;
+
+        using var actualSvg = new SKSvg();
+        actualSvg.Settings.EnableSvgFonts = true;
+        actualSvg.FromSvg(actualSvgMarkup);
+
+        using var expectedSvg = new SKSvg();
+        expectedSvg.Settings.EnableSvgFonts = true;
+        expectedSvg.FromSvg(expectedSvgMarkup);
+
+        Assert.NotNull(actualSvg.Picture);
+        Assert.NotNull(expectedSvg.Picture);
+        AssertPicturesEqual(expectedSvg, expectedSvg.Picture!, actualSvg.Picture!);
+    }
+
+    [Fact]
     public void RetainedSceneGraph_ResolvesRetainedMaskPayloadsForDirectNodes()
     {
         using var svg = new SKSvg();
