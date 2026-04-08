@@ -45,4 +45,11 @@
     <Compile Include="**\*.cs" Exclude="obj\**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="HarfBuzzSharp" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.macOS" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Win32" />
+  </ItemGroup>
+
 </Project>

@@ -15,6 +15,9 @@ namespace Avalonia.Svg;
 public class AvaloniaSvgAssetLoader : SM.ISvgAssetLoader
 {
     /// <inheritdoc />
+    public bool EnableSvgFonts => false;
+
+    /// <inheritdoc />
     public SKImage LoadImage(Stream stream)
     {
         var data = SKImage.FromStream(stream);

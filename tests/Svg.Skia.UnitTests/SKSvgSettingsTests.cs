@@ -52,4 +52,15 @@ public class SKSvgSettingsTests : SvgUnitTest
             Assert.Equal(fontStyle, expectedTypeface.FontSlant);
         }
     }
+
+    [Fact]
+    public void Clone_PreservesEnableSvgFonts()
+    {
+        var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = false;
+
+        var clone = svg.Clone();
+
+        Assert.False(clone.Settings.EnableSvgFonts);
+    }
 }

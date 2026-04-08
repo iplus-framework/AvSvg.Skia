@@ -24,6 +24,9 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
     }
 
     /// <inheritdoc />
+    public bool EnableSvgFonts => _skiaModel.Settings.EnableSvgFonts;
+
+    /// <inheritdoc />
     public ShimSkiaSharp.SKImage LoadImage(System.IO.Stream stream)
     {
         var data = ShimSkiaSharp.SKImage.FromStream(stream);
@@ -63,8 +66,9 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
         void YieldCurrentTypefaceText()
         {
             var currentTypefaceText = text.Substring(currentTypefaceStartIndex, i - currentTypefaceStartIndex);
+            var currentTypefaceAdvance = _skiaModel.GetTextAdvance(currentTypefaceText, runningPaint);
 
-            ret.Add(new(currentTypefaceText, runningPaint.MeasureText(currentTypefaceText),
+            ret.Add(new(currentTypefaceText, currentTypefaceAdvance,
                 runningPaint.Typeface is null
                     ? null
                     : ShimSkiaSharp.SKTypeface.FromFamilyName(
@@ -139,7 +143,8 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
         }
 
         var skBounds = new SkiaSharp.SKRect();
-        var width = skPaint.MeasureText(text, ref skBounds);
+        skPaint.MeasureText(text, ref skBounds);
+        var width = _skiaModel.GetTextAdvance(text, skPaint);
         bounds = new ShimSkiaSharp.SKRect(skBounds.Left, skBounds.Top, skBounds.Right, skBounds.Bottom);
         return width;
     }
@@ -308,6 +313,63 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
         {
             foreach (var candidate in SkiaModel.EnumerateFontFamilyCandidates(normalizedFamily))
             {
+                if (IsGenericFamilyName(candidate))
+                {
+                    continue;
+                }
+
+                var matchedFamily = SkiaSharp.SKFontManager.Default.MatchFamily(
+                    candidate,
+                    new SkiaSharp.SKFontStyle(weight, width, slant));
+                if (matchedFamily is null ||
+                    matchedFamily.Handle == IntPtr.Zero ||
+                    !string.Equals(matchedFamily.FamilyName, candidate, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedFamily?.Dispose();
+                    continue;
+                }
+
+                matchedFamily.Dispose();
+                typeface = SkiaSharp.SKFontManager.Default.MatchCharacter(
+                    candidate,
+                    weight,
+                    width,
+                    slant,
+                    null,
+                    codepoint);
+
+                if (typeface is { })
+                {
+                    break;
+                }
+            }
+        }
+
+        if (typeface is null && normalizedFamily is not null && ShouldUseSerifDefaultFallback(codepoint))
+        {
+            // Browsers fall back from an unresolved named family to the CSS initial serif default
+            // for Latin/common text before they abandon family preferences entirely. Complex scripts
+            // still rely on platform fallback so rows like the Arabic font fixtures can pick the same
+            // per-script faces Chrome uses.
+            foreach (var candidate in SkiaModel.EnumerateFontFamilyCandidates("serif"))
+            {
+                if (IsGenericFamilyName(candidate))
+                {
+                    continue;
+                }
+
+                var matchedFamily = SkiaSharp.SKFontManager.Default.MatchFamily(
+                    candidate,
+                    new SkiaSharp.SKFontStyle(weight, width, slant));
+                if (matchedFamily is null ||
+                    matchedFamily.Handle == IntPtr.Zero ||
+                    !string.Equals(matchedFamily.FamilyName, candidate, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedFamily?.Dispose();
+                    continue;
+                }
+
+                matchedFamily.Dispose();
                 typeface = SkiaSharp.SKFontManager.Default.MatchCharacter(
                     candidate,
                     weight,
@@ -336,6 +398,26 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
         _matchCharacterCache.TryAdd(key, typeface);
         TrimCachesIfNeeded();
         return typeface;
+    }
+
+    private static bool IsGenericFamilyName(string familyName)
+    {
+        return familyName.Equals("serif", StringComparison.OrdinalIgnoreCase) ||
+               familyName.Equals("sans-serif", StringComparison.OrdinalIgnoreCase) ||
+               familyName.Equals("monospace", StringComparison.OrdinalIgnoreCase) ||
+               familyName.Equals("cursive", StringComparison.OrdinalIgnoreCase) ||
+               familyName.Equals("fantasy", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldUseSerifDefaultFallback(int codepoint)
+    {
+        if (codepoint <= 0x024F)
+        {
+            return true;
+        }
+
+        return codepoint is >= 0x0370 and <= 0x03FF ||
+               codepoint is >= 0x1E00 and <= 0x1EFF;
     }
 
     private SkiaSharp.SKTypeface? GetProviderTypeface(

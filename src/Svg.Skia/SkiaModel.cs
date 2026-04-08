@@ -14,8 +14,8 @@ public partial class SkiaModel
 
     private static readonly Dictionary<string, string[]> s_genericFontFamilyMap = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["sans-serif"] = new[] { "sans-serif", "Helvetica Neue", "Helvetica", "Arial", "Roboto", "Segoe UI", "DejaVu Sans" },
-        ["serif"] = new[] { "serif", "Times New Roman", "Times", "Georgia", "Droid Serif", "DejaVu Serif" },
+        ["sans-serif"] = new[] { "sans-serif", "Helvetica", "Helvetica Neue", "Arial", "Roboto", "Segoe UI", "DejaVu Sans" },
+        ["serif"] = new[] { "serif", "Times", "Times New Roman", "Georgia", "Droid Serif", "DejaVu Serif" },
         ["monospace"] = new[] { "monospace", "Courier New", "Courier", "Menlo", "Consolas", "Roboto Mono", "DejaVu Sans Mono" },
         ["cursive"] = new[] { "cursive", "Snell Roundhand", "Comic Sans MS", "Apple Chancery" },
         ["fantasy"] = new[] { "fantasy", "Impact", "Papyrus" }
@@ -357,8 +357,37 @@ public partial class SkiaModel
         }
 
         var fontManager = SkiaSharp.SKFontManager.Default;
+        var resolved = default(SkiaSharp.SKTypeface);
+
         var matched = fontManager.MatchFamily(candidate, style);
-        var resolved = matched ?? SkiaSharp.SKTypeface.FromFamilyName(candidate, style.Weight, style.Width, style.Slant);
+        if (matched is { } && matched.Handle != IntPtr.Zero)
+        {
+            if (IsGenericFontFamilyName(candidate) ||
+                string.Equals(matched.FamilyName, candidate, StringComparison.OrdinalIgnoreCase))
+            {
+                resolved = matched;
+            }
+            else
+            {
+                matched.Dispose();
+            }
+        }
+
+        if (resolved is null)
+        {
+            var requested = SkiaSharp.SKTypeface.FromFamilyName(candidate, style.Weight, style.Width, style.Slant);
+            if (requested is { } && requested.Handle != IntPtr.Zero &&
+                (IsGenericFontFamilyName(candidate) ||
+                 string.Equals(requested.FamilyName, candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                resolved = requested;
+            }
+            else
+            {
+                requested?.Dispose();
+            }
+        }
+
         if (resolved is not null)
         {
             _resolvedTypefaceCache.TryAdd(cacheKey, resolved);
@@ -413,6 +442,34 @@ public partial class SkiaModel
             }
         }
 
+        if (!string.IsNullOrWhiteSpace(fontFamily))
+        {
+            foreach (var candidate in EnumerateFontFamilyCandidates("serif"))
+            {
+                if (Settings.TypefaceProviders is { } && Settings.TypefaceProviders.Count > 0)
+                {
+                    foreach (var typefaceProvider in Settings.TypefaceProviders)
+                    {
+                        var providerTypeface = typefaceProvider.FromFamilyName(candidate, fontWeight, fontWidth, fontStyle);
+                        if (providerTypeface is { } && providerTypeface.Handle != IntPtr.Zero)
+                        {
+                            _typefaceCache.TryAdd(cacheKey, providerTypeface);
+                            TrimTypefaceCachesIfNeeded();
+                            return providerTypeface;
+                        }
+                    }
+                }
+
+                var resolved = ResolveTypeface(candidate, style);
+                if (resolved is { } && resolved.Handle != IntPtr.Zero)
+                {
+                    _typefaceCache.TryAdd(cacheKey, resolved);
+                    TrimTypefaceCachesIfNeeded();
+                    return resolved;
+                }
+            }
+        }
+
         if (Settings.TypefaceProviders is { } && Settings.TypefaceProviders.Count > 0)
         {
             foreach (var typefaceProvider in Settings.TypefaceProviders)
@@ -437,6 +494,15 @@ public partial class SkiaModel
         _typefaceCache.TryAdd(cacheKey, fallback);
         TrimTypefaceCachesIfNeeded();
         return fallback;
+    }
+
+    private static bool IsGenericFontFamilyName(string candidate)
+    {
+        return candidate.Equals("serif", StringComparison.OrdinalIgnoreCase) ||
+               candidate.Equals("sans-serif", StringComparison.OrdinalIgnoreCase) ||
+               candidate.Equals("monospace", StringComparison.OrdinalIgnoreCase) ||
+               candidate.Equals("cursive", StringComparison.OrdinalIgnoreCase) ||
+               candidate.Equals("fantasy", StringComparison.OrdinalIgnoreCase);
     }
 
     public SkiaSharp.SKColor ToSKColor(SKColor color)
@@ -1735,7 +1801,15 @@ public partial class SkiaModel
                         var paint = wireframe
                             ? ToWireframePaint(drawTextCanvasCommand.Paint)
                             : ToSKPaint(drawTextCanvasCommand.Paint);
-                        skCanvas.DrawText(text, x, y, paint);
+                        if (paint is null)
+                        {
+                            break;
+                        }
+
+                        if (!TryDrawShapedText(skCanvas, text, x, y, paint))
+                        {
+                            skCanvas.DrawText(text, x, y, paint);
+                        }
                     }
                     break;
                 }

@@ -55,8 +55,9 @@ public sealed class FontManagerTypefaceProvider : ITypefaceProvider
                     skTypeface = skFontManager.MatchFamily(fontFamilyName, skFontStyle);
                     if (skTypeface is { })
                     {
-                        if (!defaultName.Equals(fontFamilyName, StringComparison.Ordinal)
-                            && defaultName.Equals(skTypeface.FamilyName, StringComparison.Ordinal))
+                        if (!skTypeface.FamilyName.Equals(fontFamilyName, StringComparison.OrdinalIgnoreCase) ||
+                            (!defaultName.Equals(fontFamilyName, StringComparison.Ordinal) &&
+                             defaultName.Equals(skTypeface.FamilyName, StringComparison.Ordinal)))
                         {
                             skTypeface.Dispose();
                             skTypeface = null;
