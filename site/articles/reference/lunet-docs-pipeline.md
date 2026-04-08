@@ -83,4 +83,4 @@ All commands operate in `site/` and publish to `site/.lunet/build/www`.
 
 ## CI publishing
 
-`.github/workflows/docs.yml` restores the local Lunet tool, builds the site, and deploys `site/.lunet/build/www` to GitHub Pages on pushes to `main` or `master`.
+`.github/workflows/docs.yml` restores the local Lunet tool, builds the site for pull requests and pushes to `master` or `main`, and deploys `site/.lunet/build/www` to GitHub Pages only from the repository's default branch.

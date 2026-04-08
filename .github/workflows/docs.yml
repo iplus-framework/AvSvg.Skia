@@ -10,6 +10,10 @@ on:
       - master
       - main
 
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -38,7 +42,7 @@ jobs:
           ./build-docs.sh
 
       - name: Upload docs artifact
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
         uses: actions/upload-artifact@v4
         with:
           name: docs-site
@@ -47,7 +51,7 @@ jobs:
           if-no-files-found: error
 
   deploy:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
     needs: build
     permissions:
       contents: write
