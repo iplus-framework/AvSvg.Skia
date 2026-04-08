@@ -397,6 +397,11 @@ namespace Svg.Skia
 
                     foreach (var cssFace in ParseCssFontFaces(unknown.Content))
                     {
+                        if (!CanResolveSvgFontReference(cssFace.SourceUri))
+                        {
+                            continue;
+                        }
+
                         var font = document.GetElementById<SvgFont>(cssFace.SourceUri);
                         var metricsFace = font?.Children.OfType<SvgFontFace>().FirstOrDefault();
                         if (font is null || metricsFace is null)
@@ -407,6 +412,21 @@ namespace Svg.Skia
                         AddEntry(new SvgFontEntry(_nextOrder++, font, metricsFace, cssFace));
                     }
                 }
+            }
+
+            private static bool CanResolveSvgFontReference(Uri? sourceUri)
+            {
+                if (sourceUri is null)
+                {
+                    return false;
+                }
+
+                if (sourceUri.IsAbsoluteUri)
+                {
+                    return !string.IsNullOrWhiteSpace(sourceUri.Fragment);
+                }
+
+                return sourceUri.OriginalString.IndexOf('#') >= 0;
             }
 
             private void AddEntry(SvgFontEntry entry)
