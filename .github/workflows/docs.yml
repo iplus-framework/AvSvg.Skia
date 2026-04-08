@@ -43,6 +43,7 @@ jobs:
         with:
           name: docs-site
           path: ./site/.lunet/build/www
+          include-hidden-files: true
           if-no-files-found: error
 
   deploy:
