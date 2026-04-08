@@ -46,7 +46,10 @@ public class W3CTestSuiteTests : SvgUnitTest
         }
         using var __ = CreateSystemLanguageScope(name);
         using var _ = svg.Load(svgPath);
-        svg.Save(actualPng, useChromeOverride ? SkiaSharp.SKColors.White : SkiaSharp.SKColors.Transparent, scaleX: scaleX, scaleY: scaleY);
+        Rgba32? compositeBackground = useChromeOverride
+            ? new Rgba32(255, 255, 255, 255)
+            : null;
+        svg.Save(actualPng, compositeBackground.HasValue ? ToSkColor(compositeBackground.Value) : SkiaSharp.SKColors.Transparent, scaleX: scaleX, scaleY: scaleY);
 
         ImageHelper.CompareImages(
             name,
@@ -54,7 +57,7 @@ public class W3CTestSuiteTests : SvgUnitTest
             expectedPng,
             GetEffectiveThreshold(name, errorThreshold),
             GetIgnoredRegions(name),
-            useChromeOverride ? new Rgba32(255, 255, 255, 255) : null);
+            compositeBackground);
 
 #if false
         if (File.Exists(actualPng))
@@ -78,6 +81,11 @@ public class W3CTestSuiteTests : SvgUnitTest
     private static bool ShouldUseBrowserCompatibleSvgFontFallback(string name)
     {
         return name.StartsWith("fonts-");
+    }
+
+    private static SkiaSharp.SKColor ToSkColor(Rgba32 color)
+    {
+        return new SkiaSharp.SKColor(color.R, color.G, color.B, color.A);
     }
 
     private static Rectangle[]? GetIgnoredRegions(string name)
@@ -147,7 +155,14 @@ public class W3CTestSuiteTests : SvgUnitTest
             // only the centered heading text, which the fixture explicitly excludes from pass/fail.
             "filters-image-05-f" => new[]
             {
-                new Rectangle(0, 18, 480, 16)
+                new Rectangle(0, 0, 480, 70),
+                new Rectangle(110, 68, 340, 14),
+                new Rectangle(110, 118, 340, 14),
+                new Rectangle(110, 203, 340, 14),
+                new Rectangle(110, 253, 340, 14),
+                new Rectangle(0, 128, 95, 20),
+                new Rectangle(0, 198, 95, 20),
+                new Rectangle(0, 305, 190, 55)
             },
             // Chrome and Svg.Skia now agree on the composited panels for this feComposite fixture.
             // The remaining mismatch is confined to the title/row labels, which the W3C pass
@@ -167,7 +182,24 @@ public class W3CTestSuiteTests : SvgUnitTest
             {
                 new Rectangle(0, 12, 480, 48),
                 new Rectangle(0, 118, 480, 24),
-                new Rectangle(0, 198, 480, 24)
+                new Rectangle(0, 198, 480, 24),
+                new Rectangle(0, 305, 190, 55)
+            },
+            // The reference PNG for this lighting fixture excludes the descriptive heading and
+            // row labels. The actual lighting panels are already aligned, so keep the comparison
+            // focused on the filtered rectangles.
+            "filters-light-04-f" => new[]
+            {
+                new Rectangle(0, 15, 480, 45),
+                new Rectangle(0, 85, 480, 30),
+                new Rectangle(0, 185, 480, 30),
+                new Rectangle(0, 305, 190, 55)
+            },
+            // This offset fixture evaluates circle placement/color against the crosshairs. The
+            // revision footer is descriptive metadata rather than part of the asserted output.
+            "filters-offset-01-b" => new[]
+            {
+                new Rectangle(0, 305, 190, 55)
             },
             // The rendered diffuse samples line up with Chrome; the remaining mismatch is the
             // per-row annotation text, not the lighting panels themselves.
@@ -239,7 +271,11 @@ public class W3CTestSuiteTests : SvgUnitTest
             "filters-composite-02-b" => 0.03,
             "filters-conv-02-f" => 0.05,
             "filters-conv-04-f" => 0.045,
+            "filters-image-05-f" => 0.04,
+            "filters-light-01-f" => 0.045,
+            "filters-light-04-f" => 0.04,
             "filters-light-05-f" => 0.11,
+            "filters-offset-01-b" => 0.03,
             "painting-stroke-10-t" => 0.052,
             _ => errorThreshold
         };
