@@ -27,6 +27,7 @@ public class SKSvgTests : SvgUnitTest
         var actualPng = GetActualPngPath($"{name} (Actual).png");
 
         var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = true;
         using var _ = svg.Load(svgPath);
         svg.Save(actualPng, SkiaSharp.SKColors.Transparent);
 
