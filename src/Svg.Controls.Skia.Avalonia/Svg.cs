@@ -45,6 +45,7 @@ public class Svg : Control
     private TimeSpan _lastAnimationPlaybackTimestamp;
     private bool _animationRenderLoopActive;
     private bool _animationRenderLoopRequested;
+    private long _animationRenderLoopGeneration;
     private bool _nativeCompositionHostSupported = true;
     private SvgCompositionVisualScene? _nativeCompositionScene;
     private static readonly Cursor s_arrowCursor = new(StandardCursorType.Arrow);
@@ -1160,6 +1161,10 @@ public class Svg : Control
     {
         _animationRenderLoopActive = false;
         _animationRenderLoopRequested = false;
+        unchecked
+        {
+            _animationRenderLoopGeneration++;
+        }
         _animationDispatcherTimer?.Stop();
 
         if (_trackedAnimationSvg is { } skSvg)
@@ -1181,8 +1186,9 @@ public class Svg : Control
             return;
         }
 
+        var generation = _animationRenderLoopGeneration;
         _animationRenderLoopRequested = true;
-        topLevel.RequestAnimationFrame(OnAnimationFrameRequested);
+        topLevel.RequestAnimationFrame(time => OnAnimationFrameRequested(time, generation));
     }
 
     private void OnAnimationDispatcherTimerTick(object? sender, EventArgs e)
@@ -1190,8 +1196,13 @@ public class Svg : Control
         TickAnimationPlayback();
     }
 
-    private void OnAnimationFrameRequested(TimeSpan time)
+    private void OnAnimationFrameRequested(TimeSpan time, long generation)
     {
+        if (generation != _animationRenderLoopGeneration)
+        {
+            return;
+        }
+
         _animationRenderLoopRequested = false;
         if (!_animationRenderLoopActive ||
             (_animationBackendResolution.ActualBackend != SvgAnimationHostBackend.RenderLoop &&

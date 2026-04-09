@@ -20,6 +20,23 @@ namespace Svg
         /// <returns>An <see cref="SvgElement"/> if one exists with the specified reference; otherwise null.</returns>
         public virtual SvgElement GetElementById(Uri uri)
         {
+            if (uri is null)
+            {
+                return null;
+            }
+
+            if (uri.IsAbsoluteUri)
+            {
+                if (string.IsNullOrWhiteSpace(uri.Fragment))
+                {
+                    return null;
+                }
+            }
+            else if (uri.OriginalString.IndexOf('#') < 0)
+            {
+                return null;
+            }
+
             return IdManager.GetElementById(uri);
         }
 

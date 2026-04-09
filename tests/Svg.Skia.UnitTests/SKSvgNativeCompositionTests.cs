@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using Svg;
 using Svg.Transforms;
 using Xunit;
@@ -61,6 +62,27 @@ public class SKSvgNativeCompositionTests
         Assert.Equal(8f, animatedLayer.Offset.Y, 3);
         Assert.Equal(10f, animatedLayer.Size.Width, 3);
         Assert.Equal(10f, animatedLayer.Size.Height, 3);
+    }
+
+    [Fact]
+    public void TryCreateNativeCompositionFrame_ReusesCachedSourceSceneAcrossFrames()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(NativeCompositionSceneSvg);
+
+        Assert.True(svg.TryCreateNativeCompositionScene(out _));
+
+        var sourceScene = GetPrivateField<SvgSceneDocument>(svg, "_nativeCompositionSourceScene");
+        var animatedChildIndexes = GetPrivateField<int[]>(svg, "_nativeCompositionAnimatedChildIndexes");
+        var animatedTargetKeys = GetPrivateField<string[]>(svg, "_nativeCompositionAnimatedTargetKeys");
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+
+        Assert.True(svg.TryCreateNativeCompositionFrame(out _));
+
+        Assert.Same(sourceScene, GetPrivateField<SvgSceneDocument>(svg, "_nativeCompositionSourceScene"));
+        Assert.Same(animatedChildIndexes, GetPrivateField<int[]>(svg, "_nativeCompositionAnimatedChildIndexes"));
+        Assert.Same(animatedTargetKeys, GetPrivateField<string[]>(svg, "_nativeCompositionAnimatedTargetKeys"));
     }
 
     [Fact]
@@ -219,4 +241,11 @@ public class SKSvgNativeCompositionTests
           <use id="instance" xlink:href="#template" />
         </svg>
         """;
+
+    private static T GetPrivateField<T>(object instance, string fieldName)
+    {
+        var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return Assert.IsType<T>(field!.GetValue(instance));
+    }
 }

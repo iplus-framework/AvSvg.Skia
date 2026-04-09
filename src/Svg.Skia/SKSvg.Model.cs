@@ -902,6 +902,7 @@ public partial class SKSvg : IDisposable
     private void ClearAnimationRenderState()
     {
         DisableAnimationLayerCaching();
+        InvalidateNativeCompositionState();
         _animatedDocument = null;
         _lastRenderedAnimationFrameState = null;
         _pendingAnimationFrameState = null;

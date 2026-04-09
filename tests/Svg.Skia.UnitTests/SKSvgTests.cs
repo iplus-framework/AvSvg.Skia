@@ -125,4 +125,40 @@ public class SKSvgTests : SvgUnitTest
         Assert.Equal(480, image.Width);
         Assert.Equal(360, image.Height);
     }
+
+    [Fact]
+    public void Load_CssFontFaceWithExternalFontUrl_DoesNotCrash()
+    {
+        const string svgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="120" height="40" viewBox="0 0 120 40">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'OpenGOST Type A';
+                    src: url('../fonts/OpenGostTypeA-Regular.ttf') format('truetype');
+                  }
+
+                  text {
+                    fill: #000;
+                    font-family: 'OpenGOST Type A', sans-serif;
+                    font-size: 24px;
+                  }
+                ]]></style>
+              </defs>
+              <text x="4" y="28">A</text>
+            </svg>
+            """;
+
+        var svg = new SKSvg();
+        using var input = new MemoryStream(Encoding.UTF8.GetBytes(svgMarkup));
+        using var _ = svg.Load(input);
+        using var output = new MemoryStream();
+
+        Assert.True(svg.Save(output, SkiaSharp.SKColors.Transparent));
+
+        output.Position = 0;
+        using var image = Image.Load<Rgba32>(output);
+        Assert.Equal(120, image.Width);
+        Assert.Equal(40, image.Height);
+    }
 }
