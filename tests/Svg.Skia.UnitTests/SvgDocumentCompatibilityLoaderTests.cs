@@ -204,6 +204,39 @@ public class SvgDocumentCompatibilityLoaderTests
     }
 
     [Fact]
+    public void OpenPath_IgnoresImportedStylesheetsWhenMediaListContainsEmptyEntry()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            var cssPath = Path.Combine(tempDirectory, "styles.css");
+            var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+            File.WriteAllText(cssPath, "#target { fill: green; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg">
+                  <style type="text/css"><![CDATA[
+                    @import url("styles.css") print,;
+                  ]]></style>
+                  <circle id="target" cx="10" cy="10" r="5" fill="red" />
+                </svg>
+                """);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var circle = document.Descendants().OfType<SvgCircle>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(circle.Fill);
+
+            Assert.Equal(Color.Red.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void OpenPath_AppliesImportedStylesheetsWhenMediaFeatureMatchesStaticViewport()
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());

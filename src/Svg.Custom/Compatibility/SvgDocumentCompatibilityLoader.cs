@@ -494,7 +494,7 @@ public static class SvgDocumentCompatibilityLoader
         var normalized = mediaQuery.Trim();
         if (string.IsNullOrWhiteSpace(normalized))
         {
-            return true;
+            return false;
         }
 
         if (normalized.StartsWith("only ", StringComparison.OrdinalIgnoreCase))
