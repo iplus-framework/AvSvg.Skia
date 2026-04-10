@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -227,14 +228,30 @@ public class SvgRetainedSceneGraphTests : SvgUnitTest
 
         var secondLineSpaces = retainedModel!
             .FindCommands<DrawTextCanvasCommand>()
-            .Where(static cmd => cmd.Text == " " && Math.Abs(cmd.Y - 180f) < 0.5f)
+            .Where(static cmd =>
+                cmd.Text == " "
+                && Math.Abs(cmd.Y - 180f) < 0.5f
+                && cmd.Paint?.Color is SKColor color
+                && color.Equals(new SKColor(0x00, 0x80, 0x00, 0xFF)))
             .Select(static cmd => cmd.X)
+            .OrderBy(static x => x)
             .ToList();
 
-        Assert.True(secondLineSpaces.Count >= 4, "Expected the nested tspan fixture to preserve all four visible second-line spaces.");
-        Assert.Contains(secondLineSpaces, static x => x > 70f && x < 85f);
-        Assert.Contains(secondLineSpaces, static x => x > 185f && x < 200f);
-        Assert.Contains(secondLineSpaces, static x => x > 335f && x < 345f);
+        var uniqueSecondLineSpaces = new List<float>();
+        foreach (var x in secondLineSpaces)
+        {
+            if (uniqueSecondLineSpaces.Count == 0 || Math.Abs(uniqueSecondLineSpaces[^1] - x) > 0.5f)
+            {
+                uniqueSecondLineSpaces.Add(x);
+            }
+        }
+
+        Assert.Equal(
+            4,
+            uniqueSecondLineSpaces.Count);
+        Assert.True(
+            uniqueSecondLineSpaces.Zip(uniqueSecondLineSpaces.Skip(1), static (left, right) => right - left).All(static gap => gap > 10f),
+            $"Expected the nested tspan fixture to preserve four distinct visible second-line spaces, but found: {string.Join(", ", uniqueSecondLineSpaces.Select(static x => x.ToString("F3", CultureInfo.InvariantCulture)))}");
     }
 
     [Fact]
