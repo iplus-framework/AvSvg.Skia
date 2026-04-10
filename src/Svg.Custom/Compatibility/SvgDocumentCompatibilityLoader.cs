@@ -250,10 +250,4 @@ public static class SvgDocumentCompatibilityLoader
             : null;
     }
 
-    // Keep the import-chain helper reachable here for one extraction step so the existing
-    // reflection-based regression test continues to pass while the CSS processor split lands.
-    private static HashSet<string> CreateImportChain()
-    {
-        return SvgCssCompatibilityProcessor.CreateImportChain();
-    }
 }

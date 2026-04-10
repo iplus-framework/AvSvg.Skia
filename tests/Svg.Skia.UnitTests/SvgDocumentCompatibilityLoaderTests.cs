@@ -539,7 +539,10 @@ public class SvgDocumentCompatibilityLoaderTests
     [Fact]
     public void ImportChain_DistinguishesUrisThatDifferOnlyByCase()
     {
-        var createImportChain = typeof(SvgDocumentCompatibilityLoader).GetMethod(
+        var processorType = typeof(SvgDocumentCompatibilityLoader).Assembly.GetType("Svg.SvgCssCompatibilityProcessor");
+        Assert.NotNull(processorType);
+
+        var createImportChain = processorType!.GetMethod(
             "CreateImportChain",
             BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(createImportChain);
