@@ -9,6 +9,7 @@ using System.Net;
 using System.Text;
 using System.Xml;
 using ShimSkiaSharp;
+using Svg;
 
 namespace Svg.Model.Services;
 
@@ -640,7 +641,7 @@ public static class SvgService
 
     internal static SvgDocument LoadSvg(System.IO.Stream stream, Uri baseUri)
     {
-        var svgDocument = SvgDocument.Open<SvgDocument>(stream);
+        var svgDocument = SvgDocumentCompatibilityLoader.Open<SvgDocument>(stream, new SvgOptions());
         svgDocument.BaseUri = baseUri;
         return svgDocument;
     }
@@ -652,7 +653,7 @@ public static class SvgService
         gzipStream.CopyTo(memoryStream);
         memoryStream.Position = 0;
 
-        var svgDocument = SvgDocument.Open<SvgDocument>(memoryStream);
+        var svgDocument = SvgDocumentCompatibilityLoader.Open<SvgDocument>(memoryStream, new SvgOptions());
         svgDocument.BaseUri = baseUri;
         return svgDocument;
     }
@@ -720,7 +721,7 @@ public static class SvgService
 
     public static SvgDocument? OpenSvg(string path, SvgParameters? parameters = null)
     {
-        return SvgDocument.Open<SvgDocument>(path, new SvgOptions(parameters?.Entities, parameters?.Css));
+        return SvgDocumentCompatibilityLoader.Open<SvgDocument>(path, new SvgOptions(parameters?.Entities, parameters?.Css));
     }
 
     public static SvgDocument? OpenSvgz(string path, SvgParameters? parameters = null)
@@ -779,17 +780,17 @@ public static class SvgService
 
     public static SvgDocument? Open(System.IO.Stream stream, SvgParameters? parameters = null)
     {
-        return SvgDocument.Open<SvgDocument>(stream, new SvgOptions(parameters?.Entities, parameters?.Css));
+        return SvgDocumentCompatibilityLoader.Open<SvgDocument>(stream, new SvgOptions(parameters?.Entities, parameters?.Css));
     }
 
     public static SvgDocument? FromSvg(string svg)
     {
-        return SvgDocument.FromSvg<SvgDocument>(svg);
+        return SvgDocumentCompatibilityLoader.FromSvg<SvgDocument>(svg);
     }
 
     public static SvgDocument? Open(XmlReader reader)
     {
-        return SvgDocument.Open<SvgDocument>(reader);
+        return SvgDocumentCompatibilityLoader.Open<SvgDocument>(reader);
     }
 
     private static bool IsVectorDrawablePath(string path)

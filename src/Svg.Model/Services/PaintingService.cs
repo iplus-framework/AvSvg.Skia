@@ -707,6 +707,70 @@ internal static class PaintingService
         return fontWeight;
     }
 
+    internal static SvgFontWeight ResolveFontWeight(SvgElement svgElement, SvgFontWeight requestedWeight)
+    {
+        if (requestedWeight == SvgFontWeight.Inherit)
+        {
+            return GetComputedFontWeight(svgElement.Parent);
+        }
+
+        if (requestedWeight == SvgFontWeight.Bolder)
+        {
+            return NormalizeRelativeFontWeight(GetComputedFontWeight(svgElement.Parent)) switch
+            {
+                SvgFontWeight.W100 => SvgFontWeight.Normal,
+                SvgFontWeight.W200 => SvgFontWeight.Normal,
+                SvgFontWeight.W300 => SvgFontWeight.Normal,
+                SvgFontWeight.W400 => SvgFontWeight.Bold,
+                SvgFontWeight.W500 => SvgFontWeight.Bold,
+                SvgFontWeight.W600 => SvgFontWeight.W900,
+                SvgFontWeight.W700 => SvgFontWeight.W900,
+                SvgFontWeight.W800 => SvgFontWeight.W900,
+                SvgFontWeight.W900 => SvgFontWeight.W900,
+                _ => SvgFontWeight.Bold
+            };
+        }
+
+        if (requestedWeight == SvgFontWeight.Lighter)
+        {
+            return NormalizeRelativeFontWeight(GetComputedFontWeight(svgElement.Parent)) switch
+            {
+                SvgFontWeight.W100 => SvgFontWeight.W100,
+                SvgFontWeight.W200 => SvgFontWeight.W100,
+                SvgFontWeight.W300 => SvgFontWeight.W100,
+                SvgFontWeight.W400 => SvgFontWeight.W100,
+                SvgFontWeight.W500 => SvgFontWeight.W100,
+                SvgFontWeight.W600 => SvgFontWeight.Normal,
+                SvgFontWeight.W700 => SvgFontWeight.Normal,
+                SvgFontWeight.W800 => SvgFontWeight.Bold,
+                SvgFontWeight.W900 => SvgFontWeight.Bold,
+                _ => SvgFontWeight.Normal
+            };
+        }
+
+        return requestedWeight;
+    }
+
+    private static SvgFontWeight GetComputedFontWeight(SvgElement? svgElement)
+    {
+        if (svgElement is null)
+        {
+            return SvgFontWeight.Normal;
+        }
+
+        return NormalizeRelativeFontWeight(ResolveFontWeight(svgElement, svgElement.FontWeight));
+    }
+
+    private static SvgFontWeight NormalizeRelativeFontWeight(SvgFontWeight fontWeight)
+    {
+        return fontWeight switch
+        {
+            SvgFontWeight.Normal => SvgFontWeight.W400,
+            SvgFontWeight.Bold => SvgFontWeight.W700,
+            _ => fontWeight
+        };
+    }
+
     internal static SKFontStyleWidth ToFontStyleWidth(SvgFontStretch svgFontStretch)
     {
         var fontWidth = SKFontStyleWidth.Normal;
@@ -765,13 +829,65 @@ internal static class PaintingService
         return fontWidth;
     }
 
-    internal static SKTextAlign ToTextAlign(SvgTextAnchor textAnchor)
+    internal static bool IsRightToLeft(SvgTextBase svgText)
+    {
+        for (SvgElement? current = svgText; current is not null; current = current.Parent)
+        {
+            if (current.TryGetAttribute("direction", out var direction) &&
+                !string.IsNullOrWhiteSpace(direction))
+            {
+                return direction.Equals("rtl", StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (current is SvgTextSpan &&
+                current.TryGetAttribute("writing-mode", out _))
+            {
+                continue;
+            }
+
+            if (current.TryGetAttribute("writing-mode", out var writingMode) &&
+                !string.IsNullOrWhiteSpace(writingMode))
+            {
+                var normalized = writingMode.Trim().ToLowerInvariant();
+                if (normalized is "rl" or "rl-tb")
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    internal static bool IsVerticalWritingMode(SvgTextBase svgText)
+    {
+        for (SvgElement? current = svgText; current is not null; current = current.Parent)
+        {
+            if (current is SvgTextSpan &&
+                current.TryGetAttribute("writing-mode", out _))
+            {
+                continue;
+            }
+
+            if (!current.TryGetAttribute("writing-mode", out var writingMode) ||
+                string.IsNullOrWhiteSpace(writingMode))
+            {
+                continue;
+            }
+
+            return writingMode.Trim().ToLowerInvariant() is "tb" or "tb-rl" or "vertical-rl" or "vertical-lr";
+        }
+
+        return false;
+    }
+
+    internal static SKTextAlign ToTextAlign(SvgTextAnchor textAnchor, bool isRightToLeft)
     {
         return textAnchor switch
         {
             SvgTextAnchor.Middle => SKTextAlign.Center,
-            SvgTextAnchor.End => SKTextAlign.Right,
-            _ => SKTextAlign.Left,
+            SvgTextAnchor.End => isRightToLeft ? SKTextAlign.Left : SKTextAlign.Right,
+            _ => isRightToLeft ? SKTextAlign.Right : SKTextAlign.Left,
         };
     }
 
@@ -788,7 +904,7 @@ internal static class PaintingService
     private static void SetTypeface(SvgTextBase svgText, SKPaint skPaint)
     {
         var fontFamily = svgText.FontFamily;
-        var fontWeight = ToFontStyleWeight(svgText.FontWeight);
+        var fontWeight = ToFontStyleWeight(ResolveFontWeight(svgText, svgText.FontWeight));
         var fontWidth = ToFontStyleWidth(svgText.FontStretch);
         var fontStyle = ToFontStyleSlant(svgText.FontStyle);
         skPaint.Typeface = SKTypeface.FromFamilyName(fontFamily, fontWeight, fontWidth, fontStyle);
@@ -800,7 +916,8 @@ internal static class PaintingService
         skPaint.SubpixelText = true;
         skPaint.TextEncoding = SKTextEncoding.Utf16;
 
-        skPaint.TextAlign = ToTextAlign(svgText.TextAnchor);
+        var isVertical = IsVerticalWritingMode(svgText);
+        skPaint.TextAlign = ToTextAlign(svgText.TextAnchor, isVertical ? false : IsRightToLeft(svgText));
 
         if (svgText.TextDecoration.HasFlag(SvgTextDecoration.Underline))
         {

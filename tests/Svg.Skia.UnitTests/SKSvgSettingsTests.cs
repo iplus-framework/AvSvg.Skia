@@ -15,6 +15,14 @@ public class SKSvgSettingsTests : SvgUnitTest
         Assert.True(settings.EnableSvgFonts);
     }
 
+    [Fact]
+    public void Defaults_EnableTextReferences()
+    {
+        var settings = new SKSvgSettings();
+
+        Assert.True(settings.EnableTextReferences);
+    }
+
     [Theory]
     [InlineData("Amiri", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
     [InlineData("Mplus 1p", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
@@ -25,7 +33,7 @@ public class SKSvgSettingsTests : SvgUnitTest
     [InlineData("Noto Sans", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Italic)]
     [InlineData("Noto Sans", SKFontStyleWeight.Light, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
     [InlineData("Noto Sans", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
-    [InlineData("Noto Sans", SKFontStyleWeight.Thin, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright, Skip = "TODO")]
+    [InlineData("Noto Sans", SKFontStyleWeight.Thin, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
     [InlineData("Noto Serif", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
     [InlineData("Sedgwick Ave Display", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
     [InlineData("Source Sans Pro", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
@@ -71,6 +79,17 @@ public class SKSvgSettingsTests : SvgUnitTest
         var clone = svg.Clone();
 
         Assert.True(clone.Settings.EnableSvgFonts);
+    }
+
+    [Fact]
+    public void Clone_PreservesEnableTextReferences()
+    {
+        var svg = new SKSvg();
+        svg.Settings.EnableTextReferences = false;
+
+        var clone = svg.Clone();
+
+        Assert.False(clone.Settings.EnableTextReferences);
     }
 
     [Fact]

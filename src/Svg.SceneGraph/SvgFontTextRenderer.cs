@@ -133,7 +133,7 @@ namespace Svg.Skia
                     GetLanguage(svgTextBase),
                     NormalizeFontStyle(svgTextBase.FontStyle),
                     NormalizeFontVariant(svgTextBase.FontVariant),
-                    NormalizeFontWeight(svgTextBase.FontWeight),
+                    NormalizeFontWeight(svgTextBase),
                     GetDirection(svgTextBase));
             }
 
@@ -197,8 +197,9 @@ namespace Svg.Skia
                     : SvgFontVariant.Normal;
             }
 
-            private static int NormalizeFontWeight(SvgFontWeight weight)
+            private static int NormalizeFontWeight(SvgTextBase svgTextBase)
             {
+                var weight = PaintingService.ResolveFontWeight(svgTextBase, svgTextBase.FontWeight);
                 if (weight.HasFlag(SvgFontWeight.W900))
                 {
                     return 900;
@@ -587,7 +588,9 @@ namespace Svg.Skia
                     var remaining = request.Text.Substring(start.CharIndex);
                     if (!TryResolveGlyph(remaining, codepoints, codepointIndex, request.Language, out var glyph, out var consumedCodepoints, out var requiresFontFallback))
                     {
-                        if (requiresFontFallback || MissingGlyph is null)
+                        if (requiresFontFallback ||
+                            MissingGlyph is null ||
+                            HasUsableFallbackText(start.Value, paint, assetLoader))
                         {
                             logicalItems.Add(new SvgFallbackTextItem(start.Value));
                             codepointIndex++;
@@ -617,6 +620,35 @@ namespace Svg.Skia
                     : logicalItems;
                 layout = CreateLayout(visualItems, request.TextSize, paint, assetLoader);
                 return true;
+            }
+
+            private static bool HasUsableFallbackText(string text, SKPaint paint, ISvgAssetLoader? assetLoader)
+            {
+                if (assetLoader is null || string.IsNullOrEmpty(text))
+                {
+                    return false;
+                }
+
+                var spans = assetLoader.FindTypefaces(text, paint);
+                if (spans.Count == 0)
+                {
+                    return false;
+                }
+
+                for (var i = 0; i < spans.Count; i++)
+                {
+                    if (string.IsNullOrEmpty(spans[i].Text))
+                    {
+                        continue;
+                    }
+
+                    if (spans[i].Typeface is not null && spans[i].Advance > 0f)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
             }
 
             private SvgFontLayout CreateLayout(IReadOnlyList<SvgResolvedItem> resolvedItems, float textSize, SKPaint paint, ISvgAssetLoader? assetLoader)

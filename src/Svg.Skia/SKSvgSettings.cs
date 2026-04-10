@@ -21,6 +21,8 @@ public class SKSvgSettings
 
     public bool EnableSvgFonts { get; set; }
 
+    public bool EnableTextReferences { get; set; }
+
     public SKSvgSettings()
     {
         AlphaType = SkiaSharp.SKAlphaType.Unpremul;
@@ -39,5 +41,6 @@ public class SKSvgSettings
 
         StandaloneViewport = null;
         EnableSvgFonts = true;
+        EnableTextReferences = true;
     }
 }

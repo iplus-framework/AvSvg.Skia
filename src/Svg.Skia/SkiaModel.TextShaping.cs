@@ -3,6 +3,8 @@
 using System;
 using System.Runtime.InteropServices;
 using HarfBuzzSharp;
+using ShimSkiaSharp;
+using Svg.Model;
 using Buffer = HarfBuzzSharp.Buffer;
 
 namespace Svg.Skia;
@@ -10,6 +12,7 @@ namespace Svg.Skia;
 public partial class SkiaModel
 {
     private const int HarfBuzzFontScale = 512;
+    private const float MinimumStableTextMeasureSize = 16f;
 
     private bool TryDrawShapedText(
         SkiaSharp.SKCanvas canvas,
@@ -18,7 +21,7 @@ public partial class SkiaModel
         float y,
         SkiaSharp.SKPaint paint)
     {
-        if (!TryShapeText(text, x, y, paint, out var result))
+        if (!TryShapeText(text, x, y, paint, rightToLeft: null, out var result))
         {
             return false;
         }
@@ -33,7 +36,7 @@ public partial class SkiaModel
         var glyphs = new ushort[result.Codepoints.Length];
         for (var i = 0; i < result.Codepoints.Length; i++)
         {
-            glyphs[i] = (ushort)result.Codepoints[i];
+            glyphs[i] = result.Codepoints[i];
         }
 
         builder.AddPositionedRun(glyphs, font, result.Points);
@@ -56,7 +59,20 @@ public partial class SkiaModel
 
     internal float GetTextAdvance(string text, SkiaSharp.SKPaint paint)
     {
-        if (TryShapeText(text, 0f, 0f, paint, out var result))
+        if (TryCreateStableMeasurePaint(paint, out var stablePaint, out var scaleDown))
+        {
+            using (stablePaint)
+            {
+                if (TryShapeText(text, 0f, 0f, stablePaint, rightToLeft: null, out var stableResult))
+                {
+                    return stableResult.Width * scaleDown;
+                }
+
+                return stablePaint.MeasureText(text) * scaleDown;
+            }
+        }
+
+        if (TryShapeText(text, 0f, 0f, paint, rightToLeft: null, out var result))
         {
             return result.Width;
         }
@@ -64,11 +80,60 @@ public partial class SkiaModel
         return paint.MeasureText(text);
     }
 
+    private static bool TryCreateStableMeasurePaint(
+        SkiaSharp.SKPaint paint,
+        out SkiaSharp.SKPaint stablePaint,
+        out float scaleDown)
+    {
+        stablePaint = null!;
+        scaleDown = 1f;
+        if (paint.TextSize <= 0f || paint.TextSize >= MinimumStableTextMeasureSize)
+        {
+            return false;
+        }
+
+        var scaleUp = MinimumStableTextMeasureSize / paint.TextSize;
+        scaleDown = 1f / scaleUp;
+        stablePaint = paint.Clone();
+        stablePaint.TextSize = MinimumStableTextMeasureSize;
+        return true;
+    }
+
+    internal bool TryShapeGlyphRun(string? text, SKPaint paint, out ShapedGlyphRun shapedRun)
+    {
+        return TryShapeGlyphRun(text, paint, rightToLeft: null, out shapedRun);
+    }
+
+    internal bool TryShapeGlyphRun(string? text, SKPaint paint, bool? rightToLeft, out ShapedGlyphRun shapedRun)
+    {
+        shapedRun = default;
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        using var skPaint = ToSKPaint(paint);
+        if (skPaint is null || !TryShapeText(text, 0f, 0f, skPaint, rightToLeft, out var result))
+        {
+            return false;
+        }
+
+        var points = new SKPoint[result.Points.Length];
+        for (var i = 0; i < result.Points.Length; i++)
+        {
+            points[i] = new SKPoint(result.Points[i].X, result.Points[i].Y);
+        }
+
+        shapedRun = new ShapedGlyphRun(result.Codepoints, points, result.Clusters, result.Width);
+        return true;
+    }
+
     private bool TryShapeText(
         string text,
         float x,
         float y,
         SkiaSharp.SKPaint paint,
+        bool? rightToLeft,
         out ShapedTextResult result)
     {
         if (string.IsNullOrEmpty(text) ||
@@ -93,7 +158,7 @@ public partial class SkiaModel
 
         using (shaper)
         {
-            result = shaper.Shape(text, x, y, font);
+            result = shaper.Shape(text, x, y, font, rightToLeft);
         }
 
         return result.Codepoints.Length > 0;
@@ -130,8 +195,9 @@ public partial class SkiaModel
     }
 
     private readonly record struct ShapedTextResult(
-        uint[] Codepoints,
+        ushort[] Codepoints,
         SkiaSharp.SKPoint[] Points,
+        int[] Clusters,
         float Width);
 
     private sealed class HarfBuzzTextShaper : IDisposable
@@ -179,7 +245,7 @@ public partial class SkiaModel
             _font.Dispose();
         }
 
-        public ShapedTextResult Shape(string text, float xOffset, float yOffset, SkiaSharp.SKFont font)
+        public ShapedTextResult Shape(string text, float xOffset, float yOffset, SkiaSharp.SKFont font, bool? rightToLeft)
         {
             if (string.IsNullOrEmpty(text))
             {
@@ -187,8 +253,13 @@ public partial class SkiaModel
             }
 
             using var buffer = new Buffer();
-            buffer.AddUtf8(text);
+            buffer.ClusterLevel = ClusterLevel.Characters;
+            buffer.AddUtf16(text);
             buffer.GuessSegmentProperties();
+            if (rightToLeft.HasValue)
+            {
+                buffer.Direction = rightToLeft.Value ? Direction.RightToLeft : Direction.LeftToRight;
+            }
 
             _font.Shape(buffer);
 
@@ -200,12 +271,14 @@ public partial class SkiaModel
             var textSizeX = textSizeY * font.ScaleX;
             var startX = xOffset;
 
-            var codepoints = new uint[length];
+            var glyphs = new ushort[length];
             var points = new SkiaSharp.SKPoint[length];
+            var clusters = new int[length];
 
             for (var i = 0; i < length; i++)
             {
-                codepoints[i] = glyphInfos[i].Codepoint;
+                glyphs[i] = (ushort)glyphInfos[i].Codepoint;
+                clusters[i] = (int)glyphInfos[i].Cluster;
                 points[i] = new SkiaSharp.SKPoint(
                     xOffset + (glyphPositions[i].XOffset * textSizeX),
                     yOffset - (glyphPositions[i].YOffset * textSizeY));
@@ -214,7 +287,7 @@ public partial class SkiaModel
                 yOffset += glyphPositions[i].YAdvance * textSizeY;
             }
 
-            return new ShapedTextResult(codepoints, points, xOffset - startX);
+            return new ShapedTextResult(glyphs, points, clusters, xOffset - startX);
         }
     }
 }

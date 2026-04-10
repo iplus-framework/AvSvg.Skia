@@ -22,6 +22,8 @@ namespace Svg
     [ElementFactory]
     internal partial class SvgElementFactory
     {
+        private const string RawTextDecorationAttributeKey = "__svgskia:text-decoration-raw";
+
         private readonly StylesheetParser stylesheetParser = new StylesheetParser(true, true, tolerateInvalidValues: true);
 
         /// <summary>
@@ -246,6 +248,11 @@ namespace Svg
         }
         internal static bool SetPropertyValue(SvgElement element, string ns, string attributeName, string attributeValue, SvgDocument document, bool isStyle = false)
         {
+            if (attributeName == "text-decoration" && !string.IsNullOrWhiteSpace(attributeValue))
+            {
+                element.CustomAttributes[RawTextDecorationAttributeKey] = attributeValue;
+            }
+
             if (attributeName == "stop-opacity" && string.Equals(attributeValue, "inherit", StringComparison.OrdinalIgnoreCase))
             {
                 if (isStyle)

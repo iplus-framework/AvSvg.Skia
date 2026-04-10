@@ -320,6 +320,7 @@ public partial class SKSvg : IDisposable
         clone.Settings.Srgb = Settings.Srgb;
         clone.Settings.StandaloneViewport = Settings.StandaloneViewport;
         clone.Settings.EnableSvgFonts = Settings.EnableSvgFonts;
+        clone.Settings.EnableTextReferences = Settings.EnableTextReferences;
         clone.Settings.TypefaceProviders = Settings.TypefaceProviders is null
             ? null
             : new List<TypefaceProviders.ITypefaceProvider>(Settings.TypefaceProviders);

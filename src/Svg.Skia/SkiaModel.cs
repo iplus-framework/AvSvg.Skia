@@ -1312,7 +1312,7 @@ public partial class SkiaModel
         SkiaSharp.SKPaint paint)
     {
         var textBlob = command.TextBlob;
-        if (textBlob?.Points is null || textBlob.Text is null)
+        if (textBlob?.Points is null)
         {
             return null;
         }
@@ -1347,7 +1347,22 @@ public partial class SkiaModel
             }
 
             var points = ToSKPoints(textBlob.Points);
-            var created = SkiaSharp.SKTextBlob.CreatePositioned(textBlob.Text, font, points);
+            SkiaSharp.SKTextBlob? created;
+            if (textBlob.Glyphs is { Length: > 0 })
+            {
+                using var builder = new SkiaSharp.SKTextBlobBuilder();
+                builder.AddPositionedRun(textBlob.Glyphs, font, points);
+                created = builder.Build();
+            }
+            else if (textBlob.Text is not null)
+            {
+                created = SkiaSharp.SKTextBlob.CreatePositioned(textBlob.Text, font, points);
+            }
+            else
+            {
+                return null;
+            }
+
             if (created is null)
             {
                 return null;
