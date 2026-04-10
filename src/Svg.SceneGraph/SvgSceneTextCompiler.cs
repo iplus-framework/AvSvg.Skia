@@ -1120,8 +1120,28 @@ internal static class SvgSceneTextCompiler
 
     private static bool ShouldSuppressInlineTextReferenceContent(IReadOnlyList<ISvgNode> contentNodes, int index)
     {
-        return HasRenderableTextContentBefore(contentNodes, index) &&
+        return contentNodes[index] is SvgTextRef svgTextRef &&
+               HasInlineTextReferenceFallbackContent(svgTextRef) &&
+               HasRenderableTextContentBefore(contentNodes, index) &&
                HasRenderableTextContentAfter(contentNodes, index);
+    }
+
+    private static bool HasInlineTextReferenceFallbackContent(SvgTextRef svgTextRef)
+    {
+        foreach (var node in GetContentNodes(svgTextRef))
+        {
+            if (node is SvgElement)
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(node.Content))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool ShouldAbortFollowingContentAfterFailedTextPath(IReadOnlyList<ISvgNode> contentNodes, int index)

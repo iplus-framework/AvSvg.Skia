@@ -711,24 +711,37 @@ internal static class PaintingService
     {
         if (requestedWeight == SvgFontWeight.Inherit)
         {
-            return svgElement.Parent?.FontWeight ?? SvgFontWeight.Normal;
+            return GetComputedFontWeight(svgElement.Parent);
         }
 
         if (requestedWeight == SvgFontWeight.Bolder)
         {
-            return (svgElement.Parent?.FontWeight ?? SvgFontWeight.Normal) switch
+            return NormalizeRelativeFontWeight(GetComputedFontWeight(svgElement.Parent)) switch
             {
                 SvgFontWeight.W100 => SvgFontWeight.Normal,
                 SvgFontWeight.W200 => SvgFontWeight.Normal,
                 SvgFontWeight.W300 => SvgFontWeight.Normal,
+                SvgFontWeight.W400 => SvgFontWeight.Bold,
+                SvgFontWeight.W500 => SvgFontWeight.Bold,
+                SvgFontWeight.W600 => SvgFontWeight.W900,
+                SvgFontWeight.W700 => SvgFontWeight.W900,
+                SvgFontWeight.W800 => SvgFontWeight.W900,
+                SvgFontWeight.W900 => SvgFontWeight.W900,
                 _ => SvgFontWeight.Bold
             };
         }
 
         if (requestedWeight == SvgFontWeight.Lighter)
         {
-            return (svgElement.Parent?.FontWeight ?? SvgFontWeight.Normal) switch
+            return NormalizeRelativeFontWeight(GetComputedFontWeight(svgElement.Parent)) switch
             {
+                SvgFontWeight.W100 => SvgFontWeight.W100,
+                SvgFontWeight.W200 => SvgFontWeight.W100,
+                SvgFontWeight.W300 => SvgFontWeight.W100,
+                SvgFontWeight.W400 => SvgFontWeight.W100,
+                SvgFontWeight.W500 => SvgFontWeight.W100,
+                SvgFontWeight.W600 => SvgFontWeight.Normal,
+                SvgFontWeight.W700 => SvgFontWeight.Normal,
                 SvgFontWeight.W800 => SvgFontWeight.Bold,
                 SvgFontWeight.W900 => SvgFontWeight.Bold,
                 _ => SvgFontWeight.Normal
@@ -736,6 +749,26 @@ internal static class PaintingService
         }
 
         return requestedWeight;
+    }
+
+    private static SvgFontWeight GetComputedFontWeight(SvgElement? svgElement)
+    {
+        if (svgElement is null)
+        {
+            return SvgFontWeight.Normal;
+        }
+
+        return NormalizeRelativeFontWeight(ResolveFontWeight(svgElement, svgElement.FontWeight));
+    }
+
+    private static SvgFontWeight NormalizeRelativeFontWeight(SvgFontWeight fontWeight)
+    {
+        return fontWeight switch
+        {
+            SvgFontWeight.Normal => SvgFontWeight.W400,
+            SvgFontWeight.Bold => SvgFontWeight.W700,
+            _ => fontWeight
+        };
     }
 
     internal static SKFontStyleWidth ToFontStyleWidth(SvgFontStretch svgFontStretch)

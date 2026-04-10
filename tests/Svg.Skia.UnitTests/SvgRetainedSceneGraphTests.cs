@@ -465,6 +465,40 @@ public class SvgRetainedSceneGraphTests : SvgUnitTest
     }
 
     [Fact]
+    public void TextReferences_RenderInlineReferencedContentBetweenSiblingTextRuns()
+    {
+        const string inlineTextRefSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink"
+                 width="120"
+                 height="40"
+                 viewBox="0 0 120 40">
+              <defs>
+                <text id="text-source">Ref</text>
+              </defs>
+              <text x="4" y="20" font-size="12">A<tref xlink:href="#text-source" />B</text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = false;
+        svg.Settings.EnableTextReferences = true;
+        svg.FromSvg(inlineTextRefSvg);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var renderedText = string.Concat(
+            retainedModel!.FindCommands<DrawTextCanvasCommand>()
+                .Select(static command => command.Text)
+                .Concat(retainedModel.FindCommands<DrawTextBlobCanvasCommand>()
+                    .Select(static command => command.TextBlob?.Text))
+                .Where(static text => !string.IsNullOrEmpty(text)));
+
+        Assert.Contains("ARefB", renderedText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SystemTextRendering_IsStable_WhenSvgFontsSettingChanges()
     {
         const string systemTextSvg = """

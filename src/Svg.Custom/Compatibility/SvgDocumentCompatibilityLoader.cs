@@ -67,10 +67,16 @@ public static class SvgDocumentCompatibilityLoader
             throw new ArgumentNullException(nameof(reader));
         }
 
+        if (SvgDocument.DisableDtdProcessing &&
+            reader.Settings?.DtdProcessing == DtdProcessing.Parse)
+        {
+            throw new InvalidOperationException("XmlReader input must not enable DTD processing when SvgDocument.DisableDtdProcessing is true.");
+        }
+
         using var svgReader = XmlReader.Create(reader, new XmlReaderSettings
         {
             XmlResolver = new SvgDtdResolver(),
-            DtdProcessing = DtdProcessing.Parse,
+            DtdProcessing = SvgDocument.DisableDtdProcessing ? DtdProcessing.Ignore : DtdProcessing.Parse,
             IgnoreWhitespace = false,
         });
 
