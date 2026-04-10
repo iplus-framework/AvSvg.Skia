@@ -33,8 +33,15 @@ internal static class TransformsService
                 break;
 
             case SvgUnitType.Ex:
-                points = value * 9;
-                _deviceValue = points * 0.5f / 72.0f * ppi;
+                if (ownerFontSize.HasValue)
+                {
+                    _deviceValue = ownerFontSize.Value * value * 0.5f;
+                }
+                else
+                {
+                    points = value * 9;
+                    _deviceValue = points * 0.5f / 72.0f * ppi;
+                }
                 break;
 
             case SvgUnitType.Centimeter:

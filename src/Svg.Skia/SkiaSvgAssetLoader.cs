@@ -10,7 +10,7 @@ namespace Svg.Skia;
 /// <summary>
 /// Asset loader implementation using SkiaSharp types.
 /// </summary>
-public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
+public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader, Model.ISvgTextReferenceRenderingOptions, Model.ISvgTextRunTypefaceResolver, Model.ISvgTextGlyphRunResolver, Model.ISvgTextDirectedGlyphRunResolver
 {
     private readonly SkiaModel _skiaModel;
 
@@ -25,6 +25,9 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
 
     /// <inheritdoc />
     public bool EnableSvgFonts => _skiaModel.Settings.EnableSvgFonts;
+
+    /// <inheritdoc />
+    public bool EnableTextReferences => _skiaModel.Settings.EnableTextReferences;
 
     /// <inheritdoc />
     public ShimSkiaSharp.SKImage LoadImage(System.IO.Stream stream)
@@ -83,6 +86,13 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
         for (; i < text.Length; i++)
         {
             var typeface = matchCharacter(char.ConvertToUtf32(text, i));
+            if (runningPaint.Typeface is { } currentTypeface &&
+                char.IsWhiteSpace(text, i))
+            {
+                // Keep whitespace in the active span so bidi/shaping stays attached to the
+                // surrounding script run instead of splitting on a font fallback for spaces.
+                typeface = currentTypeface;
+            }
 
             if (i == 0)
             {
@@ -112,6 +122,77 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
     }
 
     /// <inheritdoc />
+    public ShimSkiaSharp.SKTypeface? FindRunTypeface(string? text, ShimSkiaSharp.SKPaint paintPreferredTypeface)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        EnsureTypefaceProviderCaches();
+
+        var codepoints = CollectDistinctRenderableCodepoints(text);
+        if (codepoints.Count == 0)
+        {
+            return paintPreferredTypeface.Typeface;
+        }
+
+        var preferredTypeface = paintPreferredTypeface.Typeface;
+        var preferredWeight = _skiaModel.ToSKFontStyleWeight(preferredTypeface?.FontWeight ?? ShimSkiaSharp.SKFontStyleWeight.Normal);
+        var preferredWidth = _skiaModel.ToSKFontStyleWidth(preferredTypeface?.FontWidth ?? ShimSkiaSharp.SKFontStyleWidth.Normal);
+        var preferredSlant = _skiaModel.ToSKFontStyleSlant(preferredTypeface?.FontSlant ?? ShimSkiaSharp.SKFontStyleSlant.Upright);
+        var preferredFamily = preferredTypeface?.FamilyName;
+
+        var candidates = new List<SkiaSharp.SKTypeface?>();
+        void AddCandidate(SkiaSharp.SKTypeface? candidate)
+        {
+            if (candidate is null || candidate.Handle == IntPtr.Zero)
+            {
+                return;
+            }
+
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var existing = candidates[i];
+                if (existing is not null &&
+                    (existing.FamilyName, existing.FontWeight, existing.FontWidth, existing.FontSlant) ==
+                    (candidate.FamilyName, candidate.FontWeight, candidate.FontWidth, candidate.FontSlant))
+                {
+                    return;
+                }
+            }
+
+            candidates.Add(candidate);
+        }
+
+        using var preferredPaint = _skiaModel.ToSKPaint(paintPreferredTypeface);
+        AddCandidate(preferredPaint?.Typeface);
+
+        var spans = FindTypefaces(text, paintPreferredTypeface);
+        for (var i = 0; i < spans.Count; i++)
+        {
+            AddCandidate(_skiaModel.ToSKTypeface(spans[i].Typeface));
+        }
+
+        for (var i = 0; i < codepoints.Count; i++)
+        {
+            AddCandidate(MatchCharacter(preferredFamily, preferredWeight, preferredWidth, preferredSlant, codepoints[i]));
+            AddCandidate(MatchCharacter(null, preferredWeight, preferredWidth, preferredSlant, codepoints[i]));
+        }
+
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var candidate = candidates[i];
+            if (CanRenderAllCodepoints(candidate, codepoints))
+            {
+                return ToShimTypeface(candidate);
+            }
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc />
     public ShimSkiaSharp.SKFontMetrics GetFontMetrics(ShimSkiaSharp.SKPaint paint)
     {
         using var skPaint = _skiaModel.ToSKPaint(paint);
@@ -127,7 +208,11 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
             Ascent = skMetrics.Ascent,
             Descent = skMetrics.Descent,
             Bottom = skMetrics.Bottom,
-            Leading = skMetrics.Leading
+            Leading = skMetrics.Leading,
+            StrikeoutPosition = skMetrics.StrikeoutPosition,
+            StrikeoutThickness = skMetrics.StrikeoutThickness,
+            UnderlinePosition = skMetrics.UnderlinePosition,
+            UnderlineThickness = skMetrics.UnderlineThickness
         };
     }
 
@@ -146,6 +231,18 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
         var width = _skiaModel.GetTextAdvance(text, skPaint);
         bounds = new ShimSkiaSharp.SKRect(skBounds.Left, skBounds.Top, skBounds.Right, skBounds.Bottom);
         return width;
+    }
+
+    /// <inheritdoc />
+    public bool TryShapeGlyphRun(string? text, ShimSkiaSharp.SKPaint paint, out Model.ShapedGlyphRun shapedRun)
+    {
+        return _skiaModel.TryShapeGlyphRun(text, paint, out shapedRun);
+    }
+
+    /// <inheritdoc />
+    public bool TryShapeGlyphRun(string? text, ShimSkiaSharp.SKPaint paint, bool rightToLeft, out Model.ShapedGlyphRun shapedRun)
+    {
+        return _skiaModel.TryShapeGlyphRun(text, paint, rightToLeft, out shapedRun);
     }
 
     /// <inheritdoc />
@@ -417,6 +514,65 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader
 
         return codepoint is >= 0x0370 and <= 0x03FF ||
                codepoint is >= 0x1E00 and <= 0x1EFF;
+    }
+
+    private static List<int> CollectDistinctRenderableCodepoints(string text)
+    {
+        var codepoints = new List<int>();
+        for (var i = 0; i < text.Length; i++)
+        {
+            var codepoint = char.ConvertToUtf32(text, i);
+            if (char.IsWhiteSpace(text, i))
+            {
+                if (char.IsHighSurrogate(text[i]))
+                {
+                    i++;
+                }
+
+                continue;
+            }
+
+            if (!codepoints.Contains(codepoint))
+            {
+                codepoints.Add(codepoint);
+            }
+
+            if (char.IsHighSurrogate(text[i]))
+            {
+                i++;
+            }
+        }
+
+        return codepoints;
+    }
+
+    private static bool CanRenderAllCodepoints(SkiaSharp.SKTypeface? typeface, IReadOnlyList<int> codepoints)
+    {
+        if (typeface is null || typeface.Handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < codepoints.Count; i++)
+        {
+            if (!typeface.ContainsGlyph(codepoints[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static ShimSkiaSharp.SKTypeface? ToShimTypeface(SkiaSharp.SKTypeface? typeface)
+    {
+        return typeface is null || typeface.Handle == IntPtr.Zero
+            ? null
+            : ShimSkiaSharp.SKTypeface.FromFamilyName(
+                typeface.FamilyName,
+                (ShimSkiaSharp.SKFontStyleWeight)typeface.FontWeight,
+                (ShimSkiaSharp.SKFontStyleWidth)typeface.FontWidth,
+                (ShimSkiaSharp.SKFontStyleSlant)typeface.FontSlant);
     }
 
     private SkiaSharp.SKTypeface? GetProviderTypeface(
