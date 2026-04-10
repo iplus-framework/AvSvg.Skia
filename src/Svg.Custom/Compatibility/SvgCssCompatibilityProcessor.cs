@@ -260,7 +260,7 @@ internal static class SvgCssCompatibilityProcessor
             // invalid and must be ignored even if they are otherwise well-formed.
             if (isInLeadingImportSection && atRuleKind == CssAtRuleKind.Import)
             {
-                if (TryParseImportRule(cssText, statement, out var href, out var mediaCondition) &&
+                if (TryParseKnownImportRule(cssText, statement, out var href, out var mediaCondition) &&
                     ShouldApplyImportForCurrentMedia(mediaCondition))
                 {
                     var imported = TryLoadImportedStylesheet(href, baseUri, importChain);
@@ -709,18 +709,12 @@ internal static class SvgCssCompatibilityProcessor
         return statement.Length == atKeyword.Length || !IsCssIdentifierCharacter(statement[atKeyword.Length]);
     }
 
-    private static bool TryParseImportRule(string cssText, CssStatement statement, out string href, out ReadOnlySpan<char> mediaCondition)
+    private static bool TryParseKnownImportRule(string cssText, CssStatement statement, out string href, out ReadOnlySpan<char> mediaCondition)
     {
         href = string.Empty;
         mediaCondition = default;
 
         if (statement.Terminator != CssStatementTerminator.Semicolon)
-        {
-            return false;
-        }
-
-        var statementSpan = cssText.AsSpan(statement.Start, statement.Length);
-        if (!HasAtRuleKeyword(statementSpan, ImportAtRule))
         {
             return false;
         }
@@ -1064,16 +1058,18 @@ internal static class SvgCssCompatibilityProcessor
         // Cycle protection is scoped to the currently expanding import chain so repeated imports in
         // separate top-level <style> blocks still participate in cascade order like they do in a
         // browser.
+        if (importChain.Contains(stylesheetUri.AbsoluteUri))
+        {
+            return null;
+        }
+
         var localPath = stylesheetUri.LocalPath;
         if (!File.Exists(localPath))
         {
             return null;
         }
 
-        if (!importChain.Add(stylesheetUri.AbsoluteUri))
-        {
-            return null;
-        }
+        importChain.Add(stylesheetUri.AbsoluteUri);
         return new SvgCssStyleSource(File.ReadAllText(localPath), stylesheetUri);
     }
 
