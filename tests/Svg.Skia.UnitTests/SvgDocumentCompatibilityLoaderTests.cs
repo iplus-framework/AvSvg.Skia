@@ -119,6 +119,43 @@ public class SvgDocumentCompatibilityLoaderTests
     }
 
     [Fact]
+    public void OpenPath_ReappliesImportedStylesheetsAcrossSeparateStyleBlocksInSourceOrder()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            var cssPath = Path.Combine(tempDirectory, "styles.css");
+            var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+            File.WriteAllText(cssPath, "#target { fill: green; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg">
+                  <style type="text/css"><![CDATA[
+                    @import url("styles.css");
+                    #target { fill: blue; }
+                  ]]></style>
+                  <style type="text/css"><![CDATA[
+                    @import url("styles.css");
+                  ]]></style>
+                  <circle id="target" cx="10" cy="10" r="5" fill="red" />
+                </svg>
+                """);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var circle = document.Descendants().OfType<SvgCircle>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(circle.Fill);
+
+            Assert.Equal(Color.Green.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void OpenXmlReader_AppliesImportedStylesheetsUsingReaderBaseUri()
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -210,6 +247,23 @@ public class SvgDocumentCompatibilityLoaderTests
 
         Assert.Equal(Color.Green.ToArgb(), defaultFill.Colour.ToArgb());
         Assert.Equal(Color.Green.ToArgb(), unsupportedFill.Colour.ToArgb());
+    }
+
+    [Fact]
+    public void FromSvg_AppliesCssStyleTypeWithParameters()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <rect id="target" width="10" height="10" fill="red" />
+              <style type="text/css; charset=utf-8">#target { fill: green; }</style>
+            </svg>
+            """;
+
+        var document = SvgDocumentCompatibilityLoader.FromSvg<SvgDocument>(svg);
+        var rect = document.Descendants().OfType<SvgRectangle>().Single(static element => element.ID == "target");
+        var fill = Assert.IsType<SvgColourServer>(rect.Fill);
+
+        Assert.Equal(Color.Green.ToArgb(), fill.Colour.ToArgb());
     }
 
     private static LoadResult CaptureLoad(Func<SvgDocument> load)

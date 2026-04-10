@@ -310,25 +310,32 @@ public static class SvgDocumentCompatibilityLoader
         // Browsers ignore non-CSS <style> payloads for CSS selector matching. Restricting the
         // loader here avoids feeding script/data blocks into ExCSS and accidentally producing
         // selectors or declarations from content Chrome would never treat as CSS.
-        return string.Equals(styleType.Trim(), "text/css", StringComparison.OrdinalIgnoreCase);
+        var parameterSeparatorIndex = styleType.IndexOf(';');
+        var mediaType = parameterSeparatorIndex >= 0
+            ? styleType.Substring(0, parameterSeparatorIndex)
+            : styleType;
+        return string.Equals(mediaType.Trim(), "text/css", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ExpandImportedStyles(IEnumerable<StyleSource> sources)
     {
-        // Guard against import cycles and duplicate inclusions while preserving a deterministic
-        // first-seen ordering that matches how a browser walks the stylesheet graph.
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var builder = new StringBuilder();
 
         foreach (var source in sources)
         {
-            builder.AppendLine(ExpandImportedStyles(source.Content, source.BaseUri, visited));
+            // Each top-level stylesheet source gets its own active import chain. That still breaks
+            // cycles, but it avoids globally deduping imports across sibling <style> blocks, which
+            // would erase valid source-order effects from later imports of the same stylesheet.
+            builder.AppendLine(ExpandImportedStyles(
+                source.Content,
+                source.BaseUri,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)));
         }
 
         return builder.ToString();
     }
 
-    private static string ExpandImportedStyles(string cssText, Uri? baseUri, HashSet<string> visited)
+    private static string ExpandImportedStyles(string cssText, Uri? baseUri, HashSet<string> importChain)
     {
         var stylesheetParser = new StylesheetParser(true, true, tolerateInvalidValues: true);
         var stylesheet = stylesheetParser.Parse(cssText);
@@ -339,10 +346,17 @@ public static class SvgDocumentCompatibilityLoader
         // followed, which keeps malformed imports from affecting rendering.
         foreach (var href in GetImportHrefs(cssText))
         {
-            var imported = TryLoadImportedStylesheet(href, baseUri, visited);
+            var imported = TryLoadImportedStylesheet(href, baseUri, importChain);
             if (imported is not null)
             {
-                builder.AppendLine(ExpandImportedStyles(imported.Content, imported.BaseUri, visited));
+                try
+                {
+                    builder.AppendLine(ExpandImportedStyles(imported.Content, imported.BaseUri, importChain));
+                }
+                finally
+                {
+                    importChain.Remove(imported.BaseUri!.AbsoluteUri);
+                }
             }
         }
 
@@ -381,7 +395,7 @@ public static class SvgDocumentCompatibilityLoader
         return child.ToCss().TrimStart().StartsWith("@import", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static StyleSource? TryLoadImportedStylesheet(string? href, Uri? baseUri, HashSet<string> visited)
+    private static StyleSource? TryLoadImportedStylesheet(string? href, Uri? baseUri, HashSet<string> importChain)
     {
         if (string.IsNullOrWhiteSpace(href) || baseUri is null)
         {
@@ -396,7 +410,10 @@ public static class SvgDocumentCompatibilityLoader
             return null;
         }
 
-        if (!visited.Add(stylesheetUri.AbsoluteUri))
+        // Cycle protection is scoped to the currently expanding import chain so repeated imports in
+        // separate top-level <style> blocks still participate in cascade order like they do in a
+        // browser.
+        if (importChain.Contains(stylesheetUri.AbsoluteUri))
         {
             return null;
         }
@@ -407,6 +424,7 @@ public static class SvgDocumentCompatibilityLoader
             return null;
         }
 
+        importChain.Add(stylesheetUri.AbsoluteUri);
         return new StyleSource(File.ReadAllText(localPath), stylesheetUri);
     }
 
