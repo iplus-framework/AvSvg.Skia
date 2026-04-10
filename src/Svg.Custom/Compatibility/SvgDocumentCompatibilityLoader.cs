@@ -234,7 +234,7 @@ public static class SvgDocumentCompatibilityLoader
                             // Preserve the document base URI with every collected <style> block so
                             // any nested @import inside that block resolves relative to the SVG file
                             // that declared it, not to the current process working directory.
-                            styles.Add(new StyleSource(unknown.Content, svgDocument?.BaseUri));
+                            styles.Add(new StyleSource(unknown.Content ?? string.Empty, svgDocument?.BaseUri));
                         }
 
                         break;
@@ -388,10 +388,18 @@ public static class SvgDocumentCompatibilityLoader
             builder.AppendLine(ExpandImportedStyles(
                 source.Content,
                 source.BaseUri,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase)));
+                CreateImportChain()));
         }
 
         return builder.ToString();
+    }
+
+    private static HashSet<string> CreateImportChain()
+    {
+        // Import cycle detection should compare the fully resolved URI text exactly. Folding case
+        // here breaks legitimate imports on case-sensitive filesystems where `A.css` and `a.css`
+        // are different resources that browsers would load independently.
+        return new HashSet<string>(StringComparer.Ordinal);
     }
 
     private static string ExpandImportedStyles(string cssText, Uri? baseUri, HashSet<string> importChain)

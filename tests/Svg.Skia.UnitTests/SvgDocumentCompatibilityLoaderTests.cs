@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Xml;
 using Xunit;
 
@@ -116,6 +118,23 @@ public class SvgDocumentCompatibilityLoaderTests
         {
             Directory.Delete(tempDirectory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void FromSvg_IgnoresEmptyStyleElements()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <style />
+              <rect id="target" width="10" height="10" fill="red" />
+            </svg>
+            """;
+
+        var document = SvgDocumentCompatibilityLoader.FromSvg<SvgDocument>(svg);
+        var rect = document.Descendants().OfType<SvgRectangle>().Single(static element => element.ID == "target");
+        var fill = Assert.IsType<SvgColourServer>(rect.Fill);
+
+        Assert.Equal(Color.Red.ToArgb(), fill.Colour.ToArgb());
     }
 
     [Fact]
@@ -482,6 +501,20 @@ public class SvgDocumentCompatibilityLoaderTests
 
         Assert.Equal(Color.Black.ToArgb(), textFill.Colour.ToArgb());
         Assert.Equal(Color.Red.ToArgb(), anchorFill.Colour.ToArgb());
+    }
+
+    [Fact]
+    public void ImportChain_DistinguishesUrisThatDifferOnlyByCase()
+    {
+        var createImportChain = typeof(SvgDocumentCompatibilityLoader).GetMethod(
+            "CreateImportChain",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(createImportChain);
+
+        var importChain = Assert.IsType<HashSet<string>>(createImportChain!.Invoke(null, null));
+
+        Assert.True(importChain.Add("file:///tmp/A.css"));
+        Assert.True(importChain.Add("file:///tmp/a.css"));
     }
 
     [Fact]
