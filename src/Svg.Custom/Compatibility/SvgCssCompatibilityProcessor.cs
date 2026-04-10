@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Text;
 using ExCSS;
 using Svg.Css;
@@ -26,6 +25,26 @@ internal static class SvgCssCompatibilityProcessor
     // context the checked baselines are compared against.
     private const double StaticScreenWidthPixels = 480d;
     private const double StaticScreenHeightPixels = 360d;
+    private const string CssMimeType = "text/css";
+    private const string ImportAtRule = "@import";
+    private const string CharsetAtRule = "@charset";
+    private const string UrlKeyword = "url";
+    private const string ScreenMediaType = "screen";
+    private const string AllMediaType = "all";
+    private const string OnlyKeyword = "only";
+    private const string NotKeyword = "not";
+    private const string AndKeyword = "and";
+    private const string LinkPseudoClass = "link";
+    private const string WidthFeature = "width";
+    private const string MinWidthFeature = "min-width";
+    private const string MaxWidthFeature = "max-width";
+    private const string HeightFeature = "height";
+    private const string MinHeightFeature = "min-height";
+    private const string MaxHeightFeature = "max-height";
+    private const string OrientationFeature = "orientation";
+    private const string LandscapeOrientation = "landscape";
+    private const string PortraitOrientation = "portrait";
+    private const int MaxStringBuilderCapacity = int.MaxValue - 1;
 
     public static void Apply(SvgDocument svgDocument, IReadOnlyCollection<SvgCssStyleSource> styles, SvgElementFactory elementFactory)
     {
@@ -39,25 +58,46 @@ internal static class SvgCssCompatibilityProcessor
         var cssTotal = ExpandImportedStyles(styles);
         var stylesheetParser = new StylesheetParser(true, true, tolerateInvalidValues: true);
         var stylesheet = stylesheetParser.Parse(cssTotal);
+        var rootNode = new NonSvgElement();
+        rootNode.Children.Add(svgDocument);
 
         foreach (var rule in stylesheet.StyleRules)
         {
             try
             {
-                var rootNode = new NonSvgElement();
-                rootNode.Children.Add(svgDocument);
                 var projectsLinkStylesToText = ContainsLinkPseudoClass(rule.Selector);
-
+                var specificity = rule.Selector.GetSpecificity();
+                List<AppliedDeclaration>? declarations = null;
                 var elemsToStyle = rootNode.QuerySelectorAll(rule.Selector, elementFactory);
+
                 foreach (var elem in elemsToStyle)
                 {
-                    foreach (var styleTarget in GetStyleTargets(elem, projectsLinkStylesToText))
+                    declarations ??= CreateAppliedDeclarations();
+
+                    SvgTextBase? textContainer = null;
+                    var projectsToTextContainer = projectsLinkStylesToText &&
+                                                  TryGetLinkTextContainer(elem, out textContainer);
+
+                    foreach (var declaration in declarations)
                     {
-                        foreach (var declaration in rule.Style)
+                        elem.AddStyle(declaration.Name, declaration.Value, specificity);
+
+                        if (projectsToTextContainer)
                         {
-                            styleTarget.AddStyle(declaration.Name, declaration.Original, rule.Selector.GetSpecificity());
+                            textContainer!.AddStyle(declaration.Name, declaration.Value, specificity);
                         }
                     }
+                }
+
+                List<AppliedDeclaration> CreateAppliedDeclarations()
+                {
+                    var result = new List<AppliedDeclaration>();
+                    foreach (var declaration in rule.Style)
+                    {
+                        result.Add(new AppliedDeclaration(declaration.Name, declaration.Original));
+                    }
+
+                    return result;
                 }
             }
             catch (Exception ex)
@@ -77,21 +117,14 @@ internal static class SvgCssCompatibilityProcessor
         // Browsers ignore non-CSS <style> payloads for CSS selector matching. Restricting the
         // loader here avoids feeding script/data blocks into ExCSS and accidentally producing
         // selectors or declarations from content Chrome would never treat as CSS.
-        var parameterSeparatorIndex = styleType.IndexOf(';');
-        var mediaType = parameterSeparatorIndex >= 0
-            ? styleType.Substring(0, parameterSeparatorIndex)
-            : styleType;
-        return string.Equals(mediaType.Trim(), "text/css", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static IEnumerable<SvgElement> GetStyleTargets(SvgElement element, bool projectsLinkStylesToText)
-    {
-        yield return element;
-
-        if (projectsLinkStylesToText && TryGetLinkTextContainer(element, out var textContainer))
+        var mediaType = styleType.AsSpan();
+        var parameterSeparatorIndex = mediaType.IndexOf(';');
+        if (parameterSeparatorIndex >= 0)
         {
-            yield return textContainer;
+            mediaType = mediaType.Slice(0, parameterSeparatorIndex);
         }
+
+        return TrimWhitespace(mediaType).Equals(CssMimeType.AsSpan(), StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryGetLinkTextContainer(SvgElement element, out SvgTextBase textContainer)
@@ -137,29 +170,69 @@ internal static class SvgCssCompatibilityProcessor
 
     private static bool ContainsLinkPseudoClass(ISelector selector)
     {
-        return selector switch
+        switch (selector)
         {
-            PseudoClassSelector pseudoClassSelector => string.Equals(pseudoClassSelector.Class, "link", StringComparison.OrdinalIgnoreCase),
-            CompoundSelector compoundSelector => compoundSelector.Any(ContainsLinkPseudoClass),
-            ComplexSelector complexSelector => complexSelector.Any(part => ContainsLinkPseudoClass(part.Selector)),
-            ListSelector listSelector => listSelector.Any(ContainsLinkPseudoClass),
-            _ => false,
-        };
+            case PseudoClassSelector pseudoClassSelector:
+                return string.Equals(pseudoClassSelector.Class, LinkPseudoClass, StringComparison.OrdinalIgnoreCase);
+
+            case CompoundSelector compoundSelector:
+                foreach (var compoundPart in compoundSelector)
+                {
+                    if (ContainsLinkPseudoClass(compoundPart))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+
+            case ComplexSelector complexSelector:
+                foreach (var part in complexSelector)
+                {
+                    if (ContainsLinkPseudoClass(part.Selector))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+
+            case ListSelector listSelector:
+                foreach (var listPart in listSelector)
+                {
+                    if (ContainsLinkPseudoClass(listPart))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+
+            default:
+                return false;
+        }
     }
 
-    private static string ExpandImportedStyles(IEnumerable<SvgCssStyleSource> sources)
+    private static string ExpandImportedStyles(IReadOnlyCollection<SvgCssStyleSource> sources)
     {
-        var builder = new StringBuilder();
+        var initialCapacity = 0;
+        foreach (var source in sources)
+        {
+            initialCapacity = SaturatingAddCapacity(initialCapacity, source.Content.Length);
+            initialCapacity = SaturatingAddCapacity(initialCapacity, Environment.NewLine.Length);
+        }
+
+        var builder = initialCapacity > 0
+            ? new StringBuilder(initialCapacity)
+            : new StringBuilder();
 
         foreach (var source in sources)
         {
             // Each top-level stylesheet source gets its own active import chain. That still breaks
             // cycles, but it avoids globally deduping imports across sibling <style> blocks, which
             // would erase valid source-order effects from later imports of the same stylesheet.
-            builder.AppendLine(ExpandImportedStyles(
-                source.Content,
-                source.BaseUri,
-                CreateImportChain()));
+            AppendExpandedStyles(builder, source.Content, source.BaseUri, CreateImportChain());
+            builder.AppendLine();
         }
 
         return builder.ToString();
@@ -173,114 +246,123 @@ internal static class SvgCssCompatibilityProcessor
         return new HashSet<string>(StringComparer.Ordinal);
     }
 
-    private static string ExpandImportedStyles(string cssText, Uri? baseUri, HashSet<string> importChain)
-    {
-        var stylesheetParser = new StylesheetParser(true, true, tolerateInvalidValues: true);
-        var stylesheet = stylesheetParser.Parse(cssText);
-        var builder = new StringBuilder();
-
-        // Import expansion is driven by the original CSS text instead of ExCSS nodes so we can be
-        // stricter than the tolerant parser: only imports that match the valid grammar above are
-        // followed, which keeps malformed imports from affecting rendering.
-        foreach (var importRule in GetImportRules(cssText))
-        {
-            if (!ShouldApplyImportForCurrentMedia(importRule.MediaCondition))
-            {
-                continue;
-            }
-
-            var imported = TryLoadImportedStylesheet(importRule.Href, baseUri, importChain);
-            if (imported is not null)
-            {
-                try
-                {
-                    builder.AppendLine(ExpandImportedStyles(imported.Content, imported.BaseUri, importChain));
-                }
-                finally
-                {
-                    importChain.Remove(imported.BaseUri!.AbsoluteUri);
-                }
-            }
-        }
-
-        foreach (var child in stylesheet.Children)
-        {
-            if (IsImportRule(child))
-            {
-                continue;
-            }
-
-            builder.AppendLine(child.ToCss());
-        }
-
-        return builder.ToString();
-    }
-
-    private static IEnumerable<ImportRule> GetImportRules(string cssText)
+    private static void AppendExpandedStyles(StringBuilder builder, string cssText, Uri? baseUri, HashSet<string> importChain)
     {
         var index = 0;
+        var isInLeadingImportSection = true;
 
         while (TryReadNextTopLevelStatement(cssText, ref index, out var statement))
         {
-            if (IsAtRule(cssText, statement, "@charset"))
-            {
-                continue;
-            }
+            var atRuleKind = GetAtRuleKind(cssText, statement);
 
             // CSS only honors @import rules while the stylesheet is still in its leading import
             // section. As soon as a normal rule or another at-rule appears, later imports are
             // invalid and must be ignored even if they are otherwise well-formed.
-            if (!IsAtRule(cssText, statement, "@import"))
+            if (isInLeadingImportSection && atRuleKind == CssAtRuleKind.Import)
             {
-                yield break;
+                if (TryParseImportRule(cssText, statement, out var href, out var mediaCondition) &&
+                    ShouldApplyImportForCurrentMedia(mediaCondition))
+                {
+                    var imported = TryLoadImportedStylesheet(href, baseUri, importChain);
+                    if (imported is not null)
+                    {
+                        try
+                        {
+                            AppendExpandedStyles(builder, imported.Content, imported.BaseUri, importChain);
+                            builder.AppendLine();
+                        }
+                        finally
+                        {
+                            importChain.Remove(imported.BaseUri!.AbsoluteUri);
+                        }
+                    }
+                }
+
+                continue;
             }
 
-            if (TryParseImportRule(cssText, statement, out var importRule))
+            if (atRuleKind != CssAtRuleKind.Charset)
             {
-                yield return importRule;
+                isInLeadingImportSection = false;
             }
+
+            if (atRuleKind == CssAtRuleKind.Import)
+            {
+                continue;
+            }
+
+            AppendStatement(builder, cssText, statement);
         }
     }
 
-    private static bool ShouldApplyImportForCurrentMedia(string mediaCondition)
+    private static bool ShouldApplyImportForCurrentMedia(ReadOnlySpan<char> mediaCondition)
     {
-        if (string.IsNullOrWhiteSpace(mediaCondition))
+        var mediaList = TrimWhitespace(mediaCondition);
+        if (mediaList.IsEmpty)
         {
             return true;
         }
 
-        foreach (var mediaQuery in mediaCondition.Split(','))
+        var segmentStart = 0;
+        var index = 0;
+        var parenthesisDepth = 0;
+
+        while (index < mediaList.Length)
         {
-            if (MatchesCurrentMedia(mediaQuery))
+            if (TrySkipComment(mediaList, ref index))
             {
-                return true;
+                continue;
+            }
+
+            var current = mediaList[index];
+            switch (current)
+            {
+                case '\'':
+                case '"':
+                    SkipQuotedString(mediaList, ref index, current);
+                    continue;
+
+                case '(':
+                    parenthesisDepth++;
+                    index++;
+                    continue;
+
+                case ')' when parenthesisDepth > 0:
+                    parenthesisDepth--;
+                    index++;
+                    continue;
+
+                case ',' when parenthesisDepth == 0:
+                    if (MatchesCurrentMedia(mediaList.Slice(segmentStart, index - segmentStart)))
+                    {
+                        return true;
+                    }
+
+                    index++;
+                    segmentStart = index;
+                    continue;
+
+                default:
+                    index++;
+                    break;
             }
         }
 
-        return false;
+        return MatchesCurrentMedia(mediaList.Slice(segmentStart));
     }
 
-    private static bool MatchesCurrentMedia(string mediaQuery)
+    private static bool MatchesCurrentMedia(ReadOnlySpan<char> mediaQuery)
     {
-        var normalized = mediaQuery.Trim();
-        if (string.IsNullOrWhiteSpace(normalized))
+        var normalized = TrimWhitespace(mediaQuery);
+        if (normalized.IsEmpty)
         {
             return false;
         }
 
-        if (normalized.StartsWith("only ", StringComparison.OrdinalIgnoreCase))
-        {
-            normalized = normalized.Substring("only ".Length).TrimStart();
-        }
+        ConsumeLeadingKeyword(ref normalized, OnlyKeyword);
 
-        var isNegated = false;
-        if (normalized.StartsWith("not ", StringComparison.OrdinalIgnoreCase))
-        {
-            isNegated = true;
-            normalized = normalized.Substring("not ".Length).TrimStart();
-        }
-
-        if (!TryParseMediaQuery(normalized, out var mediaType, out var mediaFeatures))
+        var isNegated = ConsumeLeadingKeyword(ref normalized, NotKeyword);
+        if (!TryParseMediaQuery(normalized, out var mediaType, out var matchesFeatures))
         {
             return false;
         }
@@ -288,26 +370,25 @@ internal static class SvgCssCompatibilityProcessor
         // Treat Svg.Skia's checked rendering context as "screen". That matches the Chrome capture
         // workflow used for baselines, so imports scoped to other media such as "print" should not
         // leak into the static image output.
-        var matchesScreen = string.IsNullOrWhiteSpace(mediaType) ||
-            string.Equals(mediaType, "all", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(mediaType, "screen", StringComparison.OrdinalIgnoreCase);
+        var matchesScreen = mediaType.IsEmpty ||
+            mediaType.Equals(AllMediaType.AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+            mediaType.Equals(ScreenMediaType.AsSpan(), StringComparison.OrdinalIgnoreCase);
 
         // Once a media query adds feature predicates, matching the type alone is no longer enough.
         // For example, `screen and (max-width: 1px)` must not apply in the static 480px viewport
         // used by the Chrome reference captures. Unsupported features are treated conservatively as
         // non-matches so imports are not inlined on predicates we cannot validate.
-        var matchesFeatures = mediaFeatures.All(EvaluateMediaFeature);
         var matchesMediaQuery = matchesScreen && matchesFeatures;
         return isNegated ? !matchesMediaQuery : matchesMediaQuery;
     }
 
-    private static bool TryParseMediaQuery(string mediaQuery, out string mediaType, out List<string> mediaFeatures)
+    private static bool TryParseMediaQuery(ReadOnlySpan<char> mediaQuery, out ReadOnlySpan<char> mediaType, out bool matchesFeatures)
     {
-        mediaType = string.Empty;
-        mediaFeatures = new List<string>();
+        mediaType = default;
+        matchesFeatures = true;
 
         var index = 0;
-        SkipWhitespaceAndComments(mediaQuery, ref index, mediaQuery.Length);
+        SkipWhitespaceAndComments(mediaQuery, ref index);
 
         if (index < mediaQuery.Length && mediaQuery[index] != '(')
         {
@@ -317,8 +398,8 @@ internal static class SvgCssCompatibilityProcessor
                 index++;
             }
 
-            mediaType = mediaQuery.Substring(typeStart, index - typeStart).Trim();
-            SkipWhitespaceAndComments(mediaQuery, ref index, mediaQuery.Length);
+            mediaType = TrimWhitespace(mediaQuery.Slice(typeStart, index - typeStart));
+            SkipWhitespaceAndComments(mediaQuery, ref index);
         }
 
         var expectsFeatureAfterAnd = false;
@@ -326,19 +407,14 @@ internal static class SvgCssCompatibilityProcessor
         {
             if (mediaQuery[index] == '(')
             {
-                if (!TryReadMediaFeature(mediaQuery, ref index, out var mediaFeature))
+                if (!TryReadMediaFeature(mediaQuery, ref index, out var mediaFeature) || mediaFeature.IsEmpty)
                 {
                     return false;
                 }
 
-                if (string.IsNullOrWhiteSpace(mediaFeature))
-                {
-                    return false;
-                }
-
-                mediaFeatures.Add(mediaFeature);
+                matchesFeatures &= EvaluateMediaFeature(mediaFeature);
                 expectsFeatureAfterAnd = false;
-                SkipWhitespaceAndComments(mediaQuery, ref index, mediaQuery.Length);
+                SkipWhitespaceAndComments(mediaQuery, ref index);
                 continue;
             }
 
@@ -348,20 +424,20 @@ internal static class SvgCssCompatibilityProcessor
             }
 
             expectsFeatureAfterAnd = true;
-            SkipWhitespaceAndComments(mediaQuery, ref index, mediaQuery.Length);
+            SkipWhitespaceAndComments(mediaQuery, ref index);
         }
 
         return !expectsFeatureAfterAnd;
     }
 
-    private static bool TryConsumeMediaAnd(string mediaQuery, ref int index)
+    private static bool TryConsumeMediaAnd(ReadOnlySpan<char> mediaQuery, ref int index)
     {
-        if (!mediaQuery.AsSpan(index).StartsWith("and", StringComparison.OrdinalIgnoreCase))
+        if (!mediaQuery.Slice(index).StartsWith(AndKeyword.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        var endIndex = index + "and".Length;
+        var endIndex = index + AndKeyword.Length;
         if (endIndex < mediaQuery.Length && !char.IsWhiteSpace(mediaQuery[endIndex]) && mediaQuery[endIndex] != '(')
         {
             return false;
@@ -371,9 +447,9 @@ internal static class SvgCssCompatibilityProcessor
         return true;
     }
 
-    private static bool TryReadMediaFeature(string mediaQuery, ref int index, out string mediaFeature)
+    private static bool TryReadMediaFeature(ReadOnlySpan<char> mediaQuery, ref int index, out ReadOnlySpan<char> mediaFeature)
     {
-        mediaFeature = string.Empty;
+        mediaFeature = default;
 
         if (index >= mediaQuery.Length || mediaQuery[index] != '(')
         {
@@ -386,7 +462,7 @@ internal static class SvgCssCompatibilityProcessor
 
         while (index < mediaQuery.Length)
         {
-            if (TrySkipComment(mediaQuery, ref index, mediaQuery.Length))
+            if (TrySkipComment(mediaQuery, ref index))
             {
                 continue;
             }
@@ -398,21 +474,24 @@ internal static class SvgCssCompatibilityProcessor
                 case '"':
                     SkipQuotedString(mediaQuery, ref index, current);
                     continue;
+
                 case '(':
                     depth++;
                     index++;
                     continue;
+
                 case ')':
                     depth--;
                     if (depth == 0)
                     {
-                        mediaFeature = mediaQuery.Substring(featureStart, index - featureStart).Trim();
+                        mediaFeature = TrimWhitespace(mediaQuery.Slice(featureStart, index - featureStart));
                         index++;
                         return true;
                     }
 
                     index++;
                     continue;
+
                 default:
                     index++;
                     break;
@@ -422,7 +501,7 @@ internal static class SvgCssCompatibilityProcessor
         return false;
     }
 
-    private static bool EvaluateMediaFeature(string mediaFeature)
+    private static bool EvaluateMediaFeature(ReadOnlySpan<char> mediaFeature)
     {
         var separatorIndex = mediaFeature.IndexOf(':');
         if (separatorIndex < 0)
@@ -430,84 +509,118 @@ internal static class SvgCssCompatibilityProcessor
             return false;
         }
 
-        var name = mediaFeature.Substring(0, separatorIndex).Trim();
-        var value = mediaFeature.Substring(separatorIndex + 1).Trim();
-        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(value))
+        var name = TrimWhitespace(mediaFeature.Slice(0, separatorIndex));
+        var value = TrimWhitespace(mediaFeature.Slice(separatorIndex + 1));
+        if (name.IsEmpty || value.IsEmpty)
         {
             return false;
         }
 
-        return name.ToLowerInvariant() switch
+        if (name.Equals(WidthFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            "width" => MatchesExactDimension(value, StaticScreenWidthPixels),
-            "min-width" => MatchesMinimumDimension(value, StaticScreenWidthPixels),
-            "max-width" => MatchesMaximumDimension(value, StaticScreenWidthPixels),
-            "height" => MatchesExactDimension(value, StaticScreenHeightPixels),
-            "min-height" => MatchesMinimumDimension(value, StaticScreenHeightPixels),
-            "max-height" => MatchesMaximumDimension(value, StaticScreenHeightPixels),
-            "orientation" => MatchesOrientation(value),
-            _ => false,
-        };
+            return MatchesExactDimension(value, StaticScreenWidthPixels);
+        }
+
+        if (name.Equals(MinWidthFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            return MatchesMinimumDimension(value, StaticScreenWidthPixels);
+        }
+
+        if (name.Equals(MaxWidthFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            return MatchesMaximumDimension(value, StaticScreenWidthPixels);
+        }
+
+        if (name.Equals(HeightFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            return MatchesExactDimension(value, StaticScreenHeightPixels);
+        }
+
+        if (name.Equals(MinHeightFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            return MatchesMinimumDimension(value, StaticScreenHeightPixels);
+        }
+
+        if (name.Equals(MaxHeightFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            return MatchesMaximumDimension(value, StaticScreenHeightPixels);
+        }
+
+        if (name.Equals(OrientationFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            return MatchesOrientation(value);
+        }
+
+        return false;
     }
 
-    private static bool MatchesExactDimension(string value, double currentPixels)
+    private static bool MatchesExactDimension(ReadOnlySpan<char> value, double currentPixels)
     {
         return TryParsePixelLength(value, out var requestedPixels) &&
                Math.Abs(requestedPixels - currentPixels) < 0.001d;
     }
 
-    private static bool MatchesMinimumDimension(string value, double currentPixels)
+    private static bool MatchesMinimumDimension(ReadOnlySpan<char> value, double currentPixels)
     {
         return TryParsePixelLength(value, out var requestedPixels) &&
                currentPixels + 0.001d >= requestedPixels;
     }
 
-    private static bool MatchesMaximumDimension(string value, double currentPixels)
+    private static bool MatchesMaximumDimension(ReadOnlySpan<char> value, double currentPixels)
     {
         return TryParsePixelLength(value, out var requestedPixels) &&
                currentPixels - 0.001d <= requestedPixels;
     }
 
-    private static bool MatchesOrientation(string value)
+    private static bool MatchesOrientation(ReadOnlySpan<char> value)
     {
-        return value.Trim().ToLowerInvariant() switch
+        var orientation = TrimWhitespace(value);
+        if (orientation.Equals(LandscapeOrientation.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            "landscape" => StaticScreenWidthPixels >= StaticScreenHeightPixels,
-            "portrait" => StaticScreenHeightPixels > StaticScreenWidthPixels,
-            _ => false,
-        };
+            return StaticScreenWidthPixels >= StaticScreenHeightPixels;
+        }
+
+        if (orientation.Equals(PortraitOrientation.AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            return StaticScreenHeightPixels > StaticScreenWidthPixels;
+        }
+
+        return false;
     }
 
-    private static bool TryParsePixelLength(string value, out double pixels)
+    private static bool TryParsePixelLength(ReadOnlySpan<char> value, out double pixels)
     {
         pixels = 0d;
 
-        var normalized = value.Trim();
-        if (string.Equals(normalized, "0", StringComparison.Ordinal))
+        var normalized = TrimWhitespace(value);
+        if (normalized.SequenceEqual("0".AsSpan()))
         {
             return true;
         }
 
-        if (!normalized.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+        if (normalized.Length < 2 ||
+            !IsAsciiLetter(normalized[normalized.Length - 2], 'p') ||
+            !IsAsciiLetter(normalized[normalized.Length - 1], 'x'))
         {
             return false;
         }
 
-        return double.TryParse(
-            normalized.Substring(0, normalized.Length - 2).Trim(),
-            NumberStyles.Float,
-            CultureInfo.InvariantCulture,
-            out pixels);
+        var numericPart = TrimWhitespace(normalized.Slice(0, normalized.Length - 2));
+        return TryParseDoubleInvariant(numericPart, out pixels);
     }
 
-    private static bool IsImportRule(IStylesheetNode child)
+    private static bool TryParseDoubleInvariant(ReadOnlySpan<char> value, out double parsed)
     {
-        return child.ToCss().TrimStart().StartsWith("@import", StringComparison.OrdinalIgnoreCase);
+#if NETSTANDARD20
+        return double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed);
+#else
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed);
+#endif
     }
 
     private static bool TryReadNextTopLevelStatement(string cssText, ref int index, out CssStatement statement)
     {
-        SkipWhitespaceAndComments(cssText, ref index);
+        SkipWhitespaceAndComments(cssText.AsSpan(), ref index);
 
         if (index >= cssText.Length)
         {
@@ -517,10 +630,11 @@ internal static class SvgCssCompatibilityProcessor
 
         var start = index;
         var parenthesisDepth = 0;
+        var cssSpan = cssText.AsSpan();
 
         while (index < cssText.Length)
         {
-            if (TrySkipComment(cssText, ref index))
+            if (TrySkipComment(cssSpan, ref index))
             {
                 continue;
             }
@@ -530,25 +644,30 @@ internal static class SvgCssCompatibilityProcessor
             {
                 case '\'':
                 case '"':
-                    SkipQuotedString(cssText, ref index, current);
+                    SkipQuotedString(cssSpan, ref index, current);
                     continue;
+
                 case '(':
                     parenthesisDepth++;
                     index++;
                     continue;
+
                 case ')' when parenthesisDepth > 0:
                     parenthesisDepth--;
                     index++;
                     continue;
+
                 case ';' when parenthesisDepth == 0:
                     statement = new CssStatement(start, index, index + 1, CssStatementTerminator.Semicolon);
                     index++;
                     return true;
+
                 case '{' when parenthesisDepth == 0:
                     index++;
                     SkipBlock(cssText, ref index);
                     statement = new CssStatement(start, index, index, CssStatementTerminator.Block);
                     return true;
+
                 default:
                     index++;
                     break;
@@ -559,60 +678,65 @@ internal static class SvgCssCompatibilityProcessor
         return true;
     }
 
-    private static bool IsAtRule(string cssText, CssStatement statement, string atKeyword)
+    private static CssAtRuleKind GetAtRuleKind(string cssText, CssStatement statement)
     {
-        if (!cssText.AsSpan(statement.Start, statement.Length).TrimStart().StartsWith(atKeyword, StringComparison.OrdinalIgnoreCase))
+        if (statement.Length <= 0 || cssText[statement.Start] != '@')
         {
-            return false;
+            return CssAtRuleKind.None;
         }
 
-        var keywordStart = statement.Start;
-        SkipWhitespaceAndComments(cssText, ref keywordStart, statement.EndExclusive);
-
-        if (!cssText.AsSpan(keywordStart, statement.EndExclusive - keywordStart).StartsWith(atKeyword, StringComparison.OrdinalIgnoreCase))
+        var statementSpan = cssText.AsSpan(statement.Start, statement.Length);
+        if (HasAtRuleKeyword(statementSpan, ImportAtRule))
         {
-            return false;
+            return CssAtRuleKind.Import;
         }
 
-        var boundaryIndex = keywordStart + atKeyword.Length;
-        return boundaryIndex >= statement.EndExclusive || !IsCssIdentifierCharacter(cssText[boundaryIndex]);
+        if (HasAtRuleKeyword(statementSpan, CharsetAtRule))
+        {
+            return CssAtRuleKind.Charset;
+        }
+
+        return CssAtRuleKind.Other;
     }
 
-    private static bool TryParseImportRule(string cssText, CssStatement statement, out ImportRule importRule)
+    private static bool HasAtRuleKeyword(ReadOnlySpan<char> statement, string atKeyword)
     {
-        importRule = null!;
+        if (!statement.StartsWith(atKeyword.AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return statement.Length == atKeyword.Length || !IsCssIdentifierCharacter(statement[atKeyword.Length]);
+    }
+
+    private static bool TryParseImportRule(string cssText, CssStatement statement, out string href, out ReadOnlySpan<char> mediaCondition)
+    {
+        href = string.Empty;
+        mediaCondition = default;
 
         if (statement.Terminator != CssStatementTerminator.Semicolon)
         {
             return false;
         }
 
-        var index = statement.Start;
-        SkipWhitespaceAndComments(cssText, ref index, statement.EndExclusive);
-
-        if (!cssText.AsSpan(index, statement.EndExclusive - index).StartsWith("@import", StringComparison.OrdinalIgnoreCase))
+        var statementSpan = cssText.AsSpan(statement.Start, statement.Length);
+        if (!HasAtRuleKeyword(statementSpan, ImportAtRule))
         {
             return false;
         }
 
-        index += "@import".Length;
-        SkipWhitespaceAndComments(cssText, ref index, statement.EndExclusive);
+        var statementContent = cssText.AsSpan(0, statement.ContentEndExclusive);
+        var index = statement.Start + ImportAtRule.Length;
+        SkipWhitespaceAndComments(statementContent, ref index);
 
-        if (!TryReadImportHref(cssText, ref index, statement.EndExclusive, out var href))
+        if (!TryReadImportHref(cssText, ref index, statement.ContentEndExclusive, out href))
         {
             return false;
         }
 
-        SkipWhitespaceAndComments(cssText, ref index, statement.EndExclusive);
-        var mediaCondition = cssText.Substring(index, statement.ContentEndExclusive - index).Trim();
-
-        if (string.IsNullOrWhiteSpace(href))
-        {
-            return false;
-        }
-
-        importRule = new ImportRule(href, mediaCondition);
-        return true;
+        SkipWhitespaceAndComments(statementContent, ref index);
+        mediaCondition = TrimWhitespace(cssText.AsSpan(index, statement.ContentEndExclusive - index));
+        return !string.IsNullOrWhiteSpace(href);
     }
 
     private static bool TryReadImportHref(string cssText, ref int index, int endExclusive, out string href)
@@ -624,25 +748,26 @@ internal static class SvgCssCompatibilityProcessor
             return false;
         }
 
+        var cssSpan = cssText.AsSpan(0, endExclusive);
         var current = cssText[index];
         if (current is '\'' or '"')
         {
             return TryReadQuotedValue(cssText, ref index, endExclusive, current, out href);
         }
 
-        if (!cssText.AsSpan(index, endExclusive - index).StartsWith("url", StringComparison.OrdinalIgnoreCase))
+        if (!cssSpan.Slice(index).StartsWith(UrlKeyword.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        var boundaryIndex = index + 3;
+        var boundaryIndex = index + UrlKeyword.Length;
         if (boundaryIndex < endExclusive && IsCssIdentifierCharacter(cssText[boundaryIndex]))
         {
             return false;
         }
 
         index = boundaryIndex;
-        SkipWhitespaceAndComments(cssText, ref index, endExclusive);
+        SkipWhitespaceAndComments(cssSpan, ref index);
 
         if (index >= endExclusive || cssText[index] != '(')
         {
@@ -650,7 +775,7 @@ internal static class SvgCssCompatibilityProcessor
         }
 
         index++;
-        SkipWhitespaceAndComments(cssText, ref index, endExclusive);
+        SkipWhitespaceAndComments(cssSpan, ref index);
 
         if (index >= endExclusive)
         {
@@ -671,7 +796,7 @@ internal static class SvgCssCompatibilityProcessor
 
             while (index < endExclusive && cssText[index] != ')')
             {
-                if (TrySkipComment(cssText, ref index))
+                if (TrySkipComment(cssSpan, ref index))
                 {
                     continue;
                 }
@@ -679,10 +804,10 @@ internal static class SvgCssCompatibilityProcessor
                 index++;
             }
 
-            href = cssText.Substring(hrefStart, index - hrefStart).Trim();
+            href = TrimWhitespace(cssText.AsSpan(hrefStart, index - hrefStart)).ToString();
         }
 
-        SkipWhitespaceAndComments(cssText, ref index, endExclusive);
+        SkipWhitespaceAndComments(cssSpan, ref index);
 
         if (index >= endExclusive || cssText[index] != ')')
         {
@@ -704,13 +829,14 @@ internal static class SvgCssCompatibilityProcessor
 
         index++;
         var start = index;
-        var builder = new StringBuilder();
+        StringBuilder? builder = null;
 
         while (index < endExclusive)
         {
             var current = cssText[index];
             if (current == '\\')
             {
+                builder ??= new StringBuilder(endExclusive - start);
                 builder.Append(cssText, start, index - start);
                 index++;
 
@@ -727,9 +853,17 @@ internal static class SvgCssCompatibilityProcessor
 
             if (current == delimiter)
             {
-                builder.Append(cssText, start, index - start);
+                if (builder is null)
+                {
+                    value = cssText.Substring(start, index - start);
+                }
+                else
+                {
+                    builder.Append(cssText, start, index - start);
+                    value = builder.ToString();
+                }
+
                 index++;
-                value = builder.ToString();
                 return true;
             }
 
@@ -739,14 +873,20 @@ internal static class SvgCssCompatibilityProcessor
         return false;
     }
 
-    private static void SkipWhitespaceAndComments(string cssText, ref int index)
+    private static void AppendStatement(StringBuilder builder, string cssText, CssStatement statement)
     {
-        SkipWhitespaceAndComments(cssText, ref index, cssText.Length);
+        if (statement.Length <= 0)
+        {
+            return;
+        }
+
+        builder.Append(cssText, statement.Start, statement.Length);
+        builder.AppendLine();
     }
 
-    private static void SkipWhitespaceAndComments(string cssText, ref int index, int endExclusive)
+    private static void SkipWhitespaceAndComments(ReadOnlySpan<char> cssText, ref int index)
     {
-        while (index < endExclusive)
+        while (index < cssText.Length)
         {
             if (char.IsWhiteSpace(cssText[index]))
             {
@@ -754,27 +894,22 @@ internal static class SvgCssCompatibilityProcessor
                 continue;
             }
 
-            if (!TrySkipComment(cssText, ref index, endExclusive))
+            if (!TrySkipComment(cssText, ref index))
             {
                 break;
             }
         }
     }
 
-    private static bool TrySkipComment(string cssText, ref int index)
+    private static bool TrySkipComment(ReadOnlySpan<char> cssText, ref int index)
     {
-        return TrySkipComment(cssText, ref index, cssText.Length);
-    }
-
-    private static bool TrySkipComment(string cssText, ref int index, int endExclusive)
-    {
-        if (index + 1 >= endExclusive || cssText[index] != '/' || cssText[index + 1] != '*')
+        if (index + 1 >= cssText.Length || cssText[index] != '/' || cssText[index + 1] != '*')
         {
             return false;
         }
 
         index += 2;
-        while (index + 1 < endExclusive)
+        while (index + 1 < cssText.Length)
         {
             if (cssText[index] == '*' && cssText[index + 1] == '/')
             {
@@ -785,11 +920,11 @@ internal static class SvgCssCompatibilityProcessor
             index++;
         }
 
-        index = endExclusive;
+        index = cssText.Length;
         return true;
     }
 
-    private static void SkipQuotedString(string cssText, ref int index, char delimiter)
+    private static void SkipQuotedString(ReadOnlySpan<char> cssText, ref int index, char delimiter)
     {
         index++;
 
@@ -813,11 +948,12 @@ internal static class SvgCssCompatibilityProcessor
 
     private static void SkipBlock(string cssText, ref int index)
     {
+        var cssSpan = cssText.AsSpan();
         var depth = 1;
 
         while (index < cssText.Length && depth > 0)
         {
-            if (TrySkipComment(cssText, ref index))
+            if (TrySkipComment(cssSpan, ref index))
             {
                 continue;
             }
@@ -827,21 +963,82 @@ internal static class SvgCssCompatibilityProcessor
             {
                 case '\'':
                 case '"':
-                    SkipQuotedString(cssText, ref index, current);
+                    SkipQuotedString(cssSpan, ref index, current);
                     break;
+
                 case '{':
                     depth++;
                     index++;
                     break;
+
                 case '}':
                     depth--;
                     index++;
                     break;
+
                 default:
                     index++;
                     break;
             }
         }
+    }
+
+    private static bool ConsumeLeadingKeyword(ref ReadOnlySpan<char> value, string keyword)
+    {
+        value = TrimWhitespace(value);
+        if (value.Length <= keyword.Length ||
+            !value.StartsWith(keyword.AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+            !char.IsWhiteSpace(value[keyword.Length]))
+        {
+            return false;
+        }
+
+        value = TrimStartWhitespace(value.Slice(keyword.Length));
+        return true;
+    }
+
+    private static ReadOnlySpan<char> TrimWhitespace(ReadOnlySpan<char> value)
+    {
+        return TrimEndWhitespace(TrimStartWhitespace(value));
+    }
+
+    private static ReadOnlySpan<char> TrimStartWhitespace(ReadOnlySpan<char> value)
+    {
+        var start = 0;
+        while (start < value.Length && char.IsWhiteSpace(value[start]))
+        {
+            start++;
+        }
+
+        return value.Slice(start);
+    }
+
+    private static ReadOnlySpan<char> TrimEndWhitespace(ReadOnlySpan<char> value)
+    {
+        var end = value.Length;
+        while (end > 0 && char.IsWhiteSpace(value[end - 1]))
+        {
+            end--;
+        }
+
+        return value.Slice(0, end);
+    }
+
+    private static bool IsAsciiLetter(char value, char expectedLower)
+    {
+        return value == expectedLower || value == char.ToUpperInvariant(expectedLower);
+    }
+
+    private static int SaturatingAddCapacity(int currentCapacity, int additionalCapacity)
+    {
+        if (additionalCapacity <= 0)
+        {
+            return currentCapacity;
+        }
+
+        return currentCapacity >= MaxStringBuilderCapacity - additionalCapacity
+            ? MaxStringBuilderCapacity
+            : currentCapacity + additionalCapacity;
     }
 
     private static bool IsCssIdentifierCharacter(char value)
@@ -867,32 +1064,30 @@ internal static class SvgCssCompatibilityProcessor
         // Cycle protection is scoped to the currently expanding import chain so repeated imports in
         // separate top-level <style> blocks still participate in cascade order like they do in a
         // browser.
-        if (importChain.Contains(stylesheetUri.AbsoluteUri))
-        {
-            return null;
-        }
-
         var localPath = stylesheetUri.LocalPath;
         if (!File.Exists(localPath))
         {
             return null;
         }
 
-        importChain.Add(stylesheetUri.AbsoluteUri);
+        if (!importChain.Add(stylesheetUri.AbsoluteUri))
+        {
+            return null;
+        }
         return new SvgCssStyleSource(File.ReadAllText(localPath), stylesheetUri);
     }
 
-    private sealed class ImportRule
+    private readonly struct AppliedDeclaration
     {
-        public ImportRule(string href, string mediaCondition)
+        public AppliedDeclaration(string name, string value)
         {
-            Href = href;
-            MediaCondition = mediaCondition;
+            Name = name;
+            Value = value;
         }
 
-        public string Href { get; }
+        public string Name { get; }
 
-        public string MediaCondition { get; }
+        public string Value { get; }
     }
 
     private readonly struct CssStatement
@@ -921,6 +1116,14 @@ internal static class SvgCssCompatibilityProcessor
         EndOfFile,
         Semicolon,
         Block,
+    }
+
+    private enum CssAtRuleKind
+    {
+        None,
+        Import,
+        Charset,
+        Other,
     }
 }
 
