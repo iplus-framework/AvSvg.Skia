@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Xml;
 using ExCSS;
 using Svg.Css;
@@ -31,22 +30,6 @@ namespace Svg;
 /// </summary>
 public static class SvgDocumentCompatibilityLoader
 {
-    // ExCSS parses forgivingly, which is useful for most stylesheet recovery, but it also means an
-    // invalid @import can survive long enough to be interpreted differently from Chrome. We first
-    // identify only syntactically valid import forms and expand those; everything else is left in
-    // place for the normal parser and, if invalid, naturally ignored.
-    private static readonly Regex ImportRuleRegex = new(
-        """
-        @import\s+
-        (?:
-            url\(\s*(?<url>[^)]+?)\s*\)
-            |
-            (?<quoted>"[^"]+"|'[^']+')
-        )
-        (?<media>[^;]*);
-        """,
-        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.IgnorePatternWhitespace);
-
     public static T Open<T>(string path, SvgOptions svgOptions) where T : SvgDocument, new()
     {
         if (path is null)
@@ -446,17 +429,26 @@ public static class SvgDocumentCompatibilityLoader
 
     private static IEnumerable<ImportRule> GetImportRules(string cssText)
     {
-        foreach (Match match in ImportRuleRegex.Matches(cssText))
+        var index = 0;
+
+        while (TryReadNextTopLevelStatement(cssText, ref index, out var statement))
         {
-            // The regex already filtered for supported, syntactically valid @import forms; here we
-            // only normalize the captured URL token before passing it into URI resolution.
-            var rawHref = match.Groups["url"].Success
-                ? match.Groups["url"].Value
-                : match.Groups["quoted"].Value;
-            var href = rawHref.Trim().Trim('"', '\'');
-            if (!string.IsNullOrWhiteSpace(href))
+            if (IsAtRule(cssText, statement, "@charset"))
             {
-                yield return new ImportRule(href, match.Groups["media"].Value.Trim());
+                continue;
+            }
+
+            // CSS only honors @import rules while the stylesheet is still in its leading import
+            // section. As soon as a normal rule or another at-rule appears, later imports are
+            // invalid and must be ignored even if they are otherwise well-formed.
+            if (!IsAtRule(cssText, statement, "@import"))
+            {
+                yield break;
+            }
+
+            if (TryParseImportRule(cssText, statement, out var importRule))
+            {
+                yield return importRule;
             }
         }
     }
@@ -519,6 +511,350 @@ public static class SvgDocumentCompatibilityLoader
         return child.ToCss().TrimStart().StartsWith("@import", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool TryReadNextTopLevelStatement(string cssText, ref int index, out CssStatement statement)
+    {
+        SkipWhitespaceAndComments(cssText, ref index);
+
+        if (index >= cssText.Length)
+        {
+            statement = default;
+            return false;
+        }
+
+        var start = index;
+        var parenthesisDepth = 0;
+
+        while (index < cssText.Length)
+        {
+            if (TrySkipComment(cssText, ref index))
+            {
+                continue;
+            }
+
+            var current = cssText[index];
+            switch (current)
+            {
+                case '\'':
+                case '"':
+                    SkipQuotedString(cssText, ref index, current);
+                    continue;
+                case '(':
+                    parenthesisDepth++;
+                    index++;
+                    continue;
+                case ')' when parenthesisDepth > 0:
+                    parenthesisDepth--;
+                    index++;
+                    continue;
+                case ';' when parenthesisDepth == 0:
+                    statement = new CssStatement(start, index, index + 1, CssStatementTerminator.Semicolon);
+                    index++;
+                    return true;
+                case '{' when parenthesisDepth == 0:
+                    index++;
+                    SkipBlock(cssText, ref index);
+                    statement = new CssStatement(start, index, index, CssStatementTerminator.Block);
+                    return true;
+                default:
+                    index++;
+                    break;
+            }
+        }
+
+        statement = new CssStatement(start, index, index, CssStatementTerminator.EndOfFile);
+        return true;
+    }
+
+    private static bool IsAtRule(string cssText, CssStatement statement, string atKeyword)
+    {
+        if (!cssText.AsSpan(statement.Start, statement.Length).TrimStart().StartsWith(atKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var keywordStart = statement.Start;
+        SkipWhitespaceAndComments(cssText, ref keywordStart, statement.EndExclusive);
+
+        if (!cssText.AsSpan(keywordStart, statement.EndExclusive - keywordStart).StartsWith(atKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var boundaryIndex = keywordStart + atKeyword.Length;
+        return boundaryIndex >= statement.EndExclusive || !IsCssIdentifierCharacter(cssText[boundaryIndex]);
+    }
+
+    private static bool TryParseImportRule(string cssText, CssStatement statement, out ImportRule importRule)
+    {
+        importRule = null!;
+
+        if (statement.Terminator != CssStatementTerminator.Semicolon)
+        {
+            return false;
+        }
+
+        var index = statement.Start;
+        SkipWhitespaceAndComments(cssText, ref index, statement.EndExclusive);
+
+        if (!cssText.AsSpan(index, statement.EndExclusive - index).StartsWith("@import", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        index += "@import".Length;
+        SkipWhitespaceAndComments(cssText, ref index, statement.EndExclusive);
+
+        if (!TryReadImportHref(cssText, ref index, statement.EndExclusive, out var href))
+        {
+            return false;
+        }
+
+        SkipWhitespaceAndComments(cssText, ref index, statement.EndExclusive);
+        var mediaCondition = cssText.Substring(index, statement.ContentEndExclusive - index).Trim();
+
+        if (string.IsNullOrWhiteSpace(href))
+        {
+            return false;
+        }
+
+        importRule = new ImportRule(href, mediaCondition);
+        return true;
+    }
+
+    private static bool TryReadImportHref(string cssText, ref int index, int endExclusive, out string href)
+    {
+        href = string.Empty;
+
+        if (index >= endExclusive)
+        {
+            return false;
+        }
+
+        var current = cssText[index];
+        if (current is '\'' or '"')
+        {
+            return TryReadQuotedValue(cssText, ref index, endExclusive, current, out href);
+        }
+
+        if (!cssText.AsSpan(index, endExclusive - index).StartsWith("url", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var boundaryIndex = index + 3;
+        if (boundaryIndex < endExclusive && IsCssIdentifierCharacter(cssText[boundaryIndex]))
+        {
+            return false;
+        }
+
+        index = boundaryIndex;
+        SkipWhitespaceAndComments(cssText, ref index, endExclusive);
+
+        if (index >= endExclusive || cssText[index] != '(')
+        {
+            return false;
+        }
+
+        index++;
+        SkipWhitespaceAndComments(cssText, ref index, endExclusive);
+
+        if (index >= endExclusive)
+        {
+            return false;
+        }
+
+        if (cssText[index] is '\'' or '"')
+        {
+            var delimiter = cssText[index];
+            if (!TryReadQuotedValue(cssText, ref index, endExclusive, delimiter, out href))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            var hrefStart = index;
+
+            while (index < endExclusive && cssText[index] != ')')
+            {
+                if (TrySkipComment(cssText, ref index))
+                {
+                    continue;
+                }
+
+                index++;
+            }
+
+            href = cssText.Substring(hrefStart, index - hrefStart).Trim();
+        }
+
+        SkipWhitespaceAndComments(cssText, ref index, endExclusive);
+
+        if (index >= endExclusive || cssText[index] != ')')
+        {
+            return false;
+        }
+
+        index++;
+        return !string.IsNullOrWhiteSpace(href);
+    }
+
+    private static bool TryReadQuotedValue(string cssText, ref int index, int endExclusive, char delimiter, out string value)
+    {
+        value = string.Empty;
+
+        if (index >= endExclusive || cssText[index] != delimiter)
+        {
+            return false;
+        }
+
+        index++;
+        var start = index;
+        var builder = new StringBuilder();
+
+        while (index < endExclusive)
+        {
+            var current = cssText[index];
+            if (current == '\\')
+            {
+                builder.Append(cssText, start, index - start);
+                index++;
+
+                if (index >= endExclusive)
+                {
+                    return false;
+                }
+
+                builder.Append(cssText[index]);
+                index++;
+                start = index;
+                continue;
+            }
+
+            if (current == delimiter)
+            {
+                builder.Append(cssText, start, index - start);
+                index++;
+                value = builder.ToString();
+                return true;
+            }
+
+            index++;
+        }
+
+        return false;
+    }
+
+    private static void SkipWhitespaceAndComments(string cssText, ref int index)
+    {
+        SkipWhitespaceAndComments(cssText, ref index, cssText.Length);
+    }
+
+    private static void SkipWhitespaceAndComments(string cssText, ref int index, int endExclusive)
+    {
+        while (index < endExclusive)
+        {
+            if (char.IsWhiteSpace(cssText[index]))
+            {
+                index++;
+                continue;
+            }
+
+            if (!TrySkipComment(cssText, ref index, endExclusive))
+            {
+                break;
+            }
+        }
+    }
+
+    private static bool TrySkipComment(string cssText, ref int index)
+    {
+        return TrySkipComment(cssText, ref index, cssText.Length);
+    }
+
+    private static bool TrySkipComment(string cssText, ref int index, int endExclusive)
+    {
+        if (index + 1 >= endExclusive || cssText[index] != '/' || cssText[index + 1] != '*')
+        {
+            return false;
+        }
+
+        index += 2;
+        while (index + 1 < endExclusive)
+        {
+            if (cssText[index] == '*' && cssText[index + 1] == '/')
+            {
+                index += 2;
+                return true;
+            }
+
+            index++;
+        }
+
+        index = endExclusive;
+        return true;
+    }
+
+    private static void SkipQuotedString(string cssText, ref int index, char delimiter)
+    {
+        index++;
+
+        while (index < cssText.Length)
+        {
+            if (cssText[index] == '\\')
+            {
+                index = Math.Min(index + 2, cssText.Length);
+                continue;
+            }
+
+            if (cssText[index] == delimiter)
+            {
+                index++;
+                return;
+            }
+
+            index++;
+        }
+    }
+
+    private static void SkipBlock(string cssText, ref int index)
+    {
+        var depth = 1;
+
+        while (index < cssText.Length && depth > 0)
+        {
+            if (TrySkipComment(cssText, ref index))
+            {
+                continue;
+            }
+
+            var current = cssText[index];
+            switch (current)
+            {
+                case '\'':
+                case '"':
+                    SkipQuotedString(cssText, ref index, current);
+                    break;
+                case '{':
+                    depth++;
+                    index++;
+                    break;
+                case '}':
+                    depth--;
+                    index++;
+                    break;
+                default:
+                    index++;
+                    break;
+            }
+        }
+    }
+
+    private static bool IsCssIdentifierCharacter(char value)
+    {
+        return char.IsLetterOrDigit(value) || value is '-' or '_';
+    }
+
     private static StyleSource? TryLoadImportedStylesheet(string? href, Uri? baseUri, HashSet<string> importChain)
     {
         if (string.IsNullOrWhiteSpace(href) || baseUri is null)
@@ -579,5 +915,33 @@ public static class SvgDocumentCompatibilityLoader
         public string Href { get; }
 
         public string MediaCondition { get; }
+    }
+
+    private readonly struct CssStatement
+    {
+        public CssStatement(int start, int contentEndExclusive, int endExclusive, CssStatementTerminator terminator)
+        {
+            Start = start;
+            ContentEndExclusive = contentEndExclusive;
+            EndExclusive = endExclusive;
+            Terminator = terminator;
+        }
+
+        public int Start { get; }
+
+        public int ContentEndExclusive { get; }
+
+        public int EndExclusive { get; }
+
+        public CssStatementTerminator Terminator { get; }
+
+        public int Length => EndExclusive - Start;
+    }
+
+    private enum CssStatementTerminator
+    {
+        EndOfFile,
+        Semicolon,
+        Block,
     }
 }

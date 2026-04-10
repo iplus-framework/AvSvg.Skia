@@ -222,6 +222,40 @@ public class SvgDocumentCompatibilityLoaderTests
     }
 
     [Fact]
+    public void OpenPath_IgnoresImportedStylesheetsAfterStyleRules()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            var cssPath = Path.Combine(tempDirectory, "styles.css");
+            var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+            File.WriteAllText(cssPath, "#target { fill: green !important; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg">
+                  <style type="text/css"><![CDATA[
+                    #target { fill: blue; }
+                    @import url("styles.css");
+                  ]]></style>
+                  <circle id="target" cx="10" cy="10" r="5" fill="red" />
+                </svg>
+                """);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var circle = document.Descendants().OfType<SvgCircle>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(circle.Fill);
+
+            Assert.Equal(Color.Blue.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void OpenXmlReader_AppliesImportedStylesheetsUsingReaderBaseUri()
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -378,6 +412,76 @@ public class SvgDocumentCompatibilityLoaderTests
         var fill = Assert.IsType<SvgColourServer>(rect.Fill);
 
         Assert.Equal(Color.Green.ToArgb(), fill.Colour.ToArgb());
+    }
+
+    [Fact]
+    public void OpenPath_IgnoresCommentedImportTokens()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            var cssPath = Path.Combine(tempDirectory, "styles.css");
+            var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+            File.WriteAllText(cssPath, "#target { fill: green !important; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg">
+                  <style type="text/css"><![CDATA[
+                    /* @import url("styles.css"); */
+                    #target { fill: red; }
+                  ]]></style>
+                  <circle id="target" cx="10" cy="10" r="5" fill="blue" />
+                </svg>
+                """);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var circle = document.Descendants().OfType<SvgCircle>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(circle.Fill);
+
+            Assert.Equal(Color.Red.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OpenPath_IgnoresImportTokensInsideStrings()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            var cssPath = Path.Combine(tempDirectory, "styles.css");
+            var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+            File.WriteAllText(cssPath, "#target { fill: green !important; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg">
+                  <text id="target" x="0" y="15" fill="blue">test</text>
+                  <style type="text/css"><![CDATA[
+                    #target {
+                      font-family: "@import url('styles.css');";
+                      fill: red;
+                    }
+                  ]]></style>
+                </svg>
+                """);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var text = document.Descendants().OfType<SvgText>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(text.Fill);
+
+            Assert.Equal(Color.Red.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
     }
 
     private static LoadResult CaptureLoad(Func<SvgDocument> load)
