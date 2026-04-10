@@ -6338,6 +6338,7 @@ internal static class SvgSceneTextCompiler
     {
         return HasRotateValues(svgTextBase) ||
                HasInheritedRotateValues(svgTextBase) ||
+               HasNonBaselineShift(svgTextBase) ||
                (text is null
                    ? HasSpacingAdjustments(svgTextBase)
                    : HasEffectiveSpacingAdjustments(svgTextBase, text)) ||

@@ -215,6 +215,50 @@ public class SvgRetainedSceneGraphTests : SvgUnitTest
     }
 
     [Fact]
+    public void RetainedSceneGraph_PreservesBaselineShiftForMixedDirectionSequentialRuns()
+    {
+        const string baselineShiftSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="160" height="80">
+              <text x="10" y="40" font-size="16" font-family="Arial">abc<tspan baseline-shift="10">אבג</tspan></text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = false;
+        svg.FromSvg(baselineShiftSvg);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var blobBaselineBands = retainedModel!
+            .FindCommands<DrawTextBlobCanvasCommand>()
+            .Where(static cmd => cmd.TextBlob?.Points is { Length: > 0 })
+            .Select(cmd => (double)cmd.TextBlob!.Points!
+                .Select(point => point.Y + cmd.Y)
+                .Average())
+            .ToList();
+
+        var textBaselineBands = retainedModel
+            .FindCommands<DrawTextCanvasCommand>()
+            .Where(static cmd => !string.IsNullOrWhiteSpace(cmd.Text))
+            .Select(static cmd => (double)cmd.Y)
+            .ToList();
+
+        var baselineBands = blobBaselineBands
+            .Concat(textBaselineBands)
+            .OrderBy(static y => y)
+            .ToList();
+
+        Assert.True(
+            baselineBands.Count >= 2,
+            $"Expected mixed-direction sequential text with baseline-shift to emit at least two baseline bands, but found {baselineBands.Count}: {string.Join(", ", baselineBands.Select(static y => y.ToString("F2", CultureInfo.InvariantCulture)))}");
+
+        Assert.True(
+            baselineBands.Zip(baselineBands.Skip(1), static (top, bottom) => bottom - top).Any(static delta => delta > 5d),
+            $"Expected baseline-shift to separate the shifted run from the base line, but found bands: {string.Join(", ", baselineBands.Select(static y => y.ToString("F2", CultureInfo.InvariantCulture)))}");
+    }
+
+    [Fact]
     public void RetainedSceneGraph_PreservesInterTspanSpacesForNestedRotateFixture()
     {
         using var svg = new SKSvg();
