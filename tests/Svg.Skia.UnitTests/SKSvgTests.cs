@@ -127,6 +127,33 @@ public class SKSvgTests : SvgUnitTest
     }
 
     [Fact]
+    public void Save_InheritedCurrentColor_UsesConsumingElementsColor()
+    {
+        const string svgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+              <g fill="currentColor" color="lime">
+                <rect x="10" y="10" width="80" height="80" color="red" />
+              </g>
+            </svg>
+            """;
+
+        var svg = new SKSvg();
+        using var input = new MemoryStream(Encoding.UTF8.GetBytes(svgMarkup));
+        using var _ = svg.Load(input);
+        using var output = new MemoryStream();
+
+        Assert.True(svg.Save(output, SkiaSharp.SKColors.Transparent));
+
+        output.Position = 0;
+        using var image = Image.Load<Rgba32>(output);
+        var pixel = image[50, 50];
+        Assert.Equal((byte)255, pixel.R);
+        Assert.Equal((byte)0, pixel.G);
+        Assert.Equal((byte)0, pixel.B);
+        Assert.Equal((byte)255, pixel.A);
+    }
+
+    [Fact]
     public void Load_CssFontFaceWithExternalFontUrl_DoesNotCrash()
     {
         const string svgMarkup = """
