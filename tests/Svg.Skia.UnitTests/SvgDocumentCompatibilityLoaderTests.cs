@@ -185,6 +185,72 @@ public class SvgDocumentCompatibilityLoaderTests
     }
 
     [Fact]
+    public void OpenPath_AppliesImportedStylesheetsWhenMediaFeatureMatchesStaticViewport()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            var cssPath = Path.Combine(tempDirectory, "styles.css");
+            var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+            File.WriteAllText(cssPath, "#target { fill: green; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg">
+                  <style type="text/css"><![CDATA[
+                    @import url("styles.css") screen and (min-width: 100px) and (orientation: landscape);
+                  ]]></style>
+                  <circle id="target" cx="10" cy="10" r="5" fill="red" />
+                </svg>
+                """);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var circle = document.Descendants().OfType<SvgCircle>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(circle.Fill);
+
+            Assert.Equal(Color.Green.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OpenPath_IgnoresImportedStylesheetsWhenMediaFeatureDoesNotMatchStaticViewport()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            var cssPath = Path.Combine(tempDirectory, "styles.css");
+            var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+            File.WriteAllText(cssPath, "#target { fill: green; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg">
+                  <style type="text/css"><![CDATA[
+                    @import url("styles.css") screen and (max-width: 1px);
+                  ]]></style>
+                  <circle id="target" cx="10" cy="10" r="5" fill="red" />
+                </svg>
+                """);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var circle = document.Descendants().OfType<SvgCircle>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(circle.Fill);
+
+            Assert.Equal(Color.Red.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void OpenPath_ReappliesImportedStylesheetsAcrossSeparateStyleBlocksInSourceOrder()
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -394,6 +460,27 @@ public class SvgDocumentCompatibilityLoaderTests
         var anchorFill = Assert.IsType<SvgColourServer>(anchor.Fill);
 
         Assert.Equal(Color.Red.ToArgb(), textFill.Colour.ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), anchorFill.Colour.ToArgb());
+    }
+
+    [Fact]
+    public void FromSvg_LinkPseudoClassDoesNotStylePreservedWhitespaceOutsideLink()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <text id="label" xml:space="preserve" fill="black"> <a id="cta" xlink:href="#target">link</a> </text>
+              <style>:link { fill: red; }</style>
+            </svg>
+            """;
+
+        var document = SvgDocumentCompatibilityLoader.FromSvg<SvgDocument>(svg);
+        var text = document.Descendants().OfType<SvgText>().Single(static element => element.ID == "label");
+        var anchor = document.Descendants().OfType<SvgAnchor>().Single(static element => element.ID == "cta");
+
+        var textFill = Assert.IsType<SvgColourServer>(text.Fill);
+        var anchorFill = Assert.IsType<SvgColourServer>(anchor.Fill);
+
+        Assert.Equal(Color.Black.ToArgb(), textFill.Colour.ToArgb());
         Assert.Equal(Color.Red.ToArgb(), anchorFill.Colour.ToArgb());
     }
 

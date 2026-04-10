@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -30,6 +31,12 @@ namespace Svg;
 /// </summary>
 public static class SvgDocumentCompatibilityLoader
 {
+    // Chrome-backed W3C overrides are captured in a fixed 480x360 viewport. Reusing that same
+    // static media environment here keeps @import media-query evaluation aligned with the renderer
+    // context the checked baselines are compared against.
+    private const double StaticScreenWidthPixels = 480d;
+    private const double StaticScreenHeightPixels = 360d;
+
     public static T Open<T>(string path, SvgOptions svgOptions) where T : SvgDocument, new()
     {
         if (path is null)
@@ -295,6 +302,8 @@ public static class SvgDocumentCompatibilityLoader
             return false;
         }
 
+        var preservesWhitespace = parentTextBase.SpaceHandling == XmlSpaceHandling.Preserve;
+
         foreach (var node in parentTextBase.Nodes)
         {
             if (ReferenceEquals(node, anchor))
@@ -302,7 +311,8 @@ public static class SvgDocumentCompatibilityLoader
                 continue;
             }
 
-            if (node is SvgContentNode contentNode &&
+            if (!preservesWhitespace &&
+                node is SvgContentNode contentNode &&
                 string.IsNullOrWhiteSpace(contentNode.Content))
             {
                 continue;
@@ -491,10 +501,10 @@ public static class SvgDocumentCompatibilityLoader
             normalized = normalized.Substring("not ".Length).TrimStart();
         }
 
-        var separatorIndex = normalized.IndexOfAny(new[] { ' ', '\t', '\r', '\n', '(' });
-        var mediaType = separatorIndex >= 0
-            ? normalized.Substring(0, separatorIndex)
-            : normalized;
+        if (!TryParseMediaQuery(normalized, out var mediaType, out var mediaFeatures))
+        {
+            return false;
+        }
 
         // Treat Svg.Skia's checked rendering context as "screen". That matches the Chrome capture
         // workflow used for baselines, so imports scoped to other media such as "print" should not
@@ -503,7 +513,212 @@ public static class SvgDocumentCompatibilityLoader
             string.Equals(mediaType, "all", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mediaType, "screen", StringComparison.OrdinalIgnoreCase);
 
-        return isNegated ? !matchesScreen : matchesScreen;
+        // Once a media query adds feature predicates, matching the type alone is no longer enough.
+        // For example, `screen and (max-width: 1px)` must not apply in the static 480px viewport
+        // used by the Chrome reference captures. Unsupported features are treated conservatively as
+        // non-matches so imports are not inlined on predicates we cannot validate.
+        var matchesFeatures = mediaFeatures.All(EvaluateMediaFeature);
+        var matchesMediaQuery = matchesScreen && matchesFeatures;
+        return isNegated ? !matchesMediaQuery : matchesMediaQuery;
+    }
+
+    private static bool TryParseMediaQuery(string mediaQuery, out string mediaType, out List<string> mediaFeatures)
+    {
+        mediaType = string.Empty;
+        mediaFeatures = new List<string>();
+
+        var index = 0;
+        SkipWhitespaceAndComments(mediaQuery, ref index, mediaQuery.Length);
+
+        if (index < mediaQuery.Length && mediaQuery[index] != '(')
+        {
+            var typeStart = index;
+            while (index < mediaQuery.Length && !char.IsWhiteSpace(mediaQuery[index]) && mediaQuery[index] != '(')
+            {
+                index++;
+            }
+
+            mediaType = mediaQuery.Substring(typeStart, index - typeStart).Trim();
+            SkipWhitespaceAndComments(mediaQuery, ref index, mediaQuery.Length);
+        }
+
+        var expectsFeatureAfterAnd = false;
+        while (index < mediaQuery.Length)
+        {
+            if (mediaQuery[index] == '(')
+            {
+                if (!TryReadMediaFeature(mediaQuery, ref index, out var mediaFeature))
+                {
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(mediaFeature))
+                {
+                    return false;
+                }
+
+                mediaFeatures.Add(mediaFeature);
+                expectsFeatureAfterAnd = false;
+                SkipWhitespaceAndComments(mediaQuery, ref index, mediaQuery.Length);
+                continue;
+            }
+
+            if (!TryConsumeMediaAnd(mediaQuery, ref index))
+            {
+                return false;
+            }
+
+            expectsFeatureAfterAnd = true;
+            SkipWhitespaceAndComments(mediaQuery, ref index, mediaQuery.Length);
+        }
+
+        return !expectsFeatureAfterAnd;
+    }
+
+    private static bool TryConsumeMediaAnd(string mediaQuery, ref int index)
+    {
+        if (!mediaQuery.AsSpan(index).StartsWith("and", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var endIndex = index + "and".Length;
+        if (endIndex < mediaQuery.Length && !char.IsWhiteSpace(mediaQuery[endIndex]) && mediaQuery[endIndex] != '(')
+        {
+            return false;
+        }
+
+        index = endIndex;
+        return true;
+    }
+
+    private static bool TryReadMediaFeature(string mediaQuery, ref int index, out string mediaFeature)
+    {
+        mediaFeature = string.Empty;
+
+        if (index >= mediaQuery.Length || mediaQuery[index] != '(')
+        {
+            return false;
+        }
+
+        index++;
+        var featureStart = index;
+        var depth = 1;
+
+        while (index < mediaQuery.Length)
+        {
+            if (TrySkipComment(mediaQuery, ref index, mediaQuery.Length))
+            {
+                continue;
+            }
+
+            var current = mediaQuery[index];
+            switch (current)
+            {
+                case '\'':
+                case '"':
+                    SkipQuotedString(mediaQuery, ref index, current);
+                    continue;
+                case '(':
+                    depth++;
+                    index++;
+                    continue;
+                case ')':
+                    depth--;
+                    if (depth == 0)
+                    {
+                        mediaFeature = mediaQuery.Substring(featureStart, index - featureStart).Trim();
+                        index++;
+                        return true;
+                    }
+
+                    index++;
+                    continue;
+                default:
+                    index++;
+                    break;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool EvaluateMediaFeature(string mediaFeature)
+    {
+        var separatorIndex = mediaFeature.IndexOf(':');
+        if (separatorIndex < 0)
+        {
+            return false;
+        }
+
+        var name = mediaFeature.Substring(0, separatorIndex).Trim();
+        var value = mediaFeature.Substring(separatorIndex + 1).Trim();
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        return name.ToLowerInvariant() switch
+        {
+            "width" => MatchesExactDimension(value, StaticScreenWidthPixels),
+            "min-width" => MatchesMinimumDimension(value, StaticScreenWidthPixels),
+            "max-width" => MatchesMaximumDimension(value, StaticScreenWidthPixels),
+            "height" => MatchesExactDimension(value, StaticScreenHeightPixels),
+            "min-height" => MatchesMinimumDimension(value, StaticScreenHeightPixels),
+            "max-height" => MatchesMaximumDimension(value, StaticScreenHeightPixels),
+            "orientation" => MatchesOrientation(value),
+            _ => false,
+        };
+    }
+
+    private static bool MatchesExactDimension(string value, double currentPixels)
+    {
+        return TryParsePixelLength(value, out var requestedPixels) &&
+               Math.Abs(requestedPixels - currentPixels) < 0.001d;
+    }
+
+    private static bool MatchesMinimumDimension(string value, double currentPixels)
+    {
+        return TryParsePixelLength(value, out var requestedPixels) &&
+               currentPixels + 0.001d >= requestedPixels;
+    }
+
+    private static bool MatchesMaximumDimension(string value, double currentPixels)
+    {
+        return TryParsePixelLength(value, out var requestedPixels) &&
+               currentPixels - 0.001d <= requestedPixels;
+    }
+
+    private static bool MatchesOrientation(string value)
+    {
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "landscape" => StaticScreenWidthPixels >= StaticScreenHeightPixels,
+            "portrait" => StaticScreenHeightPixels > StaticScreenWidthPixels,
+            _ => false,
+        };
+    }
+
+    private static bool TryParsePixelLength(string value, out double pixels)
+    {
+        pixels = 0d;
+
+        var normalized = value.Trim();
+        if (string.Equals(normalized, "0", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (!normalized.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return double.TryParse(
+            normalized.Substring(0, normalized.Length - 2).Trim(),
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out pixels);
     }
 
     private static bool IsImportRule(IStylesheetNode child)
