@@ -16,13 +16,15 @@ namespace Svg;
 /// Browser-compatibility focused loader for Svg.Custom.
 ///
 /// The upstream loader is good enough for basic SVG parsing, but the Chrome-backed W3C rows showed
-/// three CSS-specific gaps that matter for static rendering correctness:
+/// four CSS-specific gaps that matter for static rendering correctness:
 ///
 /// 1. relative stylesheet references need a stable document base URI, even when the SVG is opened
 ///    through the convenience API and CSS is applied after parsing;
 /// 2. only <style type="text/css"> (or an omitted type) should participate in CSS parsing;
 /// 3. malformed @import rules should be ignored the way Chrome ignores them, while valid imports
-///    should still be expanded before the remaining rules are applied.
+///    should still be expanded before the remaining rules are applied;
+/// 4. media-qualified imports should only apply when they match the static screen rendering
+///    context that Chrome uses for the checked baselines.
 ///
 /// This loader keeps the upstream XML tree construction shape, then applies a narrower CSS pass on
 /// top that preserves browser behavior for those cases without changing unrelated parsing logic.
@@ -152,13 +154,17 @@ public static class SvgDocumentCompatibilityLoader
                 {
                     var rootNode = new NonSvgElement();
                     rootNode.Children.Add(svgDocument);
+                    var projectsLinkStylesToText = ContainsLinkPseudoClass(rule.Selector);
 
                     var elemsToStyle = rootNode.QuerySelectorAll(rule.Selector, elementFactory);
                     foreach (var elem in elemsToStyle)
                     {
-                        foreach (var declaration in rule.Style)
+                        foreach (var styleTarget in GetStyleTargets(elem, projectsLinkStylesToText))
                         {
-                            elem.AddStyle(declaration.Name, declaration.Original, rule.Selector.GetSpecificity());
+                            foreach (var declaration in rule.Style)
+                            {
+                                styleTarget.AddStyle(declaration.Name, declaration.Original, rule.Selector.GetSpecificity());
+                            }
                         }
                     }
                 }
@@ -285,6 +291,66 @@ public static class SvgDocumentCompatibilityLoader
         return element is SvgTextBase;
     }
 
+    private static IEnumerable<SvgElement> GetStyleTargets(SvgElement element, bool projectsLinkStylesToText)
+    {
+        yield return element;
+
+        if (projectsLinkStylesToText && TryGetLinkTextContainer(element, out var textContainer))
+        {
+            yield return textContainer;
+        }
+    }
+
+    private static bool TryGetLinkTextContainer(SvgElement element, out SvgTextBase textContainer)
+    {
+        textContainer = null!;
+
+        if (element is not SvgAnchor anchor ||
+            string.IsNullOrWhiteSpace(anchor.Href) ||
+            anchor.Parent is not SvgTextBase parentTextBase)
+        {
+            return false;
+        }
+
+        foreach (var node in parentTextBase.Nodes)
+        {
+            if (ReferenceEquals(node, anchor))
+            {
+                continue;
+            }
+
+            if (node is SvgContentNode contentNode &&
+                string.IsNullOrWhiteSpace(contentNode.Content))
+            {
+                continue;
+            }
+
+            // If the surrounding text container has any other meaningful content, projecting the
+            // link rule onto it would leak styles onto non-link glyphs. In that case the rule must
+            // stay anchored to the matched <a> only.
+            return false;
+        }
+
+        // The renderer draws raw text children through the surrounding text container rather than
+        // through the <a> node itself. When the anchor is the only meaningful child of that text
+        // container, mirroring the fully matched rule onto the container reproduces Chrome's link
+        // styling without widening selector matching.
+        textContainer = parentTextBase;
+        return true;
+    }
+
+    private static bool ContainsLinkPseudoClass(ISelector selector)
+    {
+        return selector switch
+        {
+            PseudoClassSelector pseudoClassSelector => string.Equals(pseudoClassSelector.Class, "link", StringComparison.OrdinalIgnoreCase),
+            CompoundSelector compoundSelector => compoundSelector.Any(ContainsLinkPseudoClass),
+            ComplexSelector complexSelector => complexSelector.Any(part => ContainsLinkPseudoClass(part.Selector)),
+            ListSelector listSelector => listSelector.Any(ContainsLinkPseudoClass),
+            _ => false,
+        };
+    }
+
     private static Uri? TryGetAbsoluteBaseUri(string? baseUri)
     {
         if (string.IsNullOrWhiteSpace(baseUri))
@@ -344,9 +410,14 @@ public static class SvgDocumentCompatibilityLoader
         // Import expansion is driven by the original CSS text instead of ExCSS nodes so we can be
         // stricter than the tolerant parser: only imports that match the valid grammar above are
         // followed, which keeps malformed imports from affecting rendering.
-        foreach (var href in GetImportHrefs(cssText))
+        foreach (var importRule in GetImportRules(cssText))
         {
-            var imported = TryLoadImportedStylesheet(href, baseUri, importChain);
+            if (!ShouldApplyImportForCurrentMedia(importRule.MediaCondition))
+            {
+                continue;
+            }
+
+            var imported = TryLoadImportedStylesheet(importRule.Href, baseUri, importChain);
             if (imported is not null)
             {
                 try
@@ -373,7 +444,7 @@ public static class SvgDocumentCompatibilityLoader
         return builder.ToString();
     }
 
-    private static IEnumerable<string> GetImportHrefs(string cssText)
+    private static IEnumerable<ImportRule> GetImportRules(string cssText)
     {
         foreach (Match match in ImportRuleRegex.Matches(cssText))
         {
@@ -385,9 +456,62 @@ public static class SvgDocumentCompatibilityLoader
             var href = rawHref.Trim().Trim('"', '\'');
             if (!string.IsNullOrWhiteSpace(href))
             {
-                yield return href;
+                yield return new ImportRule(href, match.Groups["media"].Value.Trim());
             }
         }
+    }
+
+    private static bool ShouldApplyImportForCurrentMedia(string mediaCondition)
+    {
+        if (string.IsNullOrWhiteSpace(mediaCondition))
+        {
+            return true;
+        }
+
+        foreach (var mediaQuery in mediaCondition.Split(','))
+        {
+            if (MatchesCurrentMedia(mediaQuery))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool MatchesCurrentMedia(string mediaQuery)
+    {
+        var normalized = mediaQuery.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return true;
+        }
+
+        if (normalized.StartsWith("only ", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized.Substring("only ".Length).TrimStart();
+        }
+
+        var isNegated = false;
+        if (normalized.StartsWith("not ", StringComparison.OrdinalIgnoreCase))
+        {
+            isNegated = true;
+            normalized = normalized.Substring("not ".Length).TrimStart();
+        }
+
+        var separatorIndex = normalized.IndexOfAny(new[] { ' ', '\t', '\r', '\n', '(' });
+        var mediaType = separatorIndex >= 0
+            ? normalized.Substring(0, separatorIndex)
+            : normalized;
+
+        // Treat Svg.Skia's checked rendering context as "screen". That matches the Chrome capture
+        // workflow used for baselines, so imports scoped to other media such as "print" should not
+        // leak into the static image output.
+        var matchesScreen = string.IsNullOrWhiteSpace(mediaType) ||
+            string.Equals(mediaType, "all", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mediaType, "screen", StringComparison.OrdinalIgnoreCase);
+
+        return isNegated ? !matchesScreen : matchesScreen;
     }
 
     private static bool IsImportRule(IStylesheetNode child)
@@ -442,5 +566,18 @@ public static class SvgDocumentCompatibilityLoader
 
         // The URI that relative URLs inside Content should resolve against.
         public Uri? BaseUri { get; }
+    }
+
+    private sealed class ImportRule
+    {
+        public ImportRule(string href, string mediaCondition)
+        {
+            Href = href;
+            MediaCondition = mediaCondition;
+        }
+
+        public string Href { get; }
+
+        public string MediaCondition { get; }
     }
 }

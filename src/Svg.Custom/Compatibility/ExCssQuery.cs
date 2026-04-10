@@ -162,11 +162,10 @@ namespace Svg.Css
             }
             else if (string.Equals(selector.Class, "link", StringComparison.OrdinalIgnoreCase))
             {
-                // SVG links are slightly different from HTML here: when an <a> wraps text, the
-                // visual paint often lives on the surrounding text container rather than the anchor
-                // node itself. Return both so CSS link color/text-decoration reaches the rendered
-                // glyphs the same way it does in Chrome.
-                pseudoFunc = nodes => nodes.SelectMany(GetLinkTargets);
+                // :link is still a pseudo-class filter, so it must narrow the current candidate set
+                // instead of widening it to ancestor text containers. Styling then flows through the
+                // normal SVG inheritance path from the matched anchor to its text content.
+                pseudoFunc = nodes => nodes.Where(IsLinkAnchor);
             }
             else
             {
@@ -336,21 +335,9 @@ namespace Svg.Css
             return static _ => Enumerable.Empty<SvgElement>();
         }
 
-        private static IEnumerable<SvgElement> GetLinkTargets(SvgElement element)
+        private static bool IsLinkAnchor(SvgElement element)
         {
-            if (element is not SvgAnchor anchor || string.IsNullOrWhiteSpace(anchor.Href))
-            {
-                return Enumerable.Empty<SvgElement>();
-            }
-
-            if (anchor.Parent is SvgTextBase textBase)
-            {
-                // Text links render through the parent text node; include both so rules like
-                // a:link { fill: ... } reach the node that owns the actual text painting state.
-                return new SvgElement[] { anchor, textBase };
-            }
-
-            return Enumerable.Repeat<SvgElement>(anchor, 1);
+            return element is SvgAnchor anchor && !string.IsNullOrWhiteSpace(anchor.Href);
         }
 
         private static bool TryGetPseudoArgument(string selectorClass, string pseudoName, out string argument)
