@@ -58,6 +58,22 @@ public class Issue405Tests
 
         Assert.Equal(shouldFakeBold, localPaint.FakeBoldText);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WhitespaceStaysAttachedToResolvedTypefaceSpan(bool enableSvgFonts)
+    {
+        var settings = new SKSvgSettings { EnableSvgFonts = enableSvgFonts };
+        var assetLoader = new SkiaSvgAssetLoader(new SkiaModel(settings));
+        var paint = new SKPaint();
+
+        var spans = assetLoader.FindTypefaces("ښ ښښښ", paint);
+
+        var span = Assert.Single(spans);
+        Assert.Equal("ښ ښښښ", span.Text);
+        Assert.NotNull(span.Typeface);
+    }
 }
 
 #pragma warning restore CS0618

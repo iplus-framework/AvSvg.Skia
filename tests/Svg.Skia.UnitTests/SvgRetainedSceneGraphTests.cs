@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -9,6 +10,7 @@ using Svg;
 using Svg.DataTypes;
 using Svg.FilterEffects;
 using Svg.Model.Services;
+using Svg.Skia.UnitTests.Common;
 using Xunit;
 using SkiaAlphaType = SkiaSharp.SKAlphaType;
 using SkiaBitmap = SkiaSharp.SKBitmap;
@@ -17,8 +19,10 @@ using SkiaColorType = SkiaSharp.SKColorType;
 
 namespace Svg.Skia.UnitTests;
 
-public class SvgRetainedSceneGraphTests
+public class SvgRetainedSceneGraphTests : SvgUnitTest
 {
+    private readonly record struct PathDrawInfo(SKRect Bounds, SKMatrix Matrix);
+
     [Fact]
     public void RetainedSceneGraph_BuildsIndexesForSimpleDocument()
     {
@@ -44,7 +48,8 @@ public class SvgRetainedSceneGraphTests
         var picture = SvgSceneRuntime.CreateModel(document, svg.AssetLoader);
 
         Assert.NotNull(picture);
-        Assert.NotEmpty(picture!.Commands);
+        Assert.NotNull(picture!.Commands);
+        Assert.NotEmpty(picture.Commands!);
     }
 
     [Fact]
@@ -132,16 +137,19 @@ public class SvgRetainedSceneGraphTests
         var retainedModel = svg.CreateRetainedSceneGraphModel();
         Assert.NotNull(retainedModel);
 
-        var blobPoints = retainedModel!
+        var positionedPoints = retainedModel!
             .FindCommands<DrawTextBlobCanvasCommand>()
             .Where(static cmd => cmd.TextBlob?.Points is { Length: > 0 })
             .SelectMany(static cmd => cmd.TextBlob!.Points!)
+            .Concat(retainedModel.FindCommands<DrawTextCanvasCommand>()
+                .Where(static cmd => cmd.Text is "a" or "b" or "😋")
+                .Select(static cmd => new SKPoint(cmd.X, cmd.Y)))
             .ToList();
 
-        Assert.Equal(3, blobPoints.Count);
-        Assert.Equal(new SKPoint(10f, 20f), blobPoints[0]);
-        Assert.Equal(new SKPoint(30f, 40f), blobPoints[1]);
-        Assert.Equal(new SKPoint(50f, 20f), blobPoints[2]);
+        Assert.Equal(3, positionedPoints.Count);
+        Assert.Contains(new SKPoint(10f, 20f), positionedPoints);
+        Assert.Contains(new SKPoint(30f, 40f), positionedPoints);
+        Assert.Contains(new SKPoint(50f, 20f), positionedPoints);
 
         var tailCommand = Assert.Single(retainedModel.FindCommands<DrawTextCanvasCommand>(),
             static cmd => cmd.X == 70f && cmd.Y == 40f);
@@ -168,18 +176,275 @@ public class SvgRetainedSceneGraphTests
         var retainedModel = svg.CreateRetainedSceneGraphModel();
         Assert.NotNull(retainedModel);
 
-        var blobPoints = retainedModel!
-            .FindCommands<DrawTextBlobCanvasCommand>()
-            .Where(static cmd => cmd.TextBlob?.Points is { Length: > 0 })
-            .SelectMany(static cmd => cmd.TextBlob!.Points!)
-            .ToList();
-
-        Assert.Single(blobPoints);
-        Assert.Equal(new SKPoint(10f, 20f), blobPoints[0]);
+        var leadingGlyphPosition = retainedModel!
+            .FindCommands<DrawTextCanvasCommand>()
+            .Single(static cmd => cmd.X == 10f && cmd.Y == 20f);
 
         var tailCommand = Assert.Single(retainedModel.FindCommands<DrawTextCanvasCommand>(),
             static cmd => cmd.X == 30f && cmd.Y == 20f);
+        Assert.Equal("ß", leadingGlyphPosition.Text);
         Assert.Equal("A", tailCommand.Text);
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_AppliesRootDxDyToSequentialTextRunOrigin()
+    {
+        const string dxDySvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">
+              <text dx="33" dy="20" font-size="16">Text</text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.FromSvg(dxDySvg);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var origins = retainedModel!
+            .FindCommands<DrawTextCanvasCommand>()
+            .Where(static cmd => cmd.Text.Contains("Text", StringComparison.Ordinal))
+            .Select(static cmd => new SKPoint(cmd.X, cmd.Y))
+            .Concat(retainedModel.FindCommands<DrawTextBlobCanvasCommand>()
+                .Where(static cmd => cmd.TextBlob is not null)
+                .Select(static cmd => new SKPoint(cmd.X, cmd.Y)))
+            .ToList();
+
+        Assert.Contains(origins, static point => Math.Abs(point.X - 33f) < 1f && Math.Abs(point.Y - 20f) < 1f);
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_PreservesInterTspanSpacesForNestedRotateFixture()
+    {
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = false;
+        svg.Settings.EnableTextReferences = false;
+        svg.Settings.StandaloneViewport = SkiaSharp.SKRect.Create(0f, 0f, 480f, 360f);
+        svg.Load(Path.Combine("..", "..", "..", "..", "..", "externals", "W3C_SVG_11_TestSuite", "W3C_SVG_11_TestSuite", "svg", "text-tspan-02-b.svg"));
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var secondLineSpaces = retainedModel!
+            .FindCommands<DrawTextCanvasCommand>()
+            .Where(static cmd => cmd.Text == " " && Math.Abs(cmd.Y - 180f) < 0.5f)
+            .Select(static cmd => cmd.X)
+            .ToList();
+
+        Assert.True(secondLineSpaces.Count >= 4, "Expected the nested tspan fixture to preserve all four visible second-line spaces.");
+        Assert.Contains(secondLineSpaces, static x => x > 70f && x < 85f);
+        Assert.Contains(secondLineSpaces, static x => x > 185f && x < 200f);
+        Assert.Contains(secondLineSpaces, static x => x > 335f && x < 345f);
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_SvgFontNestedRotateFixture_AlignsReferenceAndNestedGlyphBounds()
+    {
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = true;
+        svg.Settings.EnableTextReferences = false;
+        svg.Settings.StandaloneViewport = SkiaSharp.SKRect.Create(0f, 0f, 480f, 360f);
+        svg.Load(Path.Combine("..", "..", "..", "..", "..", "externals", "W3C_SVG_11_TestSuite", "W3C_SVG_11_TestSuite", "svg", "text-tspan-02-b.svg"));
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var redGlyphs = GetColoredPathDrawBounds(retainedModel!, new SKColor(0xFF, 0x00, 0x00, 0xFF));
+        var greenGlyphs = GetColoredPathDrawBounds(retainedModel, new SKColor(0x00, 0x80, 0x00, 0xFF));
+
+        Assert.Equal(redGlyphs.Count, greenGlyphs.Count);
+
+        var mismatches = redGlyphs
+            .Select((red, index) => (red, green: greenGlyphs[index], index))
+            .Select(static pair =>
+            {
+                var redCenter = new SKPoint((pair.red.Bounds.Left + pair.red.Bounds.Right) * 0.5f, (pair.red.Bounds.Top + pair.red.Bounds.Bottom) * 0.5f);
+                var greenCenter = new SKPoint((pair.green.Bounds.Left + pair.green.Bounds.Right) * 0.5f, (pair.green.Bounds.Top + pair.green.Bounds.Bottom) * 0.5f);
+                var deltaX = Math.Abs(redCenter.X - greenCenter.X);
+                var deltaY = Math.Abs(redCenter.Y - greenCenter.Y);
+                return new
+                {
+                    pair.red,
+                    pair.green,
+                    pair.index,
+                    DeltaX = deltaX,
+                    DeltaY = deltaY,
+                    Total = deltaX + deltaY
+                };
+            })
+            .Where(static item => item.Total > 0.5f)
+            .OrderByDescending(static item => item.Total)
+            .Take(8)
+            .ToList();
+
+        var sequenceWindow = string.Join(
+            " | ",
+            redGlyphs
+                .Select((red, index) => new { index, red, green = greenGlyphs[index] })
+                .Where(static item => item.index >= 26 && item.index <= 34)
+                .Select(static item => $"i={item.index},redMatrix={item.red.Matrix},greenMatrix={item.green.Matrix},redBounds={item.red.Bounds},greenBounds={item.green.Bounds}"));
+
+        Assert.True(
+            mismatches.Count == 0,
+            $"Expected nested tspan SVG-font glyph bounds to align with the flat reference text. Largest deltas: {string.Join("; ", mismatches.Select(static item => $"index={item.index},dx={item.DeltaX:F2},dy={item.DeltaY:F2},redBounds={item.red.Bounds},greenBounds={item.green.Bounds},redMatrix={item.red.Matrix},greenMatrix={item.green.Matrix}"))}. Sequence window: {sequenceWindow}");
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_PreservesRootDxDyListGlyphOrigins()
+    {
+        const string dxDySvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+              <text dx="20 6 10 16" dy="100 10 15 20" font-family="Noto Sans" font-size="64">Text</text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        SetTypefaceProviders(svg.Settings);
+        svg.FromSvg(dxDySvg);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var positionedPoints = retainedModel!
+            .FindCommands<DrawTextBlobCanvasCommand>()
+            .Where(static cmd => cmd.TextBlob?.Points is { Length: > 0 })
+            .SelectMany(static cmd => cmd.TextBlob!.Points!)
+            .Concat(retainedModel.FindCommands<DrawTextCanvasCommand>()
+                .Where(static cmd => cmd.Text is "T" or "e" or "x" or "t")
+                .Select(static cmd => new SKPoint(cmd.X, cmd.Y)))
+            .OrderBy(static point => point.X)
+            .ToList();
+
+        Assert.Equal(4, positionedPoints.Count);
+        Assert.Contains(positionedPoints, static point => Math.Abs(point.X - 20f) < 1f && Math.Abs(point.Y - 100f) < 1f);
+        Assert.True(positionedPoints.Select(static point => point.Y).Distinct().Count() > 1,
+            "Expected root dx/dy lists to produce multiple glyph Y origins.");
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_TextPathPercentStartOffset_FollowsArcGeometry()
+    {
+        const string arcTextSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink"
+                 width="120"
+                 height="120"
+                 viewBox="0 0 120 120">
+              <defs>
+                <path id="arc-path" d="M10,60 A50,50 0 0 1 110,60" />
+              </defs>
+              <text fill="#0055aa" font-size="12">
+                <textPath xlink:href="#arc-path" startOffset="50%">A</textPath>
+              </text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.FromSvg(arcTextSvg);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var matrix = Assert.Single(retainedModel!.FindCommands<SetMatrixCanvasCommand>());
+        var drawText = Assert.Single(retainedModel.FindCommands<DrawTextCanvasCommand>(), static cmd => cmd.Text == "A");
+        var anchorPoint = matrix.TotalMatrix.MapPoint(new SKPoint(drawText.X, drawText.Y));
+
+        Assert.InRange(anchorPoint.X, 55f, 65f);
+        Assert.True(anchorPoint.Y < 30f,
+            $"Expected 50% startOffset to land on the sampled arc midpoint instead of the straight chord, but anchor point was {anchorPoint} from matrix {matrix.DeltaMatrix}.");
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_TextLengthSpacing_PositionsGlyphsAcrossRequestedAdvance()
+    {
+        const string textLengthSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+              <text x="20" y="100" font-family="Noto Sans" font-size="48" textLength="150">Text</text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        SetTypefaceProviders(svg.Settings);
+        svg.FromSvg(textLengthSvg);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var positions = retainedModel!
+            .FindCommands<DrawTextCanvasCommand>()
+            .Where(static cmd => cmd.Y == 100f)
+            .Select(static cmd => cmd.X)
+            .OrderBy(static x => x)
+            .ToArray();
+
+        Assert.Equal(4, positions.Length);
+        Assert.Equal(20f, positions[0], 1);
+        Assert.True(positions[^1] > 120f, $"Expected textLength spacing to spread the glyph origins, but got final X={positions[^1]}.");
+    }
+
+    [Fact]
+    public void RetainedSceneGraph_LengthAdjustSpacingAndGlyphs_UsesHorizontalScaleTransform()
+    {
+        const string lengthAdjustSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+              <text x="20" y="100" font-family="Noto Sans" font-size="48" textLength="150" lengthAdjust="spacingAndGlyphs">Text</text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        SetTypefaceProviders(svg.Settings);
+        svg.FromSvg(lengthAdjustSvg);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var scaleMatrices = retainedModel!
+            .FindCommands<SetMatrixCanvasCommand>()
+            .Select(static cmd => cmd.DeltaMatrix)
+            .Where(static matrix => matrix.ScaleX > 1.1f)
+            .ToArray();
+
+        Assert.NotEmpty(scaleMatrices);
+    }
+
+    [Fact]
+    public void TextReferences_CanBeDisabled_ForBrowserCompatibleRendering()
+    {
+        const string textRefSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink"
+                 width="120"
+                 height="40"
+                 viewBox="0 0 120 40">
+              <defs>
+                <text id="text-source">Source Text</text>
+              </defs>
+              <text x="4" y="20" font-size="12">
+                <tref xlink:href="#text-source" />
+              </text>
+            </svg>
+            """;
+
+        using var enabledSvg = new SKSvg();
+        enabledSvg.Settings.EnableTextReferences = true;
+        enabledSvg.FromSvg(textRefSvg);
+
+        using var disabledSvg = new SKSvg();
+        disabledSvg.Settings.EnableTextReferences = false;
+        disabledSvg.FromSvg(textRefSvg);
+
+        Assert.NotNull(enabledSvg.Model);
+        Assert.NotNull(disabledSvg.Model);
+        Assert.True(
+            enabledSvg.Model!.FindCommands<DrawTextCanvasCommand>().Any() ||
+            enabledSvg.Model.FindCommands<DrawTextBlobCanvasCommand>().Any(),
+            "Expected tref content to render when text references are enabled.");
+        Assert.DoesNotContain(
+            disabledSvg.Model!.FindCommands<DrawTextCanvasCommand>(),
+            static cmd => !string.IsNullOrWhiteSpace(cmd.Text));
+        Assert.DoesNotContain(
+            disabledSvg.Model.FindCommands<DrawTextBlobCanvasCommand>(),
+            static cmd => !string.IsNullOrWhiteSpace(cmd.TextBlob?.Text));
     }
 
     [Fact]
@@ -398,6 +663,104 @@ public class SvgRetainedSceneGraphTests
         Assert.NotNull(actualSvg.Picture);
         Assert.NotNull(expectedSvg.Picture);
         AssertPicturesEqual(expectedSvg, expectedSvg.Picture!, actualSvg.Picture!);
+    }
+
+    [Fact]
+    public void SvgFontLayout_PrefersSystemFallbackOverMissingGlyph_WhenSvgFontHasNoGlyphs()
+    {
+        const string actualSvgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'MissingInAction';
+                    src: url('#MissingInActionFont') format('svg');
+                  }
+                ]]></style>
+                <font id="MissingInActionFont" horiz-adv-x="100">
+                  <font-face font-family="MissingInAction" units-per-em="100" ascent="100" descent="0" />
+                  <missing-glyph d="M10,30h20v20h-20z" />
+                </font>
+              </defs>
+              <g fill="black" font-family="MissingInAction, sans-serif" font-size="24">
+                <text x="10" y="40">Polish: Mogę jeść szkło.</text>
+                <text x="10" y="80">Hebrew: אני יכול.</text>
+              </g>
+            </svg>
+            """;
+
+        const string expectedSvgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120">
+              <g fill="black" font-family="sans-serif" font-size="24">
+                <text x="10" y="40">Polish: Mogę jeść szkło.</text>
+                <text x="10" y="80">Hebrew: אני יכול.</text>
+              </g>
+            </svg>
+            """;
+
+        using var actualSvg = new SKSvg();
+        actualSvg.Settings.EnableSvgFonts = true;
+        actualSvg.FromSvg(actualSvgMarkup);
+
+        using var expectedSvg = new SKSvg();
+        expectedSvg.Settings.EnableSvgFonts = true;
+        expectedSvg.FromSvg(expectedSvgMarkup);
+
+        Assert.NotNull(actualSvg.Picture);
+        Assert.NotNull(expectedSvg.Picture);
+        AssertPicturesEqual(expectedSvg, expectedSvg.Picture!, actualSvg.Picture!);
+    }
+
+    private static List<PathDrawInfo> GetColoredPathDrawBounds(SKPicture picture, SKColor color)
+    {
+        var draws = new List<PathDrawInfo>();
+        CollectColoredPathDrawBounds(picture.Commands, SKMatrix.Identity, new Stack<SKMatrix>(), color, draws);
+        return draws;
+    }
+
+    private static void CollectColoredPathDrawBounds(
+        IList<CanvasCommand>? commands,
+        SKMatrix currentMatrix,
+        Stack<SKMatrix> matrixStack,
+        SKColor color,
+        List<PathDrawInfo> draws)
+    {
+        if (commands is null)
+        {
+            return;
+        }
+
+        foreach (var command in commands)
+        {
+            switch (command)
+            {
+                case SaveCanvasCommand:
+                    matrixStack.Push(currentMatrix);
+                    break;
+
+                case RestoreCanvasCommand:
+                    if (matrixStack.Count > 0)
+                    {
+                        currentMatrix = matrixStack.Pop();
+                    }
+
+                    break;
+
+                case SetMatrixCanvasCommand setMatrixCanvasCommand:
+                    currentMatrix = setMatrixCanvasCommand.TotalMatrix;
+                    break;
+
+                case DrawPictureCanvasCommand { Picture: { } nestedPicture }:
+                    var nestedStack = new Stack<SKMatrix>(matrixStack.Reverse());
+                    CollectColoredPathDrawBounds(nestedPicture.Commands, currentMatrix, nestedStack, color, draws);
+                    break;
+
+                case DrawPathCanvasCommand { Path: { } path, Paint: { } paint }
+                    when paint.Style == SKPaintStyle.Fill && paint.Color is SKColor paintColor && paintColor.Equals(color) && !path.IsEmpty:
+                    draws.Add(new PathDrawInfo(currentMatrix.MapRect(path.Bounds), currentMatrix));
+                    break;
+            }
+        }
     }
 
     [Fact]
