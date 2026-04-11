@@ -448,6 +448,17 @@ internal static class SvgSceneTextCompiler
         return true;
     }
 
+    private static SvgTextBase CreateAnchorTextStyleSource(SvgAnchor svgAnchor)
+    {
+        // Text layout still flows through the surrounding SvgTextBase, but anchor-scoped CSS needs
+        // a style source whose inheritance chain runs through the <a> element. Without that, mixed
+        // text runs such as `prefix <a>link</a> suffix` measure and draw the anchor glyphs with the
+        // parent text container's fill/font state, so :link styling never reaches the linked span.
+        var scopedStyleSource = new SvgTextSpan();
+        scopedStyleSource._parent = svgAnchor;
+        return scopedStyleSource;
+    }
+
     private static void AppendTextClipPathNodes(
         IEnumerable<ISvgNode> contentNodes,
         SvgTextBase svgTextBase,
@@ -481,7 +492,8 @@ internal static class SvgSceneTextCompiler
                         break;
                     }
 
-                    AppendTextClipPathNodes(GetContentNodes(svgAnchor), svgTextBase, ref currentX, ref currentY, ref useInitialPosition, ref trimLeadingWhitespace, ref previousEndedWithSpace, viewport, assetLoader, rootGeometryBounds, path, rotationState, absolutePositionState);
+                    var anchorStyleSource = CreateAnchorTextStyleSource(svgAnchor);
+                    AppendTextClipPathNodes(GetContentNodes(svgAnchor), anchorStyleSource, ref currentX, ref currentY, ref useInitialPosition, ref trimLeadingWhitespace, ref previousEndedWithSpace, viewport, assetLoader, rootGeometryBounds, path, rotationState, absolutePositionState);
                     break;
 
                 case not SvgTextBase:
@@ -758,7 +770,8 @@ internal static class SvgSceneTextCompiler
                         break;
                     }
 
-                    DrawTextNodes(GetContentNodes(svgAnchor), svgTextBase, ref currentX, ref currentY, ref useInitialPosition, ref trimLeadingWhitespace, ref previousEndedWithSpace, viewport, ignoreAttributes, canvas, assetLoader, references, rootGeometryBounds, rotationState, absolutePositionState);
+                    var anchorStyleSource = CreateAnchorTextStyleSource(svgAnchor);
+                    DrawTextNodes(GetContentNodes(svgAnchor), anchorStyleSource, ref currentX, ref currentY, ref useInitialPosition, ref trimLeadingWhitespace, ref previousEndedWithSpace, viewport, ignoreAttributes, canvas, assetLoader, references, rootGeometryBounds, rotationState, absolutePositionState);
                     break;
 
                 case not SvgTextBase:
@@ -2360,7 +2373,8 @@ internal static class SvgSceneTextCompiler
                         break;
                     }
 
-                    MeasureTextNodes(GetContentNodes(svgAnchor), svgTextBase, ref currentX, ref currentY, ref useInitialPosition, ref trimLeadingWhitespace, ref previousEndedWithSpace, viewport, assetLoader, ref bounds, rotationState, absolutePositionState);
+                    var anchorStyleSource = CreateAnchorTextStyleSource(svgAnchor);
+                    MeasureTextNodes(GetContentNodes(svgAnchor), anchorStyleSource, ref currentX, ref currentY, ref useInitialPosition, ref trimLeadingWhitespace, ref previousEndedWithSpace, viewport, assetLoader, ref bounds, rotationState, absolutePositionState);
                     break;
 
                 case not SvgTextBase:
@@ -4501,7 +4515,7 @@ internal static class SvgSceneTextCompiler
                     }
 
                     hasAnchorContent = true;
-                    if (!TryCollectSequentialTextRuns(GetContentNodes(svgAnchor), styleSource, runs, ref hasAnchorContent, ref trimLeadingWhitespace, ref previousEndedWithSpace, textReferencesEnabled))
+                    if (!TryCollectSequentialTextRuns(GetContentNodes(svgAnchor), CreateAnchorTextStyleSource(svgAnchor), runs, ref hasAnchorContent, ref trimLeadingWhitespace, ref previousEndedWithSpace, textReferencesEnabled))
                     {
                         return false;
                     }
@@ -4632,7 +4646,7 @@ internal static class SvgSceneTextCompiler
                         break;
                     }
 
-                    if (!TryCollectTextPathRuns(GetContentNodes(svgAnchor), styleSource, viewport, runs, ref trimLeadingWhitespace, ref previousEndedWithSpace))
+                    if (!TryCollectTextPathRuns(GetContentNodes(svgAnchor), CreateAnchorTextStyleSource(svgAnchor), viewport, runs, ref trimLeadingWhitespace, ref previousEndedWithSpace))
                     {
                         return false;
                     }
@@ -7467,7 +7481,7 @@ internal static class SvgSceneTextCompiler
                         break;
                     }
 
-                    if (!TryCollectFlattenedTextCodepoints(GetContentNodes(svgAnchor), styleSource, codepoints, ref trimLeadingWhitespace, ref previousEndedWithSpace, viewport, assetLoader))
+                    if (!TryCollectFlattenedTextCodepoints(GetContentNodes(svgAnchor), CreateAnchorTextStyleSource(svgAnchor), codepoints, ref trimLeadingWhitespace, ref previousEndedWithSpace, viewport, assetLoader))
                     {
                         return false;
                     }
@@ -7673,7 +7687,7 @@ internal static class SvgSceneTextCompiler
                         break;
                     }
 
-                    count += CountRenderedTextCodepoints(GetContentNodes(svgAnchor), svgTextBase, ref trimLeadingWhitespace, ref previousEndedWithSpace);
+                    count += CountRenderedTextCodepoints(GetContentNodes(svgAnchor), CreateAnchorTextStyleSource(svgAnchor), ref trimLeadingWhitespace, ref previousEndedWithSpace);
                     break;
 
                 case SvgTextSpan svgTextSpan:
