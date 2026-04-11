@@ -113,9 +113,15 @@ public static class SvgDocumentCompatibilityLoader
         var elementFactory = new SvgElementFactory();
         var svgDocument = Create<T>(reader, elementFactory, styles, baseUri);
 
-        if (css is not null)
+        // Avalonia and other hosts can concatenate optional CSS inputs into a whitespace-only
+        // string (for example " ") even when no actual stylesheet content is present. Treat that
+        // the same as "no CSS" so the compatibility pipeline does not run a synthetic selector
+        // root over an otherwise plain document, which would mutate Parent/index paths and break
+        // later animation address resolution on deep-cloned documents.
+        var normalizedCss = string.IsNullOrWhiteSpace(css) ? null : css;
+        if (normalizedCss is not null)
         {
-            styles.Add(new SvgCssStyleSource(css, baseUri));
+            styles.Add(new SvgCssStyleSource(normalizedCss, baseUri));
         }
 
         SvgCssCompatibilityProcessor.Apply(svgDocument!, styles, elementFactory);
