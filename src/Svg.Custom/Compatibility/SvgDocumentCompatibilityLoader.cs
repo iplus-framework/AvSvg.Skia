@@ -5,11 +5,24 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Xml;
-using ExCSS;
-using Svg.Css;
 
 namespace Svg;
 
+/// <summary>
+/// Browser-compatibility focused loader for Svg.Custom.
+///
+/// The upstream loader is good enough for basic SVG parsing, but the Chrome-backed W3C rows showed
+/// two loader-specific gaps that matter before CSS can be applied correctly:
+///
+/// 1. relative stylesheet references need a stable document base URI, even when the SVG is opened
+///    through the convenience API and CSS is applied after parsing;
+/// 2. the XML/tree-loading path needs to preserve the raw stylesheet text so the stricter
+///    browser-compatibility CSS pass can run after the document model is built.
+///
+/// This class keeps the upstream XML tree construction shape and delegates the Chrome-aligned CSS
+/// policy to <see cref="SvgCssCompatibilityProcessor"/> once the raw style sources have been
+/// collected.
+/// </summary>
 public static class SvgDocumentCompatibilityLoader
 {
     public static T Open<T>(string path, SvgOptions svgOptions) where T : SvgDocument, new()
@@ -19,13 +32,19 @@ public static class SvgDocumentCompatibilityLoader
             throw new ArgumentNullException(nameof(path));
         }
 
+        // Capture the absolute document URI before the stream is opened so later CSS resolution can
+        // expand relative @import/file references exactly as the browser would relative to the SVG.
+        var baseUri = new Uri(Path.GetFullPath(path), UriKind.Absolute);
         using var stream = File.OpenRead(path);
-        var document = Open<T>(stream, svgOptions);
-        document.BaseUri = new Uri(Path.GetFullPath(path), UriKind.Absolute);
-        return document;
+        return Open<T>(stream, svgOptions, baseUri);
     }
 
     public static T Open<T>(Stream stream, SvgOptions svgOptions) where T : SvgDocument, new()
+    {
+        return Open<T>(stream, svgOptions, null);
+    }
+
+    private static T Open<T>(Stream stream, SvgOptions svgOptions, Uri? baseUri) where T : SvgDocument, new()
     {
         if (stream is null)
         {
@@ -39,7 +58,7 @@ public static class SvgDocumentCompatibilityLoader
             DtdProcessing = SvgDocument.DisableDtdProcessing ? DtdProcessing.Ignore : DtdProcessing.Parse,
         };
 
-        return Create<T>(reader, svgOptions.Css);
+        return Create<T>(reader, svgOptions.Css, baseUri);
     }
 
     public static T FromSvg<T>(string svg) where T : SvgDocument, new()
@@ -67,6 +86,8 @@ public static class SvgDocumentCompatibilityLoader
             throw new ArgumentNullException(nameof(reader));
         }
 
+        var baseUri = TryGetAbsoluteBaseUri(reader.BaseURI);
+
         if (SvgDocument.DisableDtdProcessing &&
             reader.Settings?.DtdProcessing == DtdProcessing.Parse)
         {
@@ -80,54 +101,35 @@ public static class SvgDocumentCompatibilityLoader
             IgnoreWhitespace = false,
         });
 
-        return Create<T>(svgReader);
+        return Create<T>(svgReader, baseUri: baseUri);
     }
 
-    private static T Create<T>(XmlReader reader, string? css = null) where T : SvgDocument, new()
+    private static T Create<T>(XmlReader reader, string? css = null, Uri? baseUri = null) where T : SvgDocument, new()
     {
-        var styles = new List<ISvgNode>();
+        // Keep each stylesheet fragment together with the URI it should resolve against. That lets
+        // inline CSS from the SVG document, externally supplied CSS, and recursively imported CSS
+        // all share one merge/apply path without losing origin information.
+        var styles = new List<SvgCssStyleSource>();
         var elementFactory = new SvgElementFactory();
-        var svgDocument = Create<T>(reader, elementFactory, styles);
+        var svgDocument = Create<T>(reader, elementFactory, styles, baseUri);
 
-        if (css is not null)
+        // Avalonia and other hosts can concatenate optional CSS inputs into a whitespace-only
+        // string (for example " ") even when no actual stylesheet content is present. Treat that
+        // the same as "no CSS" so the compatibility pipeline does not run a synthetic selector
+        // root over an otherwise plain document, which would mutate Parent/index paths and break
+        // later animation address resolution on deep-cloned documents.
+        var normalizedCss = string.IsNullOrWhiteSpace(css) ? null : css;
+        if (normalizedCss is not null)
         {
-            styles.Add(new SvgUnknownElement { Content = css });
+            styles.Add(new SvgCssStyleSource(normalizedCss, baseUri));
         }
 
-        if (styles.Any())
-        {
-            var cssTotal = string.Join(Environment.NewLine, styles.Select(s => s.Content).ToArray());
-            var stylesheetParser = new StylesheetParser(true, true, tolerateInvalidValues: true);
-            var stylesheet = stylesheetParser.Parse(cssTotal);
-
-            foreach (var rule in stylesheet.StyleRules)
-            {
-                try
-                {
-                    var rootNode = new NonSvgElement();
-                    rootNode.Children.Add(svgDocument);
-
-                    var elemsToStyle = rootNode.QuerySelectorAll(rule.Selector, elementFactory);
-                    foreach (var elem in elemsToStyle)
-                    {
-                        foreach (var declaration in rule.Style)
-                        {
-                            elem.AddStyle(declaration.Name, declaration.Original, rule.Selector.GetSpecificity());
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Trace.TraceWarning(ex.Message);
-                }
-            }
-        }
-
+        SvgCssCompatibilityProcessor.Apply(svgDocument!, styles, elementFactory);
         svgDocument?.FlushStyles(true);
-        return svgDocument;
+        return svgDocument!;
     }
 
-    private static T Create<T>(XmlReader reader, SvgElementFactory elementFactory, List<ISvgNode> styles)
+    private static T Create<T>(XmlReader reader, SvgElementFactory elementFactory, List<SvgCssStyleSource> styles, Uri? baseUri)
         where T : SvgDocument, new()
     {
         var elementStack = new Stack<SvgElement>();
@@ -151,6 +153,7 @@ public static class SvgDocumentCompatibilityLoader
                         else
                         {
                             svgDocument = elementFactory.CreateDocument<T>(reader);
+                            svgDocument.BaseUri = baseUri;
                             element = svgDocument;
                         }
 
@@ -184,9 +187,14 @@ public static class SvgDocumentCompatibilityLoader
                             element.Nodes.Clear();
                         }
 
-                        if (element is SvgUnknownElement unknown && unknown.ElementName == "style")
+                        if (element is SvgUnknownElement unknown &&
+                            unknown.ElementName == "style" &&
+                            SvgCssCompatibilityProcessor.ShouldApplyStyleElement(unknown))
                         {
-                            styles.Add(unknown);
+                            // Preserve the document base URI with every collected <style> block so
+                            // any nested @import inside that block resolves relative to the SVG file
+                            // that declared it, not to the current process working directory.
+                            styles.Add(new SvgCssStyleSource(unknown.Content ?? string.Empty, svgDocument?.BaseUri));
                         }
 
                         break;
@@ -232,4 +240,20 @@ public static class SvgDocumentCompatibilityLoader
     {
         return element is SvgTextBase;
     }
+
+    private static Uri? TryGetAbsoluteBaseUri(string? baseUri)
+    {
+        if (string.IsNullOrWhiteSpace(baseUri))
+        {
+            return null;
+        }
+
+        // XmlReader can surface the source location as BaseURI when it was opened from a file or
+        // other URI-backed source. Thread that information into the compatibility loader so all
+        // Open(...) entry points resolve relative stylesheets the same way.
+        return Uri.TryCreate(baseUri, UriKind.Absolute, out var absoluteBaseUri)
+            ? absoluteBaseUri
+            : null;
+    }
+
 }

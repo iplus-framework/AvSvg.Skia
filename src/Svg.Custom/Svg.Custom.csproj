@@ -59,10 +59,12 @@
       The local copies below document why we diverge from upstream and let us compare our
       retained-scene/browser-focused behavior against the original parser/runtime logic.
     -->
+    <Compile Remove="$(SvgSourcesBasePath)\Source\SvgAttributeCollection.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgDeferredPaintServer.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgGradientServer.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgGradientStop.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgPaintServerFactory.cs" />
+    <Compile Remove="$(SvgSourcesBasePath)\Source\Css\ExCssQuery.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Resources\svg11.dtd" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\SvgElementFactory.cs" />
   </ItemGroup>

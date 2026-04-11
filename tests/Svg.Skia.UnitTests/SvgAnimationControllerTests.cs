@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using ShimSkiaSharp;
 using Svg;
+using Svg.Model;
 using Svg.Model.Services;
 using Svg.Transforms;
 using Xunit;
@@ -238,6 +239,29 @@ public class SvgAnimationControllerTests
         Assert.True(updatedInside.Green > updatedInside.Blue);
         Assert.True(updatedExpandedArea.Alpha > 200);
         Assert.True(updatedExpandedArea.Green > updatedExpandedArea.Blue);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AppliesInheritedCssAnimationsWhenWhitespaceCssParameterIsProvided()
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(InheritedFontSizeAnimationSvg));
+        var document = SvgService.Open(stream, new SvgParameters(null, " "));
+        Assert.NotNull(document);
+        Assert.Null(document!.Parent);
+
+        using var controller = new SvgAnimationController(document);
+        Assert.True(controller.HasAnimations);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+        var root = animated.GetElementById<SvgGroup>("animated-root");
+        Assert.NotNull(root);
+
+        Assert.Equal(15f, root!.FontSize.Value, 3);
+
+        var fill = Assert.IsType<SvgColourServer>(root.Fill);
+        Assert.Equal((byte)0, fill.Colour.R);
+        Assert.InRange(fill.Colour.G, (byte)84, (byte)86);
+        Assert.InRange(fill.Colour.B, (byte)127, (byte)128);
     }
 
     [Fact]

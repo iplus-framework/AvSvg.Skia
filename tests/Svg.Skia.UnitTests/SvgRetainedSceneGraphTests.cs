@@ -806,6 +806,40 @@ public class SvgRetainedSceneGraphTests : SvgUnitTest
         AssertPicturesEqual(expectedSvg, expectedSvg.Picture!, actualSvg.Picture!);
     }
 
+    [Fact]
+    public void LinkPseudoClass_StylesAnchorGlyphsInsideMixedTextRuns()
+    {
+        const string actualSvgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink"
+                 width="220"
+                 height="80"
+                 viewBox="0 0 220 80">
+              <style>a:link { fill: red; }</style>
+              <text x="10" y="48" fill="black" font-family="sans-serif" font-size="24">pre <a xlink:href="#target">link</a> post</text>
+            </svg>
+            """;
+
+        const string expectedSvgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 width="220"
+                 height="80"
+                 viewBox="0 0 220 80">
+              <text x="10" y="48" fill="black" font-family="sans-serif" font-size="24">pre <tspan fill="red">link</tspan> post</text>
+            </svg>
+            """;
+
+        using var actualSvg = new SKSvg();
+        actualSvg.FromSvg(actualSvgMarkup);
+
+        using var expectedSvg = new SKSvg();
+        expectedSvg.FromSvg(expectedSvgMarkup);
+
+        Assert.NotNull(actualSvg.Picture);
+        Assert.NotNull(expectedSvg.Picture);
+        AssertPicturesEqual(expectedSvg, expectedSvg.Picture!, actualSvg.Picture!);
+    }
+
     private static List<PathDrawInfo> GetColoredPathDrawBounds(SKPicture picture, SKColor color)
     {
         var draws = new List<PathDrawInfo>();
