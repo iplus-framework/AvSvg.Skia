@@ -20,11 +20,14 @@ namespace Svg;
 /// </summary>
 internal static class SvgCssCompatibilityProcessor
 {
-    // Chrome-backed W3C overrides are captured in a fixed 480x360 viewport. Reusing that same
-    // static media environment here keeps @import media-query evaluation aligned with the renderer
-    // context the checked baselines are compared against.
+    // When the SVG does not declare a usable viewport of its own, fall back to the historical
+    // standalone capture size used by the checked W3C Chrome overrides.
     private const double StaticScreenWidthPixels = 480d;
     private const double StaticScreenHeightPixels = 360d;
+    private const double CentimetersPerInch = 2.54d;
+    private const double MillimetersPerInch = 25.4d;
+    private const double PointsPerInch = 72d;
+    private const double PicasPerInch = 6d;
     private const string CssMimeType = "text/css";
     private const string ImportAtRule = "@import";
     private const string CharsetAtRule = "@charset";
@@ -53,9 +56,11 @@ internal static class SvgCssCompatibilityProcessor
             return;
         }
 
+        var mediaContext = ResolveMediaContext(svgDocument);
+
         // Expand valid imports first so the final stylesheet matches browser evaluation order:
         // imported rules are inlined into the aggregate stylesheet before selector matching.
-        var cssTotal = ExpandImportedStyles(styles);
+        var cssTotal = ExpandImportedStyles(styles, mediaContext);
         if (string.IsNullOrWhiteSpace(cssTotal))
         {
             return;
@@ -229,7 +234,7 @@ internal static class SvgCssCompatibilityProcessor
         }
     }
 
-    private static string ExpandImportedStyles(IReadOnlyCollection<SvgCssStyleSource> sources)
+    private static string ExpandImportedStyles(IReadOnlyCollection<SvgCssStyleSource> sources, CssMediaContext mediaContext)
     {
         var initialCapacity = 0;
         foreach (var source in sources)
@@ -247,7 +252,7 @@ internal static class SvgCssCompatibilityProcessor
             // Each top-level stylesheet source gets its own active import chain. That still breaks
             // cycles, but it avoids globally deduping imports across sibling <style> blocks, which
             // would erase valid source-order effects from later imports of the same stylesheet.
-            AppendExpandedStyles(builder, source.Content, source.BaseUri, CreateImportChain());
+            AppendExpandedStyles(builder, source.Content, source.BaseUri, mediaContext, CreateImportChain());
             builder.AppendLine();
         }
 
@@ -262,7 +267,12 @@ internal static class SvgCssCompatibilityProcessor
         return new HashSet<string>(StringComparer.Ordinal);
     }
 
-    private static void AppendExpandedStyles(StringBuilder builder, string cssText, Uri? baseUri, HashSet<string> importChain)
+    private static void AppendExpandedStyles(
+        StringBuilder builder,
+        string cssText,
+        Uri? baseUri,
+        CssMediaContext mediaContext,
+        HashSet<string> importChain)
     {
         var index = 0;
         var isInLeadingImportSection = true;
@@ -277,14 +287,14 @@ internal static class SvgCssCompatibilityProcessor
             if (isInLeadingImportSection && atRuleKind == CssAtRuleKind.Import)
             {
                 if (TryParseKnownImportRule(cssText, statement, out var href, out var mediaCondition) &&
-                    ShouldApplyImportForCurrentMedia(mediaCondition))
+                    ShouldApplyImportForCurrentMedia(mediaCondition, mediaContext))
                 {
                     var imported = TryLoadImportedStylesheet(href, baseUri, importChain);
                     if (imported is not null)
                     {
                         try
                         {
-                            AppendExpandedStyles(builder, imported.Content, imported.BaseUri, importChain);
+                            AppendExpandedStyles(builder, imported.Content, imported.BaseUri, mediaContext, importChain);
                             builder.AppendLine();
                         }
                         finally
@@ -311,7 +321,7 @@ internal static class SvgCssCompatibilityProcessor
         }
     }
 
-    private static bool ShouldApplyImportForCurrentMedia(ReadOnlySpan<char> mediaCondition)
+    private static bool ShouldApplyImportForCurrentMedia(ReadOnlySpan<char> mediaCondition, CssMediaContext mediaContext)
     {
         var mediaList = TrimWhitespace(mediaCondition);
         if (mediaList.IsEmpty)
@@ -349,7 +359,7 @@ internal static class SvgCssCompatibilityProcessor
                     continue;
 
                 case ',' when parenthesisDepth == 0:
-                    if (MatchesCurrentMedia(mediaList.Slice(segmentStart, index - segmentStart)))
+                    if (MatchesCurrentMedia(mediaList.Slice(segmentStart, index - segmentStart), mediaContext))
                     {
                         return true;
                     }
@@ -364,10 +374,10 @@ internal static class SvgCssCompatibilityProcessor
             }
         }
 
-        return MatchesCurrentMedia(mediaList.Slice(segmentStart));
+        return MatchesCurrentMedia(mediaList.Slice(segmentStart), mediaContext);
     }
 
-    private static bool MatchesCurrentMedia(ReadOnlySpan<char> mediaQuery)
+    private static bool MatchesCurrentMedia(ReadOnlySpan<char> mediaQuery, CssMediaContext mediaContext)
     {
         var normalized = TrimWhitespace(mediaQuery);
         if (normalized.IsEmpty)
@@ -378,27 +388,31 @@ internal static class SvgCssCompatibilityProcessor
         ConsumeLeadingKeyword(ref normalized, OnlyKeyword);
 
         var isNegated = ConsumeLeadingKeyword(ref normalized, NotKeyword);
-        if (!TryParseMediaQuery(normalized, out var mediaType, out var matchesFeatures))
+        if (!TryParseMediaQuery(normalized, mediaContext, out var mediaType, out var matchesFeatures))
         {
             return false;
         }
 
-        // Treat Svg.Skia's checked rendering context as "screen". That matches the Chrome capture
-        // workflow used for baselines, so imports scoped to other media such as "print" should not
-        // leak into the static image output.
+        // Treat Svg.Skia's document-loading CSS context as "screen". Imports scoped to other media
+        // such as "print" should not leak into the static image output.
         var matchesScreen = mediaType.IsEmpty ||
             mediaType.Equals(AllMediaType.AsSpan(), StringComparison.OrdinalIgnoreCase) ||
             mediaType.Equals(ScreenMediaType.AsSpan(), StringComparison.OrdinalIgnoreCase);
 
         // Once a media query adds feature predicates, matching the type alone is no longer enough.
-        // For example, `screen and (max-width: 1px)` must not apply in the static 480px viewport
-        // used by the Chrome reference captures. Unsupported features are treated conservatively as
-        // non-matches so imports are not inlined on predicates we cannot validate.
+        // Evaluate those predicates against the SVG document's declared viewport when it exists,
+        // and only fall back to the historical W3C default when the document provides no usable
+        // size of its own. Unsupported features stay conservative non-matches so imports are not
+        // inlined on predicates we cannot validate.
         var matchesMediaQuery = matchesScreen && matchesFeatures;
         return isNegated ? !matchesMediaQuery : matchesMediaQuery;
     }
 
-    private static bool TryParseMediaQuery(ReadOnlySpan<char> mediaQuery, out ReadOnlySpan<char> mediaType, out bool matchesFeatures)
+    private static bool TryParseMediaQuery(
+        ReadOnlySpan<char> mediaQuery,
+        CssMediaContext mediaContext,
+        out ReadOnlySpan<char> mediaType,
+        out bool matchesFeatures)
     {
         mediaType = default;
         matchesFeatures = true;
@@ -423,12 +437,17 @@ internal static class SvgCssCompatibilityProcessor
         {
             if (mediaQuery[index] == '(')
             {
+                if (!mediaType.IsEmpty && !expectsFeatureAfterAnd)
+                {
+                    return false;
+                }
+
                 if (!TryReadMediaFeature(mediaQuery, ref index, out var mediaFeature) || mediaFeature.IsEmpty)
                 {
                     return false;
                 }
 
-                matchesFeatures &= EvaluateMediaFeature(mediaFeature);
+                matchesFeatures &= EvaluateMediaFeature(mediaFeature, mediaContext);
                 expectsFeatureAfterAnd = false;
                 SkipWhitespaceAndComments(mediaQuery, ref index);
                 continue;
@@ -517,7 +536,7 @@ internal static class SvgCssCompatibilityProcessor
         return false;
     }
 
-    private static bool EvaluateMediaFeature(ReadOnlySpan<char> mediaFeature)
+    private static bool EvaluateMediaFeature(ReadOnlySpan<char> mediaFeature, CssMediaContext mediaContext)
     {
         var separatorIndex = mediaFeature.IndexOf(':');
         if (separatorIndex < 0)
@@ -534,37 +553,37 @@ internal static class SvgCssCompatibilityProcessor
 
         if (name.Equals(WidthFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            return MatchesExactDimension(value, StaticScreenWidthPixels);
+            return MatchesExactDimension(value, mediaContext.WidthPixels);
         }
 
         if (name.Equals(MinWidthFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            return MatchesMinimumDimension(value, StaticScreenWidthPixels);
+            return MatchesMinimumDimension(value, mediaContext.WidthPixels);
         }
 
         if (name.Equals(MaxWidthFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            return MatchesMaximumDimension(value, StaticScreenWidthPixels);
+            return MatchesMaximumDimension(value, mediaContext.WidthPixels);
         }
 
         if (name.Equals(HeightFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            return MatchesExactDimension(value, StaticScreenHeightPixels);
+            return MatchesExactDimension(value, mediaContext.HeightPixels);
         }
 
         if (name.Equals(MinHeightFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            return MatchesMinimumDimension(value, StaticScreenHeightPixels);
+            return MatchesMinimumDimension(value, mediaContext.HeightPixels);
         }
 
         if (name.Equals(MaxHeightFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            return MatchesMaximumDimension(value, StaticScreenHeightPixels);
+            return MatchesMaximumDimension(value, mediaContext.HeightPixels);
         }
 
         if (name.Equals(OrientationFeature.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            return MatchesOrientation(value);
+            return MatchesOrientation(value, mediaContext);
         }
 
         return false;
@@ -588,17 +607,17 @@ internal static class SvgCssCompatibilityProcessor
                currentPixels - 0.001d <= requestedPixels;
     }
 
-    private static bool MatchesOrientation(ReadOnlySpan<char> value)
+    private static bool MatchesOrientation(ReadOnlySpan<char> value, CssMediaContext mediaContext)
     {
         var orientation = TrimWhitespace(value);
         if (orientation.Equals(LandscapeOrientation.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            return StaticScreenWidthPixels >= StaticScreenHeightPixels;
+            return mediaContext.WidthPixels >= mediaContext.HeightPixels;
         }
 
         if (orientation.Equals(PortraitOrientation.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
-            return StaticScreenHeightPixels > StaticScreenWidthPixels;
+            return mediaContext.HeightPixels > mediaContext.WidthPixels;
         }
 
         return false;
@@ -1056,6 +1075,94 @@ internal static class SvgCssCompatibilityProcessor
         return char.IsLetterOrDigit(value) || value is '-' or '_';
     }
 
+    private static CssMediaContext ResolveMediaContext(SvgDocument svgDocument)
+    {
+        var viewBox = svgDocument.ViewBox;
+        var viewBoxWidth = viewBox.Width > 0d ? viewBox.Width : 0d;
+        var viewBoxHeight = viewBox.Height > 0d ? viewBox.Height : 0d;
+
+        // The loader does not know the eventual host control size yet, so the best available media
+        // context is the SVG's own declared viewport. Prefer explicit root width/height, then the
+        // intrinsic viewBox dimensions, and only then fall back to the historical standalone W3C
+        // harness size.
+        var widthPixels = ResolveViewportDimension(
+            svgDocument,
+            svgDocument.Width,
+            svgDocument.Attributes.ContainsKey("width"),
+            viewBoxWidth,
+            StaticScreenWidthPixels);
+        var heightPixels = ResolveViewportDimension(
+            svgDocument,
+            svgDocument.Height,
+            svgDocument.Attributes.ContainsKey("height"),
+            viewBoxHeight,
+            StaticScreenHeightPixels);
+
+        return new CssMediaContext(widthPixels, heightPixels);
+    }
+
+    private static double ResolveViewportDimension(
+        SvgDocument svgDocument,
+        SvgUnit dimension,
+        bool hasExplicitDimension,
+        double intrinsicPixels,
+        double fallbackPixels)
+    {
+        if (!hasExplicitDimension && intrinsicPixels > 0d)
+        {
+            return intrinsicPixels;
+        }
+
+        if (TryResolveAbsolutePixels(svgDocument, dimension, out var absolutePixels))
+        {
+            return absolutePixels;
+        }
+
+        if (dimension.Type == SvgUnitType.Percentage)
+        {
+            var basePixels = intrinsicPixels > 0d ? intrinsicPixels : fallbackPixels;
+            return basePixels * dimension.Value / 100d;
+        }
+
+        return intrinsicPixels > 0d ? intrinsicPixels : fallbackPixels;
+    }
+
+    private static bool TryResolveAbsolutePixels(SvgDocument svgDocument, SvgUnit dimension, out double pixels)
+    {
+        pixels = dimension.Value;
+
+        switch (dimension.Type)
+        {
+            case SvgUnitType.Pixel:
+            case SvgUnitType.User:
+                return true;
+
+            case SvgUnitType.Inch:
+                pixels = dimension.Value * svgDocument.Ppi;
+                return true;
+
+            case SvgUnitType.Centimeter:
+                pixels = dimension.Value / CentimetersPerInch * svgDocument.Ppi;
+                return true;
+
+            case SvgUnitType.Millimeter:
+                pixels = dimension.Value / MillimetersPerInch * svgDocument.Ppi;
+                return true;
+
+            case SvgUnitType.Point:
+                pixels = dimension.Value / PointsPerInch * svgDocument.Ppi;
+                return true;
+
+            case SvgUnitType.Pica:
+                pixels = dimension.Value / PicasPerInch * svgDocument.Ppi;
+                return true;
+
+            default:
+                pixels = 0d;
+                return false;
+        }
+    }
+
     private static SvgCssStyleSource? TryLoadImportedStylesheet(string? href, Uri? baseUri, HashSet<string> importChain)
     {
         if (string.IsNullOrWhiteSpace(href) || baseUri is null)
@@ -1074,7 +1181,7 @@ internal static class SvgCssCompatibilityProcessor
         // Cycle protection is scoped to the currently expanding import chain so repeated imports in
         // separate top-level <style> blocks still participate in cascade order like they do in a
         // browser.
-        if (importChain.Contains(stylesheetUri.AbsoluteUri))
+        if (!importChain.Add(stylesheetUri.AbsoluteUri))
         {
             return null;
         }
@@ -1082,11 +1189,19 @@ internal static class SvgCssCompatibilityProcessor
         var localPath = stylesheetUri.LocalPath;
         if (!File.Exists(localPath))
         {
+            importChain.Remove(stylesheetUri.AbsoluteUri);
             return null;
         }
 
-        importChain.Add(stylesheetUri.AbsoluteUri);
-        return new SvgCssStyleSource(File.ReadAllText(localPath), stylesheetUri);
+        try
+        {
+            return new SvgCssStyleSource(File.ReadAllText(localPath), stylesheetUri);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or System.Security.SecurityException)
+        {
+            importChain.Remove(stylesheetUri.AbsoluteUri);
+            return null;
+        }
     }
 
     private readonly struct AppliedDeclaration
@@ -1136,6 +1251,19 @@ internal static class SvgCssCompatibilityProcessor
         Import,
         Charset,
         Other,
+    }
+
+    private readonly struct CssMediaContext
+    {
+        public CssMediaContext(double widthPixels, double heightPixels)
+        {
+            WidthPixels = widthPixels;
+            HeightPixels = heightPixels;
+        }
+
+        public double WidthPixels { get; }
+
+        public double HeightPixels { get; }
     }
 }
 

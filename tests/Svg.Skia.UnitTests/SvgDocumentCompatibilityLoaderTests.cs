@@ -288,6 +288,39 @@ public class SvgDocumentCompatibilityLoaderTests
     }
 
     [Fact]
+    public void OpenPath_AppliesImportedStylesheetsWhenMediaFeatureMatchesDocumentViewport()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            var cssPath = Path.Combine(tempDirectory, "styles.css");
+            var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+            File.WriteAllText(cssPath, "#target { fill: green; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768">
+                  <style type="text/css"><![CDATA[
+                    @import url("styles.css") screen and (min-width: 800px) and (min-height: 700px);
+                  ]]></style>
+                  <circle id="target" cx="10" cy="10" r="5" fill="red" />
+                </svg>
+                """);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var circle = document.Descendants().OfType<SvgCircle>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(circle.Fill);
+
+            Assert.Equal(Color.Green.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void OpenPath_IgnoresImportedStylesheetsWhenMediaFeatureDoesNotMatchStaticViewport()
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -316,6 +349,117 @@ public class SvgDocumentCompatibilityLoaderTests
         }
         finally
         {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OpenPath_IgnoresImportedStylesheetsWhenMediaFeatureDoesNotMatchDocumentViewport()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            var cssPath = Path.Combine(tempDirectory, "styles.css");
+            var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+            File.WriteAllText(cssPath, "#target { fill: green; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg" width="640" height="480">
+                  <style type="text/css"><![CDATA[
+                    @import url("styles.css") screen and (min-width: 800px);
+                  ]]></style>
+                  <circle id="target" cx="10" cy="10" r="5" fill="red" />
+                </svg>
+                """);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var circle = document.Descendants().OfType<SvgCircle>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(circle.Fill);
+
+            Assert.Equal(Color.Red.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OpenPath_IgnoresImportedStylesheetsWhenMediaQueryOmitsAndBeforeFeature()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            var cssPath = Path.Combine(tempDirectory, "styles.css");
+            var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+            File.WriteAllText(cssPath, "#target { fill: green; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768">
+                  <style type="text/css"><![CDATA[
+                    @import url("styles.css") screen (min-width: 100px);
+                  ]]></style>
+                  <circle id="target" cx="10" cy="10" r="5" fill="red" />
+                </svg>
+                """);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var circle = document.Descendants().OfType<SvgCircle>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(circle.Fill);
+
+            Assert.Equal(Color.Red.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OpenPath_IgnoresUnreadableImportedStylesheets()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDirectory);
+
+        var cssPath = Path.Combine(tempDirectory, "styles.css");
+        var svgPath = Path.Combine(tempDirectory, "test.svg");
+
+        try
+        {
+            File.WriteAllText(cssPath, "#target { fill: green; }");
+            File.WriteAllText(svgPath, """
+                <svg xmlns="http://www.w3.org/2000/svg">
+                  <style type="text/css"><![CDATA[
+                    @import url("styles.css");
+                  ]]></style>
+                  <circle id="target" cx="10" cy="10" r="5" fill="red" />
+                </svg>
+                """);
+
+            File.SetUnixFileMode(cssPath, UnixFileMode.None);
+
+            var document = SvgDocumentCompatibilityLoader.Open<SvgDocument>(svgPath, new SvgOptions());
+            var circle = document.Descendants().OfType<SvgCircle>().Single(static element => element.ID == "target");
+            var fill = Assert.IsType<SvgColourServer>(circle.Fill);
+
+            Assert.Equal(Color.Red.ToArgb(), fill.Colour.ToArgb());
+        }
+        finally
+        {
+            if (File.Exists(cssPath))
+            {
+                File.SetUnixFileMode(cssPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+
             Directory.Delete(tempDirectory, recursive: true);
         }
     }
