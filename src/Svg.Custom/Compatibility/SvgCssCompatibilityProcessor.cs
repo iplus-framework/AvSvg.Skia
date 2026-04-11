@@ -56,54 +56,70 @@ internal static class SvgCssCompatibilityProcessor
         // Expand valid imports first so the final stylesheet matches browser evaluation order:
         // imported rules are inlined into the aggregate stylesheet before selector matching.
         var cssTotal = ExpandImportedStyles(styles);
+        if (string.IsNullOrWhiteSpace(cssTotal))
+        {
+            return;
+        }
+
         var stylesheetParser = new StylesheetParser(true, true, tolerateInvalidValues: true);
         var stylesheet = stylesheetParser.Parse(cssTotal);
         var rootNode = new NonSvgElement();
         rootNode.Children.Add(svgDocument);
-
-        foreach (var rule in stylesheet.StyleRules)
+        try
         {
-            try
+            foreach (var rule in stylesheet.StyleRules)
             {
-                var projectsLinkStylesToText = ContainsLinkPseudoClass(rule.Selector);
-                var specificity = rule.Selector.GetSpecificity();
-                List<AppliedDeclaration>? declarations = null;
-                var elemsToStyle = rootNode.QuerySelectorAll(rule.Selector, elementFactory);
-
-                foreach (var elem in elemsToStyle)
+                try
                 {
-                    declarations ??= CreateAppliedDeclarations();
+                    var projectsLinkStylesToText = ContainsLinkPseudoClass(rule.Selector);
+                    var specificity = rule.Selector.GetSpecificity();
+                    List<AppliedDeclaration>? declarations = null;
+                    var elemsToStyle = rootNode.QuerySelectorAll(rule.Selector, elementFactory);
 
-                    SvgTextBase? textContainer = null;
-                    var projectsToTextContainer = projectsLinkStylesToText &&
-                                                  TryGetLinkTextContainer(elem, out textContainer);
-
-                    foreach (var declaration in declarations)
+                    foreach (var elem in elemsToStyle)
                     {
-                        elem.AddStyle(declaration.Name, declaration.Value, specificity);
+                        declarations ??= CreateAppliedDeclarations();
 
-                        if (projectsToTextContainer)
+                        SvgTextBase? textContainer = null;
+                        var projectsToTextContainer = projectsLinkStylesToText &&
+                                                      TryGetLinkTextContainer(elem, out textContainer);
+
+                        foreach (var declaration in declarations)
                         {
-                            textContainer!.AddStyle(declaration.Name, declaration.Value, specificity);
+                            elem.AddStyle(declaration.Name, declaration.Value, specificity);
+
+                            if (projectsToTextContainer)
+                            {
+                                textContainer!.AddStyle(declaration.Name, declaration.Value, specificity);
+                            }
                         }
                     }
-                }
 
-                List<AppliedDeclaration> CreateAppliedDeclarations()
-                {
-                    var result = new List<AppliedDeclaration>();
-                    foreach (var declaration in rule.Style)
+                    List<AppliedDeclaration> CreateAppliedDeclarations()
                     {
-                        result.Add(new AppliedDeclaration(declaration.Name, declaration.Original));
-                    }
+                        var result = new List<AppliedDeclaration>();
+                        foreach (var declaration in rule.Style)
+                        {
+                            result.Add(new AppliedDeclaration(declaration.Name, declaration.Original));
+                        }
 
-                    return result;
+                        return result;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Trace.TraceWarning(ex.Message);
                 }
             }
-            catch (Exception ex)
-            {
-                Trace.TraceWarning(ex.Message);
-            }
+        }
+        finally
+        {
+            // QuerySelectorAll needs a synthetic parent so selectors like :root/descendant matching
+            // can traverse from a stable container, but that wrapper must not leak into the live
+            // document tree. Animation bindings capture child-index addresses later, and leaving
+            // svgDocument.Parent pointing at this temporary node shifts every recorded path by one
+            // extra level, which makes CreateAnimatedDocument fail to resolve targets on clones.
+            _ = rootNode.Children.Remove(svgDocument);
         }
     }
 

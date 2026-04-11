@@ -138,6 +138,24 @@ public class SvgDocumentCompatibilityLoaderTests
     }
 
     [Fact]
+    public void FromSvg_DetachesSyntheticCssQueryRootAfterApplyingStyles()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <style>#target { fill: green; }</style>
+              <rect id="target" width="10" height="10" fill="red" />
+            </svg>
+            """;
+
+        var document = SvgDocumentCompatibilityLoader.FromSvg<SvgDocument>(svg);
+        var rect = document.Descendants().OfType<SvgRectangle>().Single(static element => element.ID == "target");
+        var fill = Assert.IsType<SvgColourServer>(rect.Fill);
+
+        Assert.Null(document.Parent);
+        Assert.Equal(Color.Green.ToArgb(), fill.Colour.ToArgb());
+    }
+
+    [Fact]
     public void OpenPath_AppliesImportedStylesheetsWhenMediaMatchesScreen()
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
