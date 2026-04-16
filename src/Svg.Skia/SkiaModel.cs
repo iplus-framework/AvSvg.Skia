@@ -2,11 +2,13 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using ShimSkiaSharp;
+using Svg.Skia.TypefaceProviders;
 
 namespace Svg.Skia;
 
-public class SkiaModel
+public partial class SkiaModel
 {
     private static readonly char[] s_fontFamilyTrimChars = { '\'', '"' };
 
@@ -19,6 +21,14 @@ public class SkiaModel
         ["fantasy"] = new[] { "fantasy", "Impact", "Papyrus" }
     };
 
+    private static readonly Dictionary<string, string[]> s_browserCompatibleGenericFontFamilyMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["sans-serif"] = new[] { "sans-serif", "Helvetica", "Helvetica Neue", "Arial", "Roboto", "Segoe UI", "DejaVu Sans" },
+        ["serif"] = new[] { "serif", "Times", "Times New Roman", "Georgia", "Droid Serif", "DejaVu Serif" },
+        ["monospace"] = new[] { "monospace", "Courier New", "Courier", "Menlo", "Consolas", "Roboto Mono", "DejaVu Sans Mono" },
+        ["cursive"] = new[] { "cursive", "Snell Roundhand", "Comic Sans MS", "Apple Chancery" },
+        ["fantasy"] = new[] { "fantasy", "Impact", "Papyrus" }
+    };
     public SKSvgSettings Settings { get; }
 
     public SkiaModel(SKSvgSettings settings)
@@ -190,13 +200,16 @@ public class SkiaModel
         };
     }
 
-    private IEnumerable<string> EnumerateFontFamilyCandidates(string? fontFamily)
+    internal static IEnumerable<string> EnumerateFontFamilyCandidates(string? fontFamily, bool browserCompatible = false)
     {
+        var genericFontFamilyMap = browserCompatible
+            ? s_browserCompatibleGenericFontFamilyMap
+            : s_genericFontFamilyMap;
         var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         if (!string.IsNullOrWhiteSpace(fontFamily))
         {
-            foreach (var rawFamily in fontFamily.Split(','))
+            foreach (var rawFamily in fontFamily!.Split(','))
             {
                 var candidate = rawFamily.Trim();
                 if (candidate.Length == 0)
@@ -212,7 +225,7 @@ public class SkiaModel
 
                 yield return candidate;
 
-                if (s_genericFontFamilyMap.TryGetValue(candidate, out var mappedFamilies))
+                if (genericFontFamilyMap.TryGetValue(candidate, out var mappedFamilies))
                 {
                     foreach (var mapped in mappedFamilies)
                     {
@@ -225,7 +238,7 @@ public class SkiaModel
             }
         }
 
-        if (yielded.Count == 0 && s_genericFontFamilyMap.TryGetValue("sans-serif", out var fallbackFamilies))
+        if (yielded.Count == 0 && genericFontFamilyMap.TryGetValue("sans-serif", out var fallbackFamilies))
         {
             foreach (var mapped in fallbackFamilies)
             {
@@ -237,6 +250,102 @@ public class SkiaModel
         }
     }
 
+    private void EnsureTypefaceProviderCaches()
+    {
+        var providers = Settings.TypefaceProviders;
+        var hash = ComputeTypefaceProviderHash(providers);
+        if (!ReferenceEquals(providers, _providerStateList) || hash != _providerStateHash)
+        {
+            _providerStateList = providers;
+            _providerStateHash = hash;
+            _typefaceCache.Clear();
+            _resolvedTypefaceCache.Clear();
+            ClearPositionedTextCache();
+        }
+    }
+
+    private static int ComputeTypefaceProviderHash(IList<ITypefaceProvider>? providers)
+    {
+        unchecked
+        {
+            var hash = 17;
+            if (providers is null)
+            {
+                return hash;
+            }
+
+            hash = (hash * 397) ^ providers.Count;
+            for (var i = 0; i < providers.Count; i++)
+            {
+                var provider = providers[i];
+                if (provider is null)
+                {
+                    continue;
+                }
+
+                hash = (hash * 397) ^ RuntimeHelpers.GetHashCode(provider);
+                hash = (hash * 397) ^ provider.GetHashCode();
+                if (provider is CustomTypefaceProvider custom)
+                {
+                    hash = (hash * 397) ^ (custom.Typeface?.Handle.GetHashCode() ?? 0);
+                }
+                else if (provider is FontManagerTypefaceProvider fontManagerProvider)
+                {
+                    hash = (hash * 397) ^ (fontManagerProvider.FontManager?.Handle.GetHashCode() ?? 0);
+                }
+            }
+
+            return hash;
+        }
+    }
+
+    private void ClearPositionedTextCache()
+    {
+        lock (_positionedTextCacheLock)
+        {
+            foreach (var weak in _positionedTextCacheRefs)
+            {
+                if (weak.TryGetTarget(out var textBlob) && textBlob.Handle != IntPtr.Zero)
+                {
+                    textBlob.Dispose();
+                }
+            }
+
+            _positionedTextCacheRefs.Clear();
+            _positionedTextCache = new ConditionalWeakTable<DrawTextBlobCanvasCommand, PositionedTextCache>();
+        }
+    }
+
+    private void TrimPositionedTextCacheRefsIfNeeded()
+    {
+        if (_positionedTextCacheRefs.Count <= PositionedTextCacheRefTrimThreshold)
+        {
+            return;
+        }
+
+        for (var i = _positionedTextCacheRefs.Count - 1; i >= 0; i--)
+        {
+            var weak = _positionedTextCacheRefs[i];
+            if (!weak.TryGetTarget(out var textBlob) || textBlob.Handle == IntPtr.Zero)
+            {
+                _positionedTextCacheRefs.RemoveAt(i);
+            }
+        }
+    }
+
+    private void TrimTypefaceCachesIfNeeded()
+    {
+        if (_typefaceCache.Count > TypefaceCacheLimit)
+        {
+            _typefaceCache.Clear();
+        }
+
+        if (_resolvedTypefaceCache.Count > ResolvedTypefaceCacheLimit)
+        {
+            _resolvedTypefaceCache.Clear();
+        }
+    }
+
     private SkiaSharp.SKTypeface? ResolveTypeface(string candidate, SkiaSharp.SKFontStyle style)
     {
         if (string.IsNullOrEmpty(candidate))
@@ -244,14 +353,59 @@ public class SkiaModel
             return null;
         }
 
-        var fontManager = SkiaSharp.SKFontManager.Default;
-        var matched = fontManager.MatchFamily(candidate, style);
-        if (matched is { })
+        var cacheKey = new TypefaceKey(
+            candidate,
+            (SkiaSharp.SKFontStyleWeight)style.Weight,
+            (SkiaSharp.SKFontStyleWidth)style.Width,
+            (SkiaSharp.SKFontStyleSlant)style.Slant);
+        if (_resolvedTypefaceCache.TryGetValue(cacheKey, out var cached))
         {
-            return matched;
+            if (cached is not null && cached.Handle != IntPtr.Zero)
+            {
+                return cached;
+            }
+
+            _resolvedTypefaceCache.TryRemove(cacheKey, out _);
         }
 
-        return SkiaSharp.SKTypeface.FromFamilyName(candidate, style.Weight, style.Width, style.Slant);
+        var fontManager = SkiaSharp.SKFontManager.Default;
+        var resolved = default(SkiaSharp.SKTypeface);
+
+        var matched = fontManager.MatchFamily(candidate, style);
+        if (matched is { } && matched.Handle != IntPtr.Zero)
+        {
+            if (IsGenericFontFamilyName(candidate) ||
+                string.Equals(matched.FamilyName, candidate, StringComparison.OrdinalIgnoreCase))
+            {
+                resolved = matched;
+            }
+            else
+            {
+                matched.Dispose();
+            }
+        }
+
+        if (resolved is null)
+        {
+            var requested = SkiaSharp.SKTypeface.FromFamilyName(candidate, style.Weight, style.Width, style.Slant);
+            if (requested is { } && requested.Handle != IntPtr.Zero &&
+                (IsGenericFontFamilyName(candidate) ||
+                  string.Equals(requested.FamilyName, candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                resolved = requested;
+            }
+            else
+            {
+                requested?.Dispose();
+            }
+        }
+
+        if (resolved is not null)
+        {
+            _resolvedTypefaceCache.TryAdd(cacheKey, resolved);
+            TrimTypefaceCachesIfNeeded();
+        }
+        return resolved;
     }
 
     public SkiaSharp.SKTypeface? ToSKTypeface(SKTypeface? typeface)
@@ -261,25 +415,71 @@ public class SkiaModel
         var fontWidth = ToSKFontStyleWidth(typeface?.FontWidth ?? SKFontStyleWidth.Normal);
         var fontStyle = ToSKFontStyleSlant(typeface?.FontSlant ?? SKFontStyleSlant.Upright);
         var style = new SkiaSharp.SKFontStyle(fontWeight, fontWidth, fontStyle);
+        var cacheKey = new TypefaceKey(fontFamily, fontWeight, fontWidth, fontStyle);
 
-        foreach (var candidate in EnumerateFontFamilyCandidates(fontFamily))
+        EnsureTypefaceProviderCaches();
+
+        if (_typefaceCache.TryGetValue(cacheKey, out var cached))
+        {
+            if (cached is not null && cached.Handle != IntPtr.Zero)
+            {
+                return cached;
+            }
+
+            _typefaceCache.TryRemove(cacheKey, out _);
+        }
+
+        const bool browserCompatibleFontFallback = true;
+        foreach (var candidate in EnumerateFontFamilyCandidates(fontFamily, browserCompatibleFontFallback))
         {
             if (Settings.TypefaceProviders is { } && Settings.TypefaceProviders.Count > 0)
             {
                 foreach (var typefaceProvider in Settings.TypefaceProviders)
                 {
                     var providerTypeface = typefaceProvider.FromFamilyName(candidate, fontWeight, fontWidth, fontStyle);
-                    if (providerTypeface is { })
+                    if (providerTypeface is { } && providerTypeface.Handle != IntPtr.Zero)
                     {
+                        _typefaceCache.TryAdd(cacheKey, providerTypeface);
+                        TrimTypefaceCachesIfNeeded();
                         return providerTypeface;
                     }
                 }
             }
 
             var resolved = ResolveTypeface(candidate, style);
-            if (resolved is { })
+            if (resolved is { } && resolved.Handle != IntPtr.Zero)
             {
+                _typefaceCache.TryAdd(cacheKey, resolved);
+                TrimTypefaceCachesIfNeeded();
                 return resolved;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(fontFamily))
+        {
+            foreach (var candidate in EnumerateFontFamilyCandidates("serif", browserCompatibleFontFallback))
+            {
+                if (Settings.TypefaceProviders is { } && Settings.TypefaceProviders.Count > 0)
+                {
+                    foreach (var typefaceProvider in Settings.TypefaceProviders)
+                    {
+                        var providerTypeface = typefaceProvider.FromFamilyName(candidate, fontWeight, fontWidth, fontStyle);
+                        if (providerTypeface is { } && providerTypeface.Handle != IntPtr.Zero)
+                        {
+                            _typefaceCache.TryAdd(cacheKey, providerTypeface);
+                            TrimTypefaceCachesIfNeeded();
+                            return providerTypeface;
+                        }
+                    }
+                }
+
+                var resolved = ResolveTypeface(candidate, style);
+                if (resolved is { } && resolved.Handle != IntPtr.Zero)
+                {
+                    _typefaceCache.TryAdd(cacheKey, resolved);
+                    TrimTypefaceCachesIfNeeded();
+                    return resolved;
+                }
             }
         }
 
@@ -288,16 +488,34 @@ public class SkiaModel
             foreach (var typefaceProvider in Settings.TypefaceProviders)
             {
                 var providerTypeface = typefaceProvider.FromFamilyName(SkiaSharp.SKTypeface.Default.FamilyName, fontWeight, fontWidth, fontStyle);
-                if (providerTypeface is { })
+                if (providerTypeface is { } && providerTypeface.Handle != IntPtr.Zero)
                 {
+                    _typefaceCache.TryAdd(cacheKey, providerTypeface);
+                    TrimTypefaceCachesIfNeeded();
                     return providerTypeface;
                 }
             }
         }
 
         var defaultTypeface = SkiaSharp.SKTypeface.FromFamilyName(null, fontWeight, fontWidth, fontStyle);
+        if (defaultTypeface is { } && defaultTypeface.Handle == IntPtr.Zero)
+        {
+            defaultTypeface = null;
+        }
 
-        return defaultTypeface ?? SkiaSharp.SKTypeface.Default;
+        var fallback = defaultTypeface ?? SkiaSharp.SKTypeface.Default;
+        _typefaceCache.TryAdd(cacheKey, fallback);
+        TrimTypefaceCachesIfNeeded();
+        return fallback;
+    }
+
+    private static bool IsGenericFontFamilyName(string candidate)
+    {
+        return candidate.Equals("serif", StringComparison.OrdinalIgnoreCase) ||
+               candidate.Equals("sans-serif", StringComparison.OrdinalIgnoreCase) ||
+               candidate.Equals("monospace", StringComparison.OrdinalIgnoreCase) ||
+               candidate.Equals("cursive", StringComparison.OrdinalIgnoreCase) ||
+               candidate.Equals("fantasy", StringComparison.OrdinalIgnoreCase);
     }
 
     public SkiaSharp.SKColor ToSKColor(SKColor color)
@@ -846,7 +1064,7 @@ public class SkiaModel
 
                     return SkiaSharp.SKImageFilter.CreatePicture(
                         ToSKPicture(pictureImageFilter.Picture),
-                        ToSKRect(pictureImageFilter.Picture.CullRect));
+                        ToSKRect(pictureImageFilter.Clip ?? pictureImageFilter.Picture.CullRect));
                 }
             case PointLitDiffuseImageFilter pointLitDiffuseImageFilter:
                 {
@@ -913,12 +1131,12 @@ public class SkiaModel
                         ? SkiaSharp.SKImageFilter.CreateSpotLitSpecular(
                             ToSKPoint3(spotLitSpecularImageFilter.Location),
                             ToSKPoint3(spotLitSpecularImageFilter.Target),
-                            spotLitSpecularImageFilter.SpecularExponent,
+                            spotLitSpecularImageFilter.Shininess,
                             spotLitSpecularImageFilter.CutoffAngle,
                             ToSKColor(spotLitSpecularImageFilter.LightColor),
                             spotLitSpecularImageFilter.SurfaceScale,
                             spotLitSpecularImageFilter.Ks,
-                            spotLitSpecularImageFilter.SpecularExponent,
+                            spotLitSpecularImageFilter.Shininess,
                             ToSKImageFilter(spotLitSpecularImageFilter.Input),
                             ToSKRect(clip))
                         : SkiaSharp.SKImageFilter.CreateSpotLitSpecular(
@@ -1096,6 +1314,79 @@ public class SkiaModel
         if (targetPaint.Typeface.FontWeight < desiredWeight)
         {
             targetPaint.FakeBoldText = true;
+        }
+    }
+
+    private SkiaSharp.SKTextBlob? GetCachedPositionedTextBlob(
+        DrawTextBlobCanvasCommand command,
+        SkiaSharp.SKPaint paint)
+    {
+        var textBlob = command.TextBlob;
+        if (textBlob?.Points is null)
+        {
+            return null;
+        }
+
+        var signature = new FontSignature(paint);
+        lock (_positionedTextCacheLock)
+        {
+            PositionedTextCache? cached = null;
+            if (_positionedTextCache.TryGetValue(command, out var existing))
+            {
+                if (existing.Signature.Equals(signature))
+                {
+                    if (existing.TextBlob.Handle != IntPtr.Zero)
+                    {
+                        return existing.TextBlob;
+                    }
+
+                    cached = existing;
+                }
+                else
+                {
+                    cached = existing;
+                }
+
+                _positionedTextCache.Remove(command);
+            }
+
+            using var font = paint.ToFont();
+            if (font is null)
+            {
+                return null;
+            }
+
+            var points = ToSKPoints(textBlob.Points);
+            SkiaSharp.SKTextBlob? created;
+            if (textBlob.Glyphs is { Length: > 0 })
+            {
+                using var builder = new SkiaSharp.SKTextBlobBuilder();
+                builder.AddPositionedRun(textBlob.Glyphs, font, points);
+                created = builder.Build();
+            }
+            else if (textBlob.Text is not null)
+            {
+                created = SkiaSharp.SKTextBlob.CreatePositioned(textBlob.Text, font, points);
+            }
+            else
+            {
+                return null;
+            }
+
+            if (created is null)
+            {
+                return null;
+            }
+
+            if (cached is not null && cached.TextBlob.Handle != IntPtr.Zero)
+            {
+                cached.TextBlob.Dispose();
+            }
+
+            _positionedTextCache.Add(command, new PositionedTextCache(signature, created));
+            _positionedTextCacheRefs.Add(new WeakReference<SkiaSharp.SKTextBlob>(created));
+            TrimPositionedTextCacheRefsIfNeeded();
+            return created;
         }
     }
 
@@ -1368,7 +1659,14 @@ public class SkiaModel
         using var skPictureRecorder = new SkiaSharp.SKPictureRecorder();
         using var skCanvas = skPictureRecorder.BeginRecording(skRect);
 
-        Draw(picture, skCanvas);
+        if (picture.Commands is { Count: > 0 })
+        {
+            Draw(picture, skCanvas);
+        }
+        else
+        {
+            PreserveCullRect(skCanvas, skRect);
+        }
 
         return skPictureRecorder.EndRecording();
     }
@@ -1384,9 +1682,28 @@ public class SkiaModel
         using var skPictureRecorder = new SkiaSharp.SKPictureRecorder();
         using var skCanvas = skPictureRecorder.BeginRecording(skRect);
 
-        Draw(picture, skCanvas, true);
+        if (picture.Commands is { Count: > 0 })
+        {
+            Draw(picture, skCanvas, true);
+        }
+        else
+        {
+            PreserveCullRect(skCanvas, skRect);
+        }
 
         return skPictureRecorder.EndRecording();
+    }
+
+    private static void PreserveCullRect(SkiaSharp.SKCanvas skCanvas, SkiaSharp.SKRect skRect)
+    {
+        using var paint = new SkiaSharp.SKPaint
+        {
+            Color = new SkiaSharp.SKColor(0, 0, 0, 0),
+            IsAntialias = false,
+            Style = SkiaSharp.SKPaintStyle.Fill
+        };
+
+        skCanvas.DrawRect(skRect, paint);
     }
 
     public void Draw(CanvasCommand canvasCommand, SkiaSharp.SKCanvas skCanvas, bool wireframe = false)
@@ -1424,8 +1741,8 @@ public class SkiaModel
                 }
             case SetMatrixCanvasCommand setMatrixCanvasCommand:
                 {
-                    var matrix = ToSKMatrix(setMatrixCanvasCommand.TotalMatrix);
-                    skCanvas.SetMatrix(matrix);
+                    var matrix = ToSKMatrix(setMatrixCanvasCommand.DeltaMatrix);
+                    skCanvas.Concat(ref matrix);
                     break;
                 }
             case SaveLayerCanvasCommand saveLayerCanvasCommand:
@@ -1464,6 +1781,21 @@ public class SkiaModel
                     }
                     break;
                 }
+            case DrawPictureCanvasCommand drawPictureCanvasCommand:
+                {
+                    if (drawPictureCanvasCommand.Picture is { } picture)
+                    {
+                        if (!wireframe && TryGetCachedPicture(picture, out var cachedPicture))
+                        {
+                            skCanvas.DrawPicture(cachedPicture);
+                        }
+                        else
+                        {
+                            Draw(picture, skCanvas, wireframe);
+                        }
+                    }
+                    break;
+                }
             case DrawPathCanvasCommand drawPathCanvasCommand:
                 {
                     if (drawPathCanvasCommand.Path is { } && drawPathCanvasCommand.Paint is { })
@@ -1480,14 +1812,20 @@ public class SkiaModel
                 {
                     if (drawPositionedTextCanvasCommand.TextBlob?.Points is { } && drawPositionedTextCanvasCommand.Paint is { })
                     {
-                        var text = drawPositionedTextCanvasCommand.TextBlob.Text;
-                        var points = ToSKPoints(drawPositionedTextCanvasCommand.TextBlob.Points);
+                        var sourcePaint = drawPositionedTextCanvasCommand.Paint;
                         var paint = wireframe
-                            ? ToWireframePaint(drawPositionedTextCanvasCommand.Paint)
-                            : ToSKPaint(drawPositionedTextCanvasCommand.Paint);
-                        var font = paint?.ToFont();
-                        var textBlob = SkiaSharp.SKTextBlob.CreatePositioned(text, font, points);
-                        skCanvas.DrawText(textBlob, 0, 0, paint);
+                            ? ToWireframePaint(sourcePaint)
+                            : ToSKPaint(sourcePaint);
+                        if (paint is null)
+                        {
+                            break;
+                        }
+
+                        var textBlob = GetCachedPositionedTextBlob(drawPositionedTextCanvasCommand, paint);
+                        if (textBlob is not null)
+                        {
+                            skCanvas.DrawText(textBlob, 0, 0, paint);
+                        }
                     }
                     break;
                 }
@@ -1501,7 +1839,15 @@ public class SkiaModel
                         var paint = wireframe
                             ? ToWireframePaint(drawTextCanvasCommand.Paint)
                             : ToSKPaint(drawTextCanvasCommand.Paint);
-                        skCanvas.DrawText(text, x, y, paint);
+                        if (paint is null)
+                        {
+                            break;
+                        }
+
+                        if (!TryDrawShapedText(skCanvas, text, x, y, paint))
+                        {
+                            skCanvas.DrawText(text, x, y, paint);
+                        }
                     }
                     break;
                 }

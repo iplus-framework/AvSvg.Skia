@@ -2,8 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <!--<TargetFrameworks>netstandard2.0;net6.0;net8.0</TargetFrameworks>-->
-    <!--<TargetFrameworks>netstandard2.0;$(AvaloniaBuildFramework)</TargetFrameworks>-->
+    <!--<TargetFrameworks>netstandard2.0;net6.0;net8.0;net10.0</TargetFrameworks>-->
     <TargetFrameworks>$(AvaloniaBuildFramework)</TargetFrameworks>
     <EnableDefaultCompileItems>False</EnableDefaultCompileItems>
     <EnableDefaultItems>False</EnableDefaultItems>
@@ -56,9 +55,21 @@
 
   <ItemGroup>
     <Compile Include="**\*.cs" Exclude="bin\**;obj\**" />
-    <Compile Include="$(SvgSourcesBasePath)\Source\**\*.cs" Exclude="$(SvgSourcesBasePath)\Source\obj\**" />
-    <Compile Remove="$(SvgSourcesBasePath)\Source\Properties\AssemblyInfo.cs" />
+    <Compile Include="$(SvgSourcesBasePath)\Source\**\*.cs" Exclude="$(SvgSourcesBasePath)\Source\obj\**" /> 
+    <Compile Remove="$(SvgSourcesBasePath)\Source\Properties\AssemblyInfo.cs" />-->
+    <!--
+      Keep these fixes in Svg.Custom instead of carrying long-lived edits in externals/SVG.
+      The local copies below document why we diverge from upstream and let us compare our
+      retained-scene/browser-focused behavior against the original parser/runtime logic.
+    -->
+    <!--<Compile Remove="$(SvgSourcesBasePath)\Source\SvgAttributeCollection.cs" />
+    <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgDeferredPaintServer.cs" />
+    <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgGradientServer.cs" />
+    <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgGradientStop.cs" />
+    <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgPaintServerFactory.cs" />
+    <Compile Remove="$(SvgSourcesBasePath)\Source\Css\ExCssQuery.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Resources\svg11.dtd" />
+    <Compile Remove="$(SvgSourcesBasePath)\Source\SvgElementFactory.cs" />
   </ItemGroup>-->
 
   <!--<PropertyGroup Condition="'$(TargetFramework)'=='netstandard2.0'">
@@ -82,6 +93,13 @@
     <Compile Include="$(SvgRootPath)\Source\**\*.cs" Exclude="$(SvgRootPath)\Source\obj\**" />
     <Compile Remove="$(SvgRootPath)\Source\Properties\AssemblyInfo.cs" />
     <Compile Remove="$(SvgRootPath)\Source\Resources\svg11.dtd" />
+    <Compile Remove="$(SvgRootPath)\Source\SvgAttributeCollection.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\Painting\SvgDeferredPaintServer.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\Painting\SvgGradientServer.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\Painting\SvgGradientStop.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\Painting\SvgPaintServerFactory.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\Css\ExCssQuery.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\SvgElementFactory.cs" />
   </ItemGroup>
 
   <!-- Exclude generated files to prevent duplicates -->

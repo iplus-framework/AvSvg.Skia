@@ -1,0 +1,104 @@
+<Page x:Class="UnoSvgSkiaSample.MainPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:svg="using:Uno.Svg.Skia"
+      Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+  <Page.Resources>
+    <svg:SvgSource x:Key="TigerSource" Path="/Assets/__tiger.svg" />
+  </Page.Resources>
+
+  <ScrollViewer>
+    <StackPanel Spacing="20" Padding="24" MaxWidth="960">
+      <TextBlock Text="Svg.Controls.Skia.Uno"
+                 FontSize="28"
+                 FontWeight="SemiBold" />
+      <TextBlock Text="This sample mirrors the Avalonia SVG control API where it fits Uno, with direct SKCanvasElement rendering, reusable SvgSource resources, CSS restyling, hit testing, zoom, pan, wireframe, and filter toggles."
+                 TextWrapping="WrapWholeWords" />
+
+      <Border Padding="16" BorderThickness="1" CornerRadius="12">
+        <StackPanel Spacing="12">
+          <TextBlock Text="Asset Load via Path" FontSize="18" FontWeight="SemiBold" />
+          <svg:Svg Path="/Assets/__tiger.svg"
+                   Height="240"
+                   Stretch="Uniform"
+                   EnableCache="True" />
+        </StackPanel>
+      </Border>
+
+      <Border Padding="16" BorderThickness="1" CornerRadius="12">
+        <StackPanel Spacing="12">
+          <TextBlock Text="Inline SVG via Source" FontSize="18" FontWeight="SemiBold" />
+          <svg:Svg Source="{x:Bind InlineSvg}"
+                   Height="140"
+                   Stretch="Uniform" />
+        </StackPanel>
+      </Border>
+
+      <Border Padding="16" BorderThickness="1" CornerRadius="12">
+        <StackPanel Spacing="12">
+          <TextBlock Text="Reusable SvgSource Resource" FontSize="18" FontWeight="SemiBold" />
+          <svg:Svg SvgSource="{StaticResource TigerSource}"
+                   Height="200"
+                   Stretch="UniformToFill" />
+        </StackPanel>
+      </Border>
+
+      <Border Padding="16" BorderThickness="1" CornerRadius="12">
+        <StackPanel Spacing="12">
+          <TextBlock Text="Runtime CSS Restyling" FontSize="18" FontWeight="SemiBold" />
+          <svg:Svg x:Name="StyledSvg"
+                   Source="{x:Bind StyledSvgMarkup}"
+                   Height="180"
+                   Stretch="Uniform" />
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <Button Content="Swap Theme" Click="OnSwapThemeClick" />
+            <TextBlock x:Name="CssStatusText"
+                       VerticalAlignment="Center"
+                       Text="Current theme: cobalt" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <Border Padding="16" BorderThickness="1" CornerRadius="12">
+        <StackPanel Spacing="12">
+          <TextBlock Text="Zoom, Pan, and Hit Testing" FontSize="18" FontWeight="SemiBold" />
+          <svg:Svg x:Name="InteractiveSvg"
+                   Path="/Assets/__AJ_Digital_Camera.svg"
+                   Height="260"
+                   Stretch="Uniform"
+                   PointerPressed="OnInteractiveSvgPointerPressed" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Zoom In" Click="OnZoomInClick" />
+            <Button Content="Zoom Out" Click="OnZoomOutClick" />
+            <Button Content="Pan Left" Click="OnPanLeftClick" />
+            <Button Content="Pan Right" Click="OnPanRightClick" />
+            <Button Content="Pan Up" Click="OnPanUpClick" />
+            <Button Content="Pan Down" Click="OnPanDownClick" />
+            <Button Content="Reset View" Click="OnResetViewClick" />
+          </StackPanel>
+          <TextBlock x:Name="HitTestStatusText"
+                     Text="Tap the camera SVG to inspect hit-tested elements."
+                     TextWrapping="WrapWholeWords" />
+        </StackPanel>
+      </Border>
+
+      <Border Padding="16" BorderThickness="1" CornerRadius="12">
+        <StackPanel Spacing="12">
+          <TextBlock Text="Wireframe and Filter Toggle" FontSize="18" FontWeight="SemiBold" />
+          <svg:Svg x:Name="FilterSvg"
+                   Source="{x:Bind FilterSvgMarkup}"
+                   Height="180"
+                   Stretch="Uniform" />
+          <StackPanel Orientation="Horizontal" Spacing="18">
+            <CheckBox Content="Wireframe"
+                      Checked="OnWireframeChanged"
+                      Unchecked="OnWireframeChanged" />
+            <CheckBox Content="Disable Filters"
+                      Checked="OnDisableFiltersChanged"
+                      Unchecked="OnDisableFiltersChanged" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</Page>

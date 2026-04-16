@@ -7,9 +7,14 @@ namespace AvalonDraw;
 
 public partial class PreviewWindow : Window
 {
-    public PreviewWindow(SvgDocument doc)
+    public PreviewWindow()
     {
         InitializeComponent();
+    }
+
+    public PreviewWindow(SvgDocument doc)
+        : this()
+    {
         if (PreviewSvg?.SkSvg != null)
         {
             PreviewSvg.SkSvg.FromSvgDocument(doc);

@@ -6,13 +6,15 @@
   <Import Project="$(MSBuildThisFileDirectory)../iPlus/build/Avalonia.Build.props" />
   <!-- End iPlus settings and overrides -->
   <PropertyGroup>
-    <VersionPrefix>3.2.1</VersionPrefix>
+    <VersionPrefix>4.2.0</VersionPrefix>
     <VersionSuffix></VersionSuffix>
-    <AvaloniaVersionPrefix>11.3.6.2</AvaloniaVersionPrefix>
+    <AvaloniaVersionPrefix>12.0.0.2</AvaloniaVersionPrefix>
     <AvaloniaVersionSuffix>$(VersionSuffix)</AvaloniaVersionSuffix>
+    <UnoVersionPrefix>6.5.31.3</UnoVersionPrefix>
+    <UnoVersionSuffix>$(VersionSuffix)</UnoVersionSuffix>
     <Authors>Wiesław Šoltés</Authors>
     <Company>Wiesław Šoltés</Company>
-    <Copyright>Copyright © Wiesław Šoltés 2025</Copyright>
+    <Copyright>Copyright © Wiesław Šoltés 2026</Copyright>
     <PackageProjectUrl>https://github.com/wieslawsoltes/Svg.Skia</PackageProjectUrl>
     <PackageIconUrl>https://raw.githubusercontent.com/wieslawsoltes/Svg.Skia/master/icon/SvgToPng.png</PackageIconUrl>
   </PropertyGroup>

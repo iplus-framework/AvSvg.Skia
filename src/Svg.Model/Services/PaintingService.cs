@@ -4,8 +4,6 @@ using System;
 using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg.DataTypes;
-using Svg.Model.Drawables;
-using Svg.Model.Drawables.Factories;
 
 namespace Svg.Model.Services;
 
@@ -88,18 +86,6 @@ internal static class PaintingService
         return default;
     }
 
-    private static List<SvgPatternServer> GetLinkedPatternServer(SvgPatternServer svgPatternServer, SvgVisualElement svgVisualElement)
-    {
-        var svgPatternServers = new List<SvgPatternServer>();
-        var currentPatternServer = svgPatternServer;
-        do
-        {
-            svgPatternServers.Add(currentPatternServer);
-            currentPatternServer = SvgDeferredPaintServer.TryGet<SvgPatternServer>(currentPatternServer.InheritGradient, svgVisualElement);
-        } while (currentPatternServer is { } && currentPatternServer != svgPatternServer);
-        return svgPatternServers;
-    }
-
     private static List<SvgGradientServer> GetLinkedGradientServer(SvgGradientServer svgGradientServer, SvgVisualElement svgVisualElement)
     {
         var svgGradientServers = new List<SvgGradientServer>();
@@ -129,7 +115,11 @@ internal static class PaintingService
                 var server = svgGradientStop.StopColor;
                 if (server is SvgDeferredPaintServer svgDeferredPaintServer)
                 {
-                    server = SvgDeferredPaintServer.TryGet<SvgPaintServer>(svgDeferredPaintServer, svgVisualElement);
+                    // Gradient stop paint servers resolve in the gradient definition context, not
+                    // on the consuming element. This matters for currentColor/inherit cases like
+                    // W3C pservers-grad-18-b where the gradient is defined under one color scope
+                    // and referenced from another.
+                    server = SvgDeferredPaintServer.TryGet<SvgPaintServer>(svgDeferredPaintServer, svgGradientStop);
                     if (server is null)
                     {
                         // TODO: server is sometimes null with currentColor
@@ -614,410 +604,6 @@ internal static class PaintingService
         }
     }
 
-    internal static SKPicture RecordPicture(SvgElementCollection svgElementCollection, float width, float height, SKMatrix skMatrix, float opacity, ISvgAssetLoader assetLoader, HashSet<Uri>? references, DrawAttributes ignoreAttributes)
-    {
-        var skSize = new SKSize(width, height);
-        var skBounds = SKRect.Create(skSize);
-        var skPictureRecorder = new SKPictureRecorder();
-        var skCanvas = skPictureRecorder.BeginRecording(skBounds);
-
-        skCanvas.SetMatrix(skMatrix);
-
-        var skPaintOpacity = ignoreAttributes.HasFlag(DrawAttributes.Opacity) ? null : GetOpacityPaint(opacity);
-        if (skPaintOpacity is { })
-        {
-            skCanvas.SaveLayer(skPaintOpacity);
-        }
-
-        var drawables = new List<DrawableBase>();
-
-        foreach (var svgElement in svgElementCollection)
-        {
-            var drawable = DrawableFactory.Create(svgElement, skBounds, null, assetLoader, references, ignoreAttributes);
-            if (drawable is { })
-            {
-                drawables.Add(drawable);
-            }
-        }
-
-        foreach (var drawable in drawables)
-        {
-            drawable.PostProcess(skBounds, skMatrix);
-        }
-
-        foreach (var drawable in drawables)
-        {
-            drawable.Draw(skCanvas, ignoreAttributes, null, true);
-        }
-
-        if (skPaintOpacity is { })
-        {
-            skCanvas.Restore();
-        }
-
-        skCanvas.Restore();
-
-        return skPictureRecorder.EndRecording();
-    }
-
-    internal static SKShader? CreatePicture(SvgPatternServer svgPatternServer, SKRect skBounds, SvgVisualElement svgVisualElement, float opacity, ISvgAssetLoader assetLoader, HashSet<Uri>? references, DrawAttributes ignoreAttributes)
-    {
-        var svgReferencedPatternServers = GetLinkedPatternServer(svgPatternServer, svgVisualElement);
-
-        SvgPatternServer? firstChildren = default;
-        SvgPatternServer? firstX = default;
-        SvgPatternServer? firstY = default;
-        SvgPatternServer? firstWidth = default;
-        SvgPatternServer? firstHeight = default;
-        SvgPatternServer? firstPatternUnit = default;
-        SvgPatternServer? firstPatternContentUnit = default;
-        SvgPatternServer? firstViewBox = default;
-        SvgPatternServer? firstAspectRatio = default;
-
-        foreach (var p in svgReferencedPatternServers)
-        {
-            if (firstChildren is null && p.Children.Count > 0)
-            {
-                firstChildren = p;
-            }
-
-            if (firstX is null)
-            {
-                var pX = p.X;
-                if (pX != SvgUnit.None)
-                {
-                    firstX = p;
-                }
-            }
-            if (firstY is null)
-            {
-                var pY = p.Y;
-                if (pY != SvgUnit.None)
-                {
-                    firstY = p;
-                }
-            }
-            if (firstWidth is null)
-            {
-                var pWidth = p.Width;
-                if (pWidth != SvgUnit.None)
-                {
-                    firstWidth = p;
-                }
-            }
-            if (firstHeight is null)
-            {
-                var pHeight = p.Height;
-                if (pHeight != SvgUnit.None)
-                {
-                    firstHeight = p;
-                }
-            }
-            if (firstPatternUnit is null)
-            {
-                if (SvgService.TryGetAttribute(p, "patternUnits", out _))
-                {
-                    firstPatternUnit = p;
-                }
-            }
-            if (firstPatternContentUnit is null)
-            {
-                if (SvgService.TryGetAttribute(p, "patternContentUnits", out _))
-                {
-                    firstPatternContentUnit = p;
-                }
-            }
-            if (firstViewBox is null)
-            {
-                var pViewBox = p.ViewBox;
-                if (pViewBox != SvgViewBox.Empty)
-                {
-                    firstViewBox = p;
-                }
-            }
-            if (firstAspectRatio is null)
-            {
-                var pAspectRatio = p.AspectRatio;
-                // TODO: We don't reference Defer elsewhere. Probably something to be implemented.
-                if (pAspectRatio.Align != SvgPreserveAspectRatio.xMidYMid || pAspectRatio.Slice || pAspectRatio.Defer)
-                {
-                    firstAspectRatio = p;
-                }
-            }
-        }
-
-        if (firstChildren is null || firstWidth is null || firstHeight is null)
-        {
-            return default;
-        }
-
-        var xUnit = firstX?.X ?? new SvgUnit(0f);
-        var yUnit = firstY?.Y ?? new SvgUnit(0f);
-        var widthUnit = firstWidth.Width;
-        var heightUnit = firstHeight.Height;
-        var patternUnits = firstPatternUnit?.PatternUnits ?? SvgCoordinateUnits.ObjectBoundingBox;
-        var patternContentUnits = firstPatternContentUnit?.PatternContentUnits ?? SvgCoordinateUnits.UserSpaceOnUse;
-        var viewBox = firstViewBox?.ViewBox ?? SvgViewBox.Empty;
-        var aspectRatio = firstAspectRatio is null ? new SvgAspectRatio(SvgPreserveAspectRatio.xMidYMid, false) : firstAspectRatio.AspectRatio;
-
-        // TODO: Pass correct skViewport
-        var skRectTransformed = TransformsService.CalculateRect(xUnit, yUnit, widthUnit, heightUnit, patternUnits, skBounds, skBounds, svgPatternServer);
-        if (skRectTransformed is null)
-        {
-            return default;
-        }
-
-        var skMatrix = SKMatrix.CreateIdentity();
-
-        var skPatternTransformMatrix = TransformsService.ToMatrix(svgPatternServer.PatternTransform);
-        skMatrix = skMatrix.PreConcat(skPatternTransformMatrix);
-
-        var translateTransform = SKMatrix.CreateTranslation(skRectTransformed.Value.Left, skRectTransformed.Value.Top);
-        skMatrix = skMatrix.PreConcat(translateTransform);
-
-        var skPictureTransform = SKMatrix.CreateIdentity();
-        if (!viewBox.Equals(SvgViewBox.Empty))
-        {
-            var viewBoxTransform = TransformsService.ToMatrix(
-                viewBox,
-                aspectRatio,
-                0f,
-                0f,
-                skRectTransformed.Value.Width,
-                skRectTransformed.Value.Height);
-            skPictureTransform = skPictureTransform.PreConcat(viewBoxTransform);
-        }
-        else
-        {
-            if (patternContentUnits == SvgCoordinateUnits.ObjectBoundingBox)
-            {
-                var skBoundsScaleTransform = SKMatrix.CreateScale(skBounds.Width, skBounds.Height);
-                skPictureTransform = skPictureTransform.PreConcat(skBoundsScaleTransform);
-            }
-        }
-
-        var skPicture = RecordPicture(firstChildren.Children, skRectTransformed.Value.Width, skRectTransformed.Value.Height, skPictureTransform, opacity, assetLoader, references, ignoreAttributes);
-
-        return SKShader.CreatePicture(skPicture, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat, skMatrix, skPicture.CullRect);
-    }
-
-    internal static bool SetColorOrShader(SvgVisualElement svgVisualElement, SvgPaintServer server, float opacity, SKRect skBounds, SKPaint skPaint, bool forStroke, ISvgAssetLoader assetLoader, HashSet<Uri>? references, DrawAttributes ignoreAttributes)
-    {
-        var fallbackServer = SvgPaintServer.None;
-        if (server is SvgDeferredPaintServer deferredServer)
-        {
-            server = SvgDeferredPaintServer.TryGet<SvgPaintServer>(deferredServer, svgVisualElement);
-            fallbackServer = deferredServer.FallbackServer;
-            if (server is null)
-            {
-                server = fallbackServer;
-                if (server is null)
-                {
-                    server = SvgPaintServer.NotSet;
-                    fallbackServer = null;
-                }
-            }
-        }
-
-        if (server == SvgPaintServer.None)
-        {
-            return false;
-        }
-
-        switch (server)
-        {
-            case SvgColourServer svgColourServer:
-                {
-                    var skColor = GetColor(svgColourServer, opacity, ignoreAttributes);
-                    var colorInterpolation = GetColorInterpolation(svgVisualElement);
-                    var isLinearRgb = colorInterpolation == SvgColourInterpolation.LinearRGB;
-
-                    if (colorInterpolation == SvgColourInterpolation.SRGB)
-                    {
-                        skPaint.Color = skColor;
-                        skPaint.Shader = null;
-                        return true;
-                    }
-
-                    var skColorSpace = isLinearRgb ? SKColorSpace.SrgbLinear : SKColorSpace.Srgb;
-                    if (isLinearRgb)
-                    {
-                        skColor = ToLinear(skColor);
-                    }
-                    var skColorShader = SKShader.CreateColor(skColor, skColorSpace);
-                    if (skColorShader is { })
-                    {
-                        skPaint.Shader = skColorShader;
-                        return true;
-                    }
-                }
-                break;
-
-            case SvgPatternServer svgPatternServer:
-                {
-                    var colorInterpolation = GetColorInterpolation(svgVisualElement);
-                    var isLinearRgb = colorInterpolation == SvgColourInterpolation.LinearRGB;
-                    var skColorSpace = isLinearRgb ? SKColorSpace.SrgbLinear : SKColorSpace.Srgb;
-                    // TODO: Use skColorSpace in CreatePicture
-                    var skPatternShader = CreatePicture(svgPatternServer, skBounds, svgVisualElement, opacity, assetLoader, references, ignoreAttributes);
-                    if (skPatternShader is { })
-                    {
-                        skPaint.Shader = skPatternShader;
-                        return true;
-                    }
-                    else
-                    {
-                        if (fallbackServer is SvgColourServer svgColourServerFallback)
-                        {
-                            var skColor = GetColor(svgColourServerFallback, opacity, ignoreAttributes);
-
-                            if (skColorSpace == SKColorSpace.Srgb)
-                            {
-                                skPaint.Color = skColor;
-                                skPaint.Shader = null;
-                                return true;
-                            }
-                            if (skColorSpace == SKColorSpace.SrgbLinear)
-                            {
-                                skColor = ToLinear(skColor);
-                            }
-                            var skColorShader = SKShader.CreateColor(skColor, skColorSpace);
-                            if (skColorShader is { })
-                            {
-                                skPaint.Shader = skColorShader;
-                                return true;
-                            }
-                        }
-                        else
-                        {
-                            // Do not draw element.
-                            return false;
-                        }
-                    }
-                }
-                break;
-
-            case SvgLinearGradientServer svgLinearGradientServer:
-                {
-                    var colorInterpolation = GetColorInterpolation(svgLinearGradientServer);
-                    var isLinearRgb = colorInterpolation == SvgColourInterpolation.LinearRGB;
-                    var skColorSpace = isLinearRgb ? SKColorSpace.SrgbLinear : SKColorSpace.Srgb;
-
-                    if (svgLinearGradientServer.GradientUnits == SvgCoordinateUnits.ObjectBoundingBox && (skBounds.Width == 0f || skBounds.Height == 0f))
-                    {
-                        if (fallbackServer is SvgColourServer svgColourServerFallback)
-                        {
-                            var skColor = GetColor(svgColourServerFallback, opacity, ignoreAttributes);
-
-                            if (skColorSpace == SKColorSpace.Srgb)
-                            {
-                                skPaint.Color = skColor;
-                                skPaint.Shader = null;
-                                return true;
-                            }
-
-                            var skColorShader = SKShader.CreateColor(skColor, skColorSpace);
-                            if (skColorShader is { })
-                            {
-                                skPaint.Shader = skColorShader;
-                                return true;
-                            }
-                        }
-                        else
-                        {
-                            // Do not draw element.
-                            return false;
-                        }
-                    }
-                    else
-                    {
-                        var skLinearGradientShader = CreateLinearGradient(svgLinearGradientServer, skBounds, svgVisualElement, opacity, ignoreAttributes, skColorSpace);
-                        if (skLinearGradientShader is { })
-                        {
-                            skPaint.Shader = skLinearGradientShader;
-                            return true;
-                        }
-                        else
-                        {
-                            // Do not draw element.
-                            return false;
-                        }
-                    }
-                }
-                break;
-
-            case SvgRadialGradientServer svgRadialGradientServer:
-                {
-                    var colorInterpolation = GetColorInterpolation(svgRadialGradientServer);
-                    var isLinearRgb = colorInterpolation == SvgColourInterpolation.LinearRGB;
-                    var skColorSpace = isLinearRgb ? SKColorSpace.SrgbLinear : SKColorSpace.Srgb;
-
-                    if (svgRadialGradientServer.GradientUnits == SvgCoordinateUnits.ObjectBoundingBox && (skBounds.Width == 0f || skBounds.Height == 0f))
-                    {
-                        if (fallbackServer is SvgColourServer svgColourServerFallback)
-                        {
-                            var skColor = GetColor(svgColourServerFallback, opacity, ignoreAttributes);
-
-                            if (skColorSpace == SKColorSpace.Srgb)
-                            {
-                                skPaint.Color = skColor;
-                                skPaint.Shader = null;
-                                return true;
-                            }
-                            if (skColorSpace == SKColorSpace.SrgbLinear)
-                            {
-                                skColor = ToLinear(skColor);
-                            }
-
-                            var skColorShader = SKShader.CreateColor(skColor, skColorSpace);
-                            if (skColorShader is { })
-                            {
-                                skPaint.Shader = skColorShader;
-                                return true;
-                            }
-                        }
-                        else
-                        {
-                            // Do not draw element.
-                            return false;
-                        }
-                    }
-                    else
-                    {
-                        var skRadialGradientShader = CreateTwoPointConicalGradient(svgRadialGradientServer, skBounds, svgVisualElement, opacity, ignoreAttributes, skColorSpace);
-                        if (skRadialGradientShader is { })
-                        {
-                            skPaint.Shader = skRadialGradientShader;
-                            return true;
-                        }
-                        else
-                        {
-                            // Do not draw element.
-                            return false;
-                        }
-                    }
-                }
-                break;
-
-            case SvgDeferredPaintServer svgDeferredPaintServer:
-                return SetColorOrShader(svgVisualElement, svgDeferredPaintServer, opacity, skBounds, skPaint, forStroke, assetLoader, references, ignoreAttributes);
-
-            default:
-                // Do not draw element.
-                return false;
-        }
-        return true;
-    }
-
-    internal static void SetDash(SvgVisualElement svgVisualElement, SKPaint skPaint, SKRect skBounds)
-    {
-        var skPathEffect = CreateDash(svgVisualElement, skBounds);
-        if (skPathEffect is { })
-        {
-            skPaint.PathEffect = skPathEffect;
-        }
-    }
-
     internal static bool IsAntialias(SvgElement svgElement)
     {
         return svgElement.ShapeRendering switch
@@ -1047,82 +633,6 @@ internal static class PaintingService
             && strokeWidth.ToDeviceValue(UnitRenderingType.Other, svgElement, skBounds) > 0f;
     }
 
-    internal static SKPaint? GetFillPaint(SvgVisualElement svgVisualElement, SKRect skBounds, ISvgAssetLoader assetLoader, HashSet<Uri>? references, DrawAttributes ignoreAttributes)
-    {
-        var skPaint = new SKPaint
-        {
-            IsAntialias = IsAntialias(svgVisualElement),
-            Style = SKPaintStyle.Fill
-        };
-
-        var server = svgVisualElement.Fill;
-        var opacity = AdjustSvgOpacity(svgVisualElement.FillOpacity);
-        if (SetColorOrShader(svgVisualElement, server, opacity, skBounds, skPaint, forStroke: false, assetLoader: assetLoader, references, ignoreAttributes: ignoreAttributes) == false)
-        {
-            return default;
-        }
-
-        return skPaint;
-    }
-
-    internal static SKPaint? GetStrokePaint(SvgVisualElement svgVisualElement, SKRect skBounds, ISvgAssetLoader assetLoader, HashSet<Uri>? references, DrawAttributes ignoreAttributes)
-    {
-        var skPaint = new SKPaint
-        {
-            IsAntialias = IsAntialias(svgVisualElement),
-            Style = SKPaintStyle.Stroke
-        };
-
-        var server = svgVisualElement.Stroke;
-        var opacity = AdjustSvgOpacity(svgVisualElement.StrokeOpacity);
-        if (SetColorOrShader(svgVisualElement, server, opacity, skBounds, skPaint, forStroke: true, assetLoader: assetLoader, references, ignoreAttributes: ignoreAttributes) == false)
-        {
-            return default;
-        }
-
-        switch (svgVisualElement.StrokeLineCap)
-        {
-            case SvgStrokeLineCap.Butt:
-                skPaint.StrokeCap = SKStrokeCap.Butt;
-                break;
-
-            case SvgStrokeLineCap.Round:
-                skPaint.StrokeCap = SKStrokeCap.Round;
-                break;
-
-            case SvgStrokeLineCap.Square:
-                skPaint.StrokeCap = SKStrokeCap.Square;
-                break;
-        }
-
-        switch (svgVisualElement.StrokeLineJoin)
-        {
-            case SvgStrokeLineJoin.Miter:
-                skPaint.StrokeJoin = SKStrokeJoin.Miter;
-                break;
-
-            case SvgStrokeLineJoin.Round:
-                skPaint.StrokeJoin = SKStrokeJoin.Round;
-                break;
-
-            case SvgStrokeLineJoin.Bevel:
-                skPaint.StrokeJoin = SKStrokeJoin.Bevel;
-                break;
-        }
-
-        skPaint.StrokeMiter = svgVisualElement.StrokeMiterLimit;
-
-        skPaint.StrokeWidth = svgVisualElement.StrokeWidth.ToDeviceValue(UnitRenderingType.Other, svgVisualElement, skBounds);
-
-        var strokeDashArray = svgVisualElement.StrokeDashArray;
-        if (strokeDashArray is { })
-        {
-            SetDash(svgVisualElement, skPaint, skBounds);
-        }
-
-        return skPaint;
-    }
-
     internal static SKPaint? GetOpacityPaint(float opacity)
     {
         if (opacity < 1f)
@@ -1133,17 +643,6 @@ internal static class PaintingService
                 Color = new SKColor(255, 255, 255, (byte)Math.Round(opacity * 255)),
                 Style = SKPaintStyle.StrokeAndFill
             };
-        }
-        return default;
-    }
-
-    internal static SKPaint? GetOpacityPaint(SvgElement svgElement)
-    {
-        var opacity = AdjustSvgOpacity(svgElement.Opacity);
-        var skPaint = GetOpacityPaint(opacity);
-        if (skPaint is { })
-        {
-            return skPaint;
         }
         return default;
     }
@@ -1208,6 +707,70 @@ internal static class PaintingService
         return fontWeight;
     }
 
+    internal static SvgFontWeight ResolveFontWeight(SvgElement svgElement, SvgFontWeight requestedWeight)
+    {
+        if (requestedWeight == SvgFontWeight.Inherit)
+        {
+            return GetComputedFontWeight(svgElement.Parent);
+        }
+
+        if (requestedWeight == SvgFontWeight.Bolder)
+        {
+            return NormalizeRelativeFontWeight(GetComputedFontWeight(svgElement.Parent)) switch
+            {
+                SvgFontWeight.W100 => SvgFontWeight.Normal,
+                SvgFontWeight.W200 => SvgFontWeight.Normal,
+                SvgFontWeight.W300 => SvgFontWeight.Normal,
+                SvgFontWeight.W400 => SvgFontWeight.Bold,
+                SvgFontWeight.W500 => SvgFontWeight.Bold,
+                SvgFontWeight.W600 => SvgFontWeight.W900,
+                SvgFontWeight.W700 => SvgFontWeight.W900,
+                SvgFontWeight.W800 => SvgFontWeight.W900,
+                SvgFontWeight.W900 => SvgFontWeight.W900,
+                _ => SvgFontWeight.Bold
+            };
+        }
+
+        if (requestedWeight == SvgFontWeight.Lighter)
+        {
+            return NormalizeRelativeFontWeight(GetComputedFontWeight(svgElement.Parent)) switch
+            {
+                SvgFontWeight.W100 => SvgFontWeight.W100,
+                SvgFontWeight.W200 => SvgFontWeight.W100,
+                SvgFontWeight.W300 => SvgFontWeight.W100,
+                SvgFontWeight.W400 => SvgFontWeight.W100,
+                SvgFontWeight.W500 => SvgFontWeight.W100,
+                SvgFontWeight.W600 => SvgFontWeight.Normal,
+                SvgFontWeight.W700 => SvgFontWeight.Normal,
+                SvgFontWeight.W800 => SvgFontWeight.Bold,
+                SvgFontWeight.W900 => SvgFontWeight.Bold,
+                _ => SvgFontWeight.Normal
+            };
+        }
+
+        return requestedWeight;
+    }
+
+    private static SvgFontWeight GetComputedFontWeight(SvgElement? svgElement)
+    {
+        if (svgElement is null)
+        {
+            return SvgFontWeight.Normal;
+        }
+
+        return NormalizeRelativeFontWeight(ResolveFontWeight(svgElement, svgElement.FontWeight));
+    }
+
+    private static SvgFontWeight NormalizeRelativeFontWeight(SvgFontWeight fontWeight)
+    {
+        return fontWeight switch
+        {
+            SvgFontWeight.Normal => SvgFontWeight.W400,
+            SvgFontWeight.Bold => SvgFontWeight.W700,
+            _ => fontWeight
+        };
+    }
+
     internal static SKFontStyleWidth ToFontStyleWidth(SvgFontStretch svgFontStretch)
     {
         var fontWidth = SKFontStyleWidth.Normal;
@@ -1266,13 +829,65 @@ internal static class PaintingService
         return fontWidth;
     }
 
-    internal static SKTextAlign ToTextAlign(SvgTextAnchor textAnchor)
+    internal static bool IsRightToLeft(SvgTextBase svgText)
+    {
+        for (SvgElement? current = svgText; current is not null; current = current.Parent)
+        {
+            if (current.TryGetAttribute("direction", out var direction) &&
+                !string.IsNullOrWhiteSpace(direction))
+            {
+                return direction.Equals("rtl", StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (current is SvgTextSpan &&
+                current.TryGetAttribute("writing-mode", out _))
+            {
+                continue;
+            }
+
+            if (current.TryGetAttribute("writing-mode", out var writingMode) &&
+                !string.IsNullOrWhiteSpace(writingMode))
+            {
+                var normalized = writingMode.Trim().ToLowerInvariant();
+                if (normalized is "rl" or "rl-tb")
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    internal static bool IsVerticalWritingMode(SvgTextBase svgText)
+    {
+        for (SvgElement? current = svgText; current is not null; current = current.Parent)
+        {
+            if (current is SvgTextSpan &&
+                current.TryGetAttribute("writing-mode", out _))
+            {
+                continue;
+            }
+
+            if (!current.TryGetAttribute("writing-mode", out var writingMode) ||
+                string.IsNullOrWhiteSpace(writingMode))
+            {
+                continue;
+            }
+
+            return writingMode.Trim().ToLowerInvariant() is "tb" or "tb-rl" or "vertical-rl" or "vertical-lr";
+        }
+
+        return false;
+    }
+
+    internal static SKTextAlign ToTextAlign(SvgTextAnchor textAnchor, bool isRightToLeft)
     {
         return textAnchor switch
         {
             SvgTextAnchor.Middle => SKTextAlign.Center,
-            SvgTextAnchor.End => SKTextAlign.Right,
-            _ => SKTextAlign.Left,
+            SvgTextAnchor.End => isRightToLeft ? SKTextAlign.Left : SKTextAlign.Right,
+            _ => isRightToLeft ? SKTextAlign.Right : SKTextAlign.Left,
         };
     }
 
@@ -1289,7 +904,7 @@ internal static class PaintingService
     private static void SetTypeface(SvgTextBase svgText, SKPaint skPaint)
     {
         var fontFamily = svgText.FontFamily;
-        var fontWeight = ToFontStyleWeight(svgText.FontWeight);
+        var fontWeight = ToFontStyleWeight(ResolveFontWeight(svgText, svgText.FontWeight));
         var fontWidth = ToFontStyleWidth(svgText.FontStretch);
         var fontStyle = ToFontStyleSlant(svgText.FontStyle);
         skPaint.Typeface = SKTypeface.FromFamilyName(fontFamily, fontWeight, fontWidth, fontStyle);
@@ -1301,7 +916,8 @@ internal static class PaintingService
         skPaint.SubpixelText = true;
         skPaint.TextEncoding = SKTextEncoding.Utf16;
 
-        skPaint.TextAlign = ToTextAlign(svgText.TextAnchor);
+        var isVertical = IsVerticalWritingMode(svgText);
+        skPaint.TextAlign = ToTextAlign(svgText.TextAnchor, isVertical ? false : IsRightToLeft(svgText));
 
         if (svgText.TextDecoration.HasFlag(SvgTextDecoration.Underline))
         {

@@ -1,13 +1,13 @@
-﻿using System;
-using System.IO;
+﻿using System.IO;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Svg.Skia;
-using SS = Svg.Skia;
+using ShimSkiaSharp;
 
 namespace AvaloniaSvgSkiaSample;
 
@@ -16,9 +16,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-#if DEBUG
-        this.AttachDevTools();
-#endif
         svgSvgDockPanel.AddHandler(DragDrop.DropEvent, Drop);
         svgSvgDockPanel.AddHandler(DragDrop.DragOverEvent, DragOver);
 
@@ -37,6 +34,8 @@ public partial class MainWindow : Window
                <circle cx="50" cy="50" r="40" stroke="green" stroke-width="4" fill="yellow" />
             </svg>
             """;
+
+        InitializeModelSample();
     }
 
     public void SvgSvgStretchChanged(object sender, SelectionChangedEventArgs e)
@@ -88,7 +87,7 @@ public partial class MainWindow : Window
     {
         e.DragEffects = e.DragEffects & (DragDropEffects.Copy | DragDropEffects.Link);
 
-        if (!e.Data.Contains(DataFormats.Files))
+        if (e.DataTransfer.TryGetFiles() is not { Length: > 0 })
         {
             e.DragEffects = DragDropEffects.None;
         }
@@ -96,54 +95,101 @@ public partial class MainWindow : Window
 
     private void Drop(object sender, DragEventArgs e)
     {
-        if (e.Data.Contains(DataFormats.Files))
+        var fileName = e.DataTransfer.TryGetFiles()?
+            .Select(file => file.TryGetLocalPath())
+            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
+
+        if (!string.IsNullOrWhiteSpace(fileName))
         {
-            var fileName = e.Data.GetFileNames()?.FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(fileName))
+            if (sender == svgSvgDockPanel)
             {
-                if (sender == svgSvgDockPanel)
+                svgSvg.Path = fileName;
+            }
+            else if (sender == svgExtensionDockPanel)
+            {
+                var svg = SvgSource.Load(fileName);
+                if (svg is { })
                 {
-                    svgSvg.Path = fileName;
-                }
-                else if (sender == svgExtensionDockPanel)
-                {
-                    var svg = SvgSource.Load(fileName);
-                    if (svg is { })
+                    svgExtensionImage.Source = new SvgImage
                     {
-                        svgExtensionImage.Source = new SvgImage
-                        {
-                            Source = svg
-                        };
-                    }
-                }
-                else if (sender == svgSourceDockPanel)
-                {
-                    var svg = SvgSource.Load(fileName);
-                    if (svg is { })
-                    {
-                        svgSourceImage.Source = new SvgImage
-                        {
-                            Source = svg
-                        };
-                    }
-                }
-                else if (sender == svgResourceDockPanel)
-                {
-                    var svg = SvgSource.Load(fileName);
-                    if (svg is { })
-                    {
-                        svgResourceImage.Source = new SvgImage
-                        {
-                            Source = svg
-                        };
-                    }
-                }
-                else if (sender == stringTextBox || sender == svgString)
-                {
-                    var source = File.ReadAllText(fileName);
-                    stringTextBox.Text = source;
+                        Source = svg
+                    };
                 }
             }
+            else if (sender == svgSourceDockPanel)
+            {
+                var svg = SvgSource.Load(fileName);
+                if (svg is { })
+                {
+                    svgSourceImage.Source = new SvgImage
+                    {
+                        Source = svg
+                    };
+                }
+            }
+            else if (sender == svgResourceDockPanel)
+            {
+                var svg = SvgSource.Load(fileName);
+                if (svg is { })
+                {
+                    svgResourceImage.Source = new SvgImage
+                    {
+                        Source = svg
+                    };
+                }
+            }
+            else if (sender == stringTextBox || sender == svgString)
+            {
+                var source = File.ReadAllText(fileName);
+                stringTextBox.Text = source;
+            }
         }
+    }
+
+    private void InitializeModelSample()
+    {
+        var assemblyName = typeof(MainWindow).Assembly.GetName().Name ?? "AvaloniaSvgSkiaSample";
+        var resourcePath = $"avares://{assemblyName}/Assets/__tiger.svg";
+        var originalSource = SvgSource.Load(resourcePath, null);
+        var originalImage = new SvgImage { Source = originalSource };
+        svgModelOriginal.Source = originalImage;
+
+        var cloneImage = originalImage.Clone();
+        if (cloneImage.Source is { } cloneSource)
+        {
+            ApplyGrayscale(cloneSource);
+        }
+        svgModelModified.Source = cloneImage;
+    }
+
+    private static void ApplyGrayscale(SvgSource source)
+    {
+        var commands = source.Svg?.Model?.Commands;
+        if (commands is null)
+        {
+            return;
+        }
+
+        foreach (var cmd in commands.OfType<DrawPathCanvasCommand>())
+        {
+            var paint = cmd.Paint;
+            if (paint?.Color is { } color)
+            {
+                paint.Color = ToGrayscale(color);
+            }
+
+            if (paint?.Shader is ColorShader shader)
+            {
+                paint.Shader = SKShader.CreateColor(ToGrayscale(shader.Color), shader.ColorSpace);
+            }
+        }
+
+        source.RebuildFromModel();
+    }
+
+    private static SKColor ToGrayscale(SKColor color)
+    {
+        var luminance = (byte)(0.2126f * color.Red + 0.7152f * color.Green + 0.0722f * color.Blue);
+        return new SKColor(luminance, luminance, luminance, color.Alpha);
     }
 }
