@@ -100,8 +100,11 @@
     <Compile Remove="$(SvgRootPath)\Source\Painting\SvgDeferredPaintServer.cs" />
     <Compile Remove="$(SvgRootPath)\Source\Painting\SvgGradientServer.cs" />
     <Compile Remove="$(SvgRootPath)\Source\Painting\SvgGradientStop.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\Painting\SvgPatternServer.cs" />
     <Compile Remove="$(SvgRootPath)\Source\Painting\SvgPaintServerFactory.cs" />
     <Compile Remove="$(SvgRootPath)\Source\Css\ExCssQuery.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\Css\ExSvgElementOps.cs" />
+    <Compile Remove="$(SvgRootPath)\Source\Paths\SvgPathBuilder.cs" />
     <Compile Remove="$(SvgRootPath)\Source\SvgElementFactory.cs" />
   </ItemGroup>
 

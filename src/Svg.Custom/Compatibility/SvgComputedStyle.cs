@@ -1836,7 +1836,7 @@ internal sealed class SvgComputedStyleMetadata
             return false;
         }
 
-        var tokens = normalized.Split([' ', '\t', '\r', '\n', '\f'], StringSplitOptions.RemoveEmptyEntries);
+        var tokens = normalized.Split(new[] { ' ', '\t', '\r', '\n', '\f' }, StringSplitOptions.RemoveEmptyEntries);
         if (tokens.Length == 0 || tokens.Length > 3)
         {
             return false;
@@ -1997,7 +1997,7 @@ internal sealed class SvgComputedStyleMetadata
         whiteSpaceCollapse = WhiteSpaceCollapse.InitialValue!;
         textWrapMode = TextWrapMode.InitialValue!;
         whiteSpaceTrim = WhiteSpaceTrim.InitialValue!;
-        var tokens = normalized.Split([' ', '\t', '\r', '\n', '\f'], StringSplitOptions.RemoveEmptyEntries);
+        var tokens = normalized.Split(new[] { ' ', '\t', '\r', '\n', '\f' }, StringSplitOptions.RemoveEmptyEntries);
         if (tokens.Length is 0 or > 5)
         {
             return false;
@@ -2049,7 +2049,7 @@ internal sealed class SvgComputedStyleMetadata
     private static bool TryParseWhiteSpaceTrim(string value, out SvgWhiteSpaceTrim trim)
     {
         trim = SvgWhiteSpaceTrim.None;
-        var tokens = value.Split([' ', '\t', '\r', '\n', '\f'], StringSplitOptions.RemoveEmptyEntries);
+        var tokens = value.Split(new[] { ' ', '\t', '\r', '\n', '\f' }, StringSplitOptions.RemoveEmptyEntries);
         if (tokens.Length == 0)
         {
             return false;
