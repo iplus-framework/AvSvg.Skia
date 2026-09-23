@@ -80,6 +80,7 @@ public partial class SKSvg
 
     public SkiaSharp.SKPicture? CreateRetainedSceneGraphPicture()
     {
+        using var documentFontScope = PushDocumentFonts(SourceDocument, AssetLoader);
         var model = CreateRetainedSceneGraphModel();
         return model is null ? null : SkiaModel.ToSKPicture(model);
     }
@@ -180,6 +181,69 @@ public partial class SKSvg
             : new SvgSceneMutationResult(false, 0, 0);
     }
 
+    public bool TryApplyRetainedSceneMutationAndRender(
+        SvgElement element,
+        IReadOnlyCollection<string>? changedAttributes,
+        out SvgSceneMutationResult? result)
+    {
+        result = null;
+        if (!TryEnsureRetainedSceneGraph(out var sceneDocument) || sceneDocument is null)
+        {
+            return false;
+        }
+
+        result = sceneDocument.ApplyMutation(element, changedAttributes);
+        if (!result.Succeeded)
+        {
+            return false;
+        }
+
+        DisableAnimationLayerCaching();
+        return RenderRetainedSceneDocument(sceneDocument);
+    }
+
+    public bool TryApplyRetainedSceneMutationAndRender(
+        string addressKey,
+        IReadOnlyCollection<string>? changedAttributes,
+        out SvgSceneMutationResult? result)
+    {
+        result = null;
+        if (!TryEnsureRetainedSceneGraph(out var sceneDocument) || sceneDocument is null)
+        {
+            return false;
+        }
+
+        result = sceneDocument.ApplyMutation(addressKey, changedAttributes);
+        if (!result.Succeeded)
+        {
+            return false;
+        }
+
+        DisableAnimationLayerCaching();
+        return RenderRetainedSceneDocument(sceneDocument);
+    }
+
+    public bool TryApplyRetainedSceneMutationByIdAndRender(
+        string id,
+        IReadOnlyCollection<string>? changedAttributes,
+        out SvgSceneMutationResult? result)
+    {
+        result = null;
+        if (!TryEnsureRetainedSceneGraph(out var sceneDocument) || sceneDocument is null)
+        {
+            return false;
+        }
+
+        result = sceneDocument.ApplyMutationById(id, changedAttributes);
+        if (!result.Succeeded)
+        {
+            return false;
+        }
+
+        DisableAnimationLayerCaching();
+        return RenderRetainedSceneDocument(sceneDocument);
+    }
+
     public SKPicture? CreateRetainedSceneNodeModel(SvgSceneNode node, SKRect? clip = null)
     {
         if (!TryEnsureRetainedSceneGraph(out var sceneDocument) || sceneDocument is null)
@@ -192,6 +256,7 @@ public partial class SKSvg
 
     public SkiaSharp.SKPicture? CreateRetainedSceneNodePicture(SvgSceneNode node, SKRect? clip = null)
     {
+        using var documentFontScope = PushDocumentFonts(SourceDocument, AssetLoader);
         var model = CreateRetainedSceneNodeModel(node, clip);
         return model is null ? null : SkiaModel.ToSKPicture(model);
     }
@@ -210,6 +275,7 @@ public partial class SKSvg
 
     public SkiaSharp.SKPicture? CreateRetainedScenePicture(SvgElement element, SKRect? clip = null)
     {
+        using var documentFontScope = PushDocumentFonts(SourceDocument, AssetLoader);
         var model = CreateRetainedSceneModel(element, clip);
         return model is null ? null : SkiaModel.ToSKPicture(model);
     }

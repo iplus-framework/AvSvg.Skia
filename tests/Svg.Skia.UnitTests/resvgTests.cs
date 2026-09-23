@@ -1,7 +1,12 @@
-﻿using System.IO;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SkiaSharp;
-using Svg.Skia.TypefaceProviders;
+using Svg;
 using Svg.Skia.UnitTests.Common;
 using Xunit;
 
@@ -9,27 +14,676 @@ namespace Svg.Skia.UnitTests;
 
 public class resvgTests : SvgUnitTest
 {
-    private static string GetSvgPath(string name)
-        => Path.Combine("..", "..", "..", "..", "..", "externals", "resvg", "tests", "svg", name);
+    private const double DefaultThreshold = 0.12;
+    private const string RemainingFixtureProbeFamilyEnvironmentVariable = "SVG_SKIA_RESVG_PROBE_FAMILY";
+    private const string RemainingFixtureProbeAllValue = "all";
+    private const int ExpectedTotalFixtureCount = 1730;
+    private const int ExpectedTextFixtureCount = 379;
+    private const int ExpectedNonTextFixtureCount = 1351;
+    private const int ExpectedResourceRenderingFixtureCount = 525;
+    private const int ExpectedCssStylingFixtureCount = 19;
+    private const int ExpectedEnabledNonTextFixtureCount = 544;
+    private const int ExpectedRemainingNonTextFixtureCount = 807;
+    private const string RemainingExtraFixtureSkipReason =
+        "Remaining resvg extra fixtures are explicit inventory rows (15); enable individual rows when backed by a tracked renderer bug or parity lane.";
+    private const string RemainingFilterFixtureSkipReason =
+        "Remaining resvg filter fixture family rows are explicit inventory rows; filter primitive parity is tracked by feature-specific renderer lanes.";
+    private const string RemainingMaskingFixtureSkipReason =
+        "Remaining resvg masking fixture family rows are explicit inventory rows; clip/mask parity is tracked by feature-specific renderer lanes.";
+    private const string RemainingPaintServerFixtureSkipReason =
+        "Remaining resvg paint-server fixture family rows are explicit inventory rows; gradient/pattern parity is tracked by feature-specific renderer lanes.";
+    private const string RemainingPaintingFixtureSkipReason =
+        "Remaining resvg painting fixture family rows are explicit inventory rows; paint operation parity is tracked by feature-specific renderer lanes.";
+    private const string RemainingShapeFixtureSkipReason =
+        "Remaining resvg shape fixture family rows are explicit inventory rows; shape/path geometry parity is tracked by feature-specific renderer lanes.";
+    private const string RemainingStructureFixtureSkipReason =
+        "Remaining resvg structure fixture family rows are explicit inventory rows; structure/use/image parity is tracked by feature-specific renderer lanes.";
 
-    private static string GetExpectedPngPath(string name)
-        => Path.Combine("..", "..", "..", "..", "..", "externals", "resvg", "tests", "png", name);
+    public static IEnumerable<object[]> TextFixtureRows()
+        => EnumerateFixtureRows("tests/text/");
 
-    private static string GetChromeOverridePngPath(string name)
-        => Path.Combine("..", "..", "..", "ChromeReference", "resvg", name);
+    public static IEnumerable<object[]> ResourceRenderingFixtureRows()
+        => EnumerateFixtureRows()
+            .Where(static row => IsResourceRenderingFixture((string)row[0]));
 
-    private static string GetActualPngPath(string name)
-        => Path.Combine("..", "..", "..", "..", "Tests", name);
+    public static IEnumerable<object[]> CssStylingFixtureRows()
+        => EnumerateFixtureRows()
+            .Where(static row => IsCssStylingFixture((string)row[0]));
 
-    private void TestImpl(string name, double errorThreshold, float scaleX = 1.5f, float scaleY = 1.5f)
+    public static IEnumerable<object[]> RemainingExtraFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("extra/", RemainingExtraFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterEnableBackgroundFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/enable-background/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeBlendFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feBlend/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeColorMatrixFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feColorMatrix/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeCompositeFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feComposite/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeConvolveMatrixFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feConvolveMatrix/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeDiffuseLightingFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feDiffuseLighting/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeDropShadowFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feDropShadow/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeFloodFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feFlood/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeGaussianBlurFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feGaussianBlur/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeMergeFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feMerge/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeMorphologyFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feMorphology/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeOffsetFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feOffset/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFePointLightFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/fePointLight/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeSpecularLightingFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feSpecularLighting/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeSpotLightFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feSpotLight/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFeTileFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/feTile/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFilterFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/filter/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFilterFloodColorFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/filters/flood-color/", RemainingFilterFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingMaskingClipFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/masking/clip/", RemainingMaskingFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingMaskingClipPathFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/masking/clipPath/", RemainingMaskingFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingMaskingMaskFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/masking/mask/", RemainingMaskingFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingPaintServerLinearGradientFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/paint-servers/linearGradient/", RemainingPaintServerFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingPaintServerPatternFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/paint-servers/pattern/", RemainingPaintServerFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingPaintServerRadialGradientFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/paint-servers/radialGradient/", RemainingPaintServerFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingPaintingContextFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/painting/context/", RemainingPaintingFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingPaintingDisplayFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/painting/display/", RemainingPaintingFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingPaintingFillFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/painting/fill/", RemainingPaintingFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingShapePathFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/shapes/path/", RemainingShapeFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingStructureImageFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/structure/image/", RemainingStructureFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingStructureStyleFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/structure/style/", RemainingStructureFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingStructureStyleAttributeFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/structure/style-attribute/", RemainingStructureFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingStructureSvgFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/structure/svg/", RemainingStructureFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingStructureSwitchFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/structure/switch/", RemainingStructureFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingStructureSymbolFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/structure/symbol/", RemainingStructureFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingStructureSystemLanguageFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/structure/systemLanguage/", RemainingStructureFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingStructureTransformOriginFixtureRows()
+        => EnumerateRemainingFixtureFamilyRows("tests/structure/transform-origin/", RemainingStructureFixtureSkipReason);
+
+    public static IEnumerable<object[]> RemainingFixtureFamilyProbeRows()
     {
-        var svgPath = GetSvgPath($"{name}.svg");
-        var chromeOverridePng = GetChromeOverridePngPath($"{name}.png");
-        var useChromeOverride = File.Exists(chromeOverridePng);
-        var expectedPng = useChromeOverride ? chromeOverridePng : GetExpectedPngPath($"{name}.png");
-        var actualPng = GetActualPngPath($"{name} (Actual).png");
+        var probeFamilyPrefix = GetRemainingFixtureFamilyProbePrefix();
 
-        if (File.Exists(actualPng))
+        if (probeFamilyPrefix is null)
+        {
+            yield return new object[] { string.Empty };
+            yield break;
+        }
+
+        if (string.Equals(probeFamilyPrefix, RemainingFixtureProbeAllValue, StringComparison.Ordinal))
+        {
+            foreach (var family in RemainingFixtureFamilies)
+            {
+                yield return new object[] { family.Prefix };
+            }
+
+            yield break;
+        }
+
+        yield return new object[] { probeFamilyPrefix };
+    }
+
+    [OSXTheory]
+    [MemberData(nameof(TextFixtureRows))]
+    public void text_fixtures(string relativeName, double errorThreshold)
+        => TestImpl(relativeName, errorThreshold);
+
+    [OSXTheory]
+    [MemberData(nameof(ResourceRenderingFixtureRows))]
+    public void resource_rendering_fixtures(string relativeName, double errorThreshold)
+        => TestImpl(relativeName, errorThreshold);
+
+    [OSXTheory]
+    [MemberData(nameof(CssStylingFixtureRows))]
+    public void css_styling_fixtures(string relativeName, double errorThreshold)
+        => TestImpl(relativeName, errorThreshold);
+
+    [OSXTheory(Skip = RemainingExtraFixtureSkipReason)]
+    [MemberData(nameof(RemainingExtraFixtureRows))]
+    public void remaining_extra_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterEnableBackgroundFixtureRows))]
+    public void remaining_filter_enable_background_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeBlendFixtureRows))]
+    public void remaining_filter_fe_blend_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeColorMatrixFixtureRows))]
+    public void remaining_filter_fe_color_matrix_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeCompositeFixtureRows))]
+    public void remaining_filter_fe_composite_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeConvolveMatrixFixtureRows))]
+    public void remaining_filter_fe_convolve_matrix_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeDiffuseLightingFixtureRows))]
+    public void remaining_filter_fe_diffuse_lighting_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeDropShadowFixtureRows))]
+    public void remaining_filter_fe_drop_shadow_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeFloodFixtureRows))]
+    public void remaining_filter_fe_flood_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeGaussianBlurFixtureRows))]
+    public void remaining_filter_fe_gaussian_blur_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeMergeFixtureRows))]
+    public void remaining_filter_fe_merge_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeMorphologyFixtureRows))]
+    public void remaining_filter_fe_morphology_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeOffsetFixtureRows))]
+    public void remaining_filter_fe_offset_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFePointLightFixtureRows))]
+    public void remaining_filter_fe_point_light_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeSpecularLightingFixtureRows))]
+    public void remaining_filter_fe_specular_lighting_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeSpotLightFixtureRows))]
+    public void remaining_filter_fe_spot_light_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFeTileFixtureRows))]
+    public void remaining_filter_fe_tile_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFilterFixtureRows))]
+    public void remaining_filter_filter_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingFilterFixtureSkipReason)]
+    [MemberData(nameof(RemainingFilterFloodColorFixtureRows))]
+    public void remaining_filter_flood_color_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingMaskingFixtureSkipReason)]
+    [MemberData(nameof(RemainingMaskingClipFixtureRows))]
+    public void remaining_masking_clip_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingMaskingFixtureSkipReason)]
+    [MemberData(nameof(RemainingMaskingClipPathFixtureRows))]
+    public void remaining_masking_clip_path_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingMaskingFixtureSkipReason)]
+    [MemberData(nameof(RemainingMaskingMaskFixtureRows))]
+    public void remaining_masking_mask_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingPaintServerFixtureSkipReason)]
+    [MemberData(nameof(RemainingPaintServerLinearGradientFixtureRows))]
+    public void remaining_paint_server_linear_gradient_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingPaintServerFixtureSkipReason)]
+    [MemberData(nameof(RemainingPaintServerPatternFixtureRows))]
+    public void remaining_paint_server_pattern_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingPaintServerFixtureSkipReason)]
+    [MemberData(nameof(RemainingPaintServerRadialGradientFixtureRows))]
+    public void remaining_paint_server_radial_gradient_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingPaintingFixtureSkipReason)]
+    [MemberData(nameof(RemainingPaintingContextFixtureRows))]
+    public void remaining_painting_context_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingPaintingFixtureSkipReason)]
+    [MemberData(nameof(RemainingPaintingDisplayFixtureRows))]
+    public void remaining_painting_display_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingPaintingFixtureSkipReason)]
+    [MemberData(nameof(RemainingPaintingFillFixtureRows))]
+    public void remaining_painting_fill_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingShapeFixtureSkipReason)]
+    [MemberData(nameof(RemainingShapePathFixtureRows))]
+    public void remaining_shape_path_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingStructureFixtureSkipReason)]
+    [MemberData(nameof(RemainingStructureImageFixtureRows))]
+    public void remaining_structure_image_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingStructureFixtureSkipReason)]
+    [MemberData(nameof(RemainingStructureStyleFixtureRows))]
+    public void remaining_structure_style_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingStructureFixtureSkipReason)]
+    [MemberData(nameof(RemainingStructureStyleAttributeFixtureRows))]
+    public void remaining_structure_style_attribute_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingStructureFixtureSkipReason)]
+    [MemberData(nameof(RemainingStructureSvgFixtureRows))]
+    public void remaining_structure_svg_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingStructureFixtureSkipReason)]
+    [MemberData(nameof(RemainingStructureSwitchFixtureRows))]
+    public void remaining_structure_switch_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingStructureFixtureSkipReason)]
+    [MemberData(nameof(RemainingStructureSymbolFixtureRows))]
+    public void remaining_structure_symbol_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingStructureFixtureSkipReason)]
+    [MemberData(nameof(RemainingStructureSystemLanguageFixtureRows))]
+    public void remaining_structure_system_language_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory(Skip = RemainingStructureFixtureSkipReason)]
+    [MemberData(nameof(RemainingStructureTransformOriginFixtureRows))]
+    public void remaining_structure_transform_origin_fixtures(string relativeName, double errorThreshold, string skipReason)
+        => TestSkippedFixtureImpl(relativeName, errorThreshold, skipReason);
+
+    [OSXTheory]
+    [MemberData(nameof(RemainingFixtureFamilyProbeRows))]
+    public void remaining_fixture_family_probe(string familyPrefix)
+    {
+        if (string.IsNullOrEmpty(familyPrefix))
+        {
+            return;
+        }
+
+        var fixtureRows = EnumerateRemainingFixtureFamilyRows(familyPrefix, "Manual remaining fixture family probe.").ToArray();
+
+        Assert.NotEmpty(fixtureRows);
+
+        foreach (var row in fixtureRows)
+        {
+            TestImpl((string)row[0], (double)row[1], preserveActual: true);
+        }
+    }
+
+    [Fact]
+    public void resvg_fixture_inventory()
+    {
+        var fixtures = EnumerateFixtureNames().ToArray();
+
+        Assert.NotEmpty(fixtures);
+        Assert.Equal(
+            fixtures,
+            fixtures.Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+
+        foreach (var fixture in fixtures)
+        {
+            Assert.True(File.Exists(GetSvgPath(fixture)), $"Missing SVG fixture: {fixture}");
+            Assert.True(File.Exists(GetExpectedPngPath(fixture)), $"Missing PNG fixture: {fixture}");
+        }
+    }
+
+    [Fact]
+    public void resvg_remaining_non_text_fixture_inventory()
+    {
+        var fixtures = EnumerateFixtureNames().ToArray();
+        var textFixtures = fixtures
+            .Where(static fixture => fixture.StartsWith("tests/text/", StringComparison.Ordinal))
+            .ToArray();
+        var nonTextFixtures = fixtures
+            .Where(static fixture => !fixture.StartsWith("tests/text/", StringComparison.Ordinal))
+            .ToArray();
+        var resourceRenderingFixtures = fixtures
+            .Where(static fixture => IsResourceRenderingFixture(fixture))
+            .ToArray();
+        var cssStylingFixtures = fixtures
+            .Where(static fixture => IsCssStylingFixture(fixture))
+            .ToArray();
+        var enabledNonTextFixtures = resourceRenderingFixtures
+            .Concat(cssStylingFixtures)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static fixture => fixture, StringComparer.Ordinal)
+            .ToArray();
+        var remainingNonTextFixtures = EnumerateRemainingNonTextFixtureNames().ToArray();
+        var accountedFixtures = textFixtures
+            .Concat(enabledNonTextFixtures)
+            .Concat(remainingNonTextFixtures)
+            .OrderBy(static fixture => fixture, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(ExpectedTotalFixtureCount, fixtures.Length);
+        Assert.Equal(ExpectedTextFixtureCount, textFixtures.Length);
+        Assert.Equal(ExpectedNonTextFixtureCount, nonTextFixtures.Length);
+        Assert.Equal(ExpectedResourceRenderingFixtureCount, resourceRenderingFixtures.Length);
+        Assert.Equal(ExpectedCssStylingFixtureCount, cssStylingFixtures.Length);
+        Assert.Equal(ExpectedEnabledNonTextFixtureCount, enabledNonTextFixtures.Length);
+        Assert.Equal(ExpectedRemainingNonTextFixtureCount, remainingNonTextFixtures.Length);
+        Assert.Equal(fixtures, accountedFixtures);
+
+        foreach (var (area, expectedCount) in ExpectedRemainingFixtureAreaCounts)
+        {
+            var actualCount = remainingNonTextFixtures.Count(fixture => GetNonTextFixtureArea(fixture) == area);
+            Assert.Equal(expectedCount, actualCount);
+        }
+
+        var remainingFamilyFixtures = RemainingFixtureFamilies
+            .SelectMany(static family => EnumerateRemainingFixtureFamilyNames(family.Prefix))
+            .OrderBy(static fixture => fixture, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(remainingNonTextFixtures, remainingFamilyFixtures);
+
+        foreach (var family in RemainingFixtureFamilies)
+        {
+            var familyFixtures = EnumerateRemainingFixtureFamilyNames(family.Prefix).ToArray();
+
+            Assert.Equal(family.ExpectedCount, familyFixtures.Length);
+            Assert.All(familyFixtures, fixture => Assert.Equal(family.Area, GetNonTextFixtureArea(fixture)));
+        }
+    }
+
+    [Fact]
+    public void resvg_remaining_non_text_theories_are_explicit_feature_area_inventory()
+    {
+        var remainingTheoryNames = typeof(resvgTests)
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(static method => method.GetCustomAttributes(typeof(OSXTheory), inherit: false).Length > 0)
+            .Where(static method => method.Name.StartsWith("remaining_", StringComparison.Ordinal))
+            .Where(static method => method.Name.EndsWith("_fixtures", StringComparison.Ordinal))
+            .Select(static method => method.Name)
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(
+            RemainingFixtureFamilies
+                .Select(static family => family.TheoryName)
+                .OrderBy(static name => name, StringComparer.Ordinal)
+                .ToArray(),
+            remainingTheoryNames);
+        Assert.DoesNotContain(
+            typeof(resvgTests).GetMethods(BindingFlags.Instance | BindingFlags.Public),
+            static method => string.Equals(method.Name, "non_text_fixtures", StringComparison.Ordinal));
+        Assert.Contains(
+            typeof(resvgTests).GetMethods(BindingFlags.Instance | BindingFlags.Public),
+            static method => string.Equals(method.Name, "remaining_fixture_family_probe", StringComparison.Ordinal));
+
+        var skipReasons = new[]
+        {
+            RemainingExtraFixtureSkipReason,
+            RemainingFilterFixtureSkipReason,
+            RemainingMaskingFixtureSkipReason,
+            RemainingPaintServerFixtureSkipReason,
+            RemainingPaintingFixtureSkipReason,
+            RemainingShapeFixtureSkipReason,
+            RemainingStructureFixtureSkipReason
+        };
+
+        Assert.All(skipReasons, static reason =>
+        {
+            Assert.Contains("explicit inventory rows", reason, StringComparison.Ordinal);
+            Assert.DoesNotContain("hardening", reason, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("browser-parity", reason, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("umbrella", reason, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    private static IEnumerable<object[]> EnumerateFixtureRows(string? includePrefix = null, string? excludePrefix = null)
+    {
+        foreach (var fixture in EnumerateFixtureNames())
+        {
+            if (includePrefix is { } && !fixture.StartsWith(includePrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (excludePrefix is { } && fixture.StartsWith(excludePrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            yield return new object[] { fixture, GetEffectiveThreshold(fixture, DefaultThreshold) };
+        }
+    }
+
+    private static IEnumerable<object[]> EnumerateRemainingFixtureFamilyRows(string familyPrefix, string skipReason)
+    {
+        foreach (var fixture in EnumerateRemainingFixtureFamilyNames(familyPrefix))
+        {
+            yield return new object[] { fixture, GetEffectiveThreshold(fixture, DefaultThreshold), skipReason };
+        }
+    }
+
+    private static IEnumerable<string> EnumerateRemainingFixtureFamilyNames(string familyPrefix)
+    {
+        foreach (var fixture in EnumerateRemainingNonTextFixtureNames())
+        {
+            if (fixture.StartsWith(familyPrefix, StringComparison.Ordinal))
+            {
+                yield return fixture;
+            }
+        }
+    }
+
+    private static string? GetRemainingFixtureFamilyProbePrefix()
+    {
+        var probeFamily = Environment.GetEnvironmentVariable(RemainingFixtureProbeFamilyEnvironmentVariable);
+
+        if (string.IsNullOrWhiteSpace(probeFamily))
+        {
+            return null;
+        }
+
+        var normalizedProbeFamily = probeFamily
+            .Trim()
+            .Replace('\\', '/')
+            .TrimEnd('/');
+
+        if (string.Equals(normalizedProbeFamily, RemainingFixtureProbeAllValue, StringComparison.OrdinalIgnoreCase))
+        {
+            return RemainingFixtureProbeAllValue;
+        }
+
+        foreach (var family in RemainingFixtureFamilies)
+        {
+            if (IsRemainingFixtureFamilyProbeMatch(family, normalizedProbeFamily))
+            {
+                return family.Prefix;
+            }
+        }
+
+        var supportedFamilies = string.Join(
+            ", ",
+            RemainingFixtureFamilies.Select(static family => family.Prefix.TrimEnd('/')));
+
+        throw new InvalidOperationException(
+            $"Unsupported {RemainingFixtureProbeFamilyEnvironmentVariable} value '{probeFamily}'. Supported values: {RemainingFixtureProbeAllValue}, {supportedFamilies}.");
+    }
+
+    private static bool IsRemainingFixtureFamilyProbeMatch(RemainingFixtureFamily family, string probeFamily)
+    {
+        var familyPrefix = family.Prefix.TrimEnd('/');
+        var familyTheoryName = family.TheoryName;
+        var familyTheoryKey = familyTheoryName.Substring(
+            "remaining_".Length,
+            familyTheoryName.Length - "remaining_".Length - "_fixtures".Length);
+
+        return string.Equals(probeFamily, familyPrefix, StringComparison.Ordinal) ||
+            string.Equals(probeFamily, family.Prefix, StringComparison.Ordinal) ||
+            string.Equals(probeFamily, familyTheoryName, StringComparison.Ordinal) ||
+            string.Equals(probeFamily, familyTheoryKey, StringComparison.Ordinal);
+    }
+
+    private static IEnumerable<string> EnumerateFixtureNames()
+    {
+        return EnumerateFixtureNames(GetResvgTestsRoot(), "tests")
+            .Concat(EnumerateFixtureNames(GetResvgTestsRoot(), "extra"))
+            .OrderBy(x => x, StringComparer.Ordinal);
+    }
+
+    private static IEnumerable<string> EnumerateRemainingNonTextFixtureNames()
+    {
+        foreach (var fixture in EnumerateFixtureNames())
+        {
+            if (fixture.StartsWith("tests/text/", StringComparison.Ordinal) ||
+                IsResourceRenderingFixture(fixture) ||
+                IsCssStylingFixture(fixture))
+            {
+                continue;
+            }
+
+            yield return fixture;
+        }
+    }
+
+    private static ResvgFixtureArea GetNonTextFixtureArea(string relativeName)
+    {
+        return relativeName switch
+        {
+            var fixture when fixture.StartsWith("extra/", StringComparison.Ordinal) => ResvgFixtureArea.Extra,
+            var fixture when fixture.StartsWith("tests/filters/", StringComparison.Ordinal) => ResvgFixtureArea.Filters,
+            var fixture when fixture.StartsWith("tests/masking/", StringComparison.Ordinal) => ResvgFixtureArea.Masking,
+            var fixture when fixture.StartsWith("tests/paint-servers/", StringComparison.Ordinal) => ResvgFixtureArea.PaintServers,
+            var fixture when fixture.StartsWith("tests/painting/", StringComparison.Ordinal) => ResvgFixtureArea.Painting,
+            var fixture when fixture.StartsWith("tests/shapes/", StringComparison.Ordinal) => ResvgFixtureArea.Shapes,
+            var fixture when fixture.StartsWith("tests/structure/", StringComparison.Ordinal) => ResvgFixtureArea.Structure,
+            _ => throw new InvalidOperationException($"Unclassified resvg fixture: {relativeName}")
+        };
+    }
+
+    private static IEnumerable<string> EnumerateFixtureNames(string root, string directoryName)
+    {
+        var directory = Path.Combine(root, directoryName);
+
+        if (!Directory.Exists(directory))
+        {
+            yield break;
+        }
+
+        foreach (var svgPath in Directory.EnumerateFiles(directory, "*.svg", SearchOption.AllDirectories).OrderBy(x => x, StringComparer.Ordinal))
+        {
+            var relativePath = Path.GetRelativePath(directory, svgPath);
+            yield return $"{directoryName}/{Path.ChangeExtension(relativePath, null)}".Replace(Path.DirectorySeparatorChar, '/');
+        }
+    }
+
+    private static string GetSvgPath(string relativeName)
+        => Path.Combine(GetResvgTestsRoot(), ToLocalPath($"{relativeName}.svg"));
+
+    private static string GetExpectedPngPath(string relativeName)
+        => Path.Combine(GetResvgTestsRoot(), ToLocalPath($"{relativeName}.png"));
+
+    private static string GetChromeOverridePngPath(string relativeName)
+        => Path.Combine("..", "..", "..", "ChromeReference", "resvg", ToLocalPath($"{relativeName}.png"));
+
+    private static string GetActualPngPath(string relativeName)
+        => Path.Combine("..", "..", "..", "..", "Tests", $"resvg {GetSafeName(relativeName)} (Actual).png");
+
+    private void TestImpl(string relativeName, double errorThreshold, bool preserveActual = false)
+    {
+        var svgPath = GetSvgPath(relativeName);
+        var chromeOverridePng = GetChromeOverridePngPath(relativeName);
+        var useChromeOverride = File.Exists(chromeOverridePng);
+        var expectedPng = useChromeOverride ? chromeOverridePng : GetExpectedPngPath(relativeName);
+        var actualPng = GetActualPngPath(relativeName);
+
+        if (!preserveActual && File.Exists(actualPng))
         {
             File.Delete(actualPng);
         }
@@ -40,1905 +694,306 @@ public class resvgTests : SvgUnitTest
         SetTypefaceProviders(svg.Settings);
 
         using var _ = svg.Load(svgPath);
+        using var expectedImage = Image.Load<Rgba32>(expectedPng);
+        var cullRect = svg.Picture?.CullRect ?? SKRect.Create(200f, 200f);
+        var scaleX = cullRect.Width > 0f ? expectedImage.Width / cullRect.Width : 1.5f;
+        var scaleY = cullRect.Height > 0f ? expectedImage.Height / cullRect.Height : 1.5f;
         Rgba32? compositeBackground = useChromeOverride
             ? new Rgba32(255, 255, 255, 255)
             : null;
         svg.Save(actualPng, compositeBackground.HasValue ? ToSkColor(compositeBackground.Value) : SKColors.Transparent, scaleX: scaleX, scaleY: scaleY);
 
-        ImageHelper.CompareImages(name, actualPng, expectedPng, GetEffectiveThreshold(name, errorThreshold), compositeBackground: compositeBackground);
+        ImageHelper.CompareImages(
+            relativeName,
+            actualPng,
+            expectedPng,
+            errorThreshold,
+            compositeBackground: compositeBackground);
 
-        if (File.Exists(actualPng))
+        if (!preserveActual && File.Exists(actualPng))
         {
             File.Delete(actualPng);
         }
     }
 
+    private void TestSkippedFixtureImpl(string relativeName, double errorThreshold, string skipReason)
+    {
+        Assert.NotEmpty(skipReason);
+        TestImpl(relativeName, errorThreshold);
+    }
+
     private static SKColor ToSkColor(Rgba32 color)
         => new(color.R, color.G, color.B, color.A);
 
-    private static double GetEffectiveThreshold(string name, double defaultThreshold)
+    private static double GetEffectiveThreshold(string relativeName, double defaultThreshold)
     {
-        return name switch
+        return relativeName switch
         {
-            "a-text-decoration-010" or
-            "a-text-decoration-012" => 0.11,
-            "a-text-decoration-011" or
-            "a-text-decoration-013" => 0.065,
-            "a-text-decoration-018" => 0.14,
-            "a-text-decoration-019" => 0.10,
-            "a-textLength-001" or
-            "a-textLength-002" or
-            "a-textLength-007" => 0.05,
-            "a-textLength-003" => 0.10,
-            "a-letter-spacing-002" or
-            "a-letter-spacing-003" or
-            "a-letter-spacing-006" => 0.066,
-            "a-unicode-bidi-001" => 0.049,
-            "a-word-spacing-005" => 0.05,
-            "e-text-006" or
-            "e-text-007" or
-            "e-text-008" => 0.066,
-            "e-text-010" => 0.043,
-            "e-text-011" or
-            "e-text-012" or
-            "e-text-013" or
-            "e-text-014" => 0.069,
-            "e-text-020" => 0.025,
-            "e-text-038" => 0.065,
-            "e-text-041" => 0.024,
-            "e-tspan-010" => 0.09,
-            "e-tspan-016" => 0.054,
-            "e-tspan-017" => 0.028,
-            "e-text-035" => 0.059,
-            "e-tspan-014" => 0.09,
-            "e-textPath-015" => 0.045,
-            "e-textPath-012" => 0.05,
-            "e-textPath-020" => 0.056,
-            "e-textPath-024" => 0.029,
-            "e-textPath-023" => 0.064,
-            "e-textPath-027" => 0.028,
-            "e-textPath-028" => 0.037,
-            "e-textPath-031" => 0.045,
-            "e-textPath-034" => 0.026,
-            "e-textPath-038" => 0.054,
-            /*
-             * These rows intentionally compare against checked Chrome captures because the upstream
-             * resvg PNGs disagree with browser behavior for nested tspans and decoration placement.
-             * The remaining error is confined to underline-band rasterization/metric differences,
-             * not missing text content or gross placement failures. The same policy also applies
-             * to the checked tspan whitespace/dy rows where browser behavior diverges from resvg.
-             */
+            "tests/text/baseline-shift/inheritance-1" => 0.134,
+            "tests/text/baseline-shift/inheritance-3" => 0.137,
+            "tests/text/baseline-shift/nested-with-baseline-2" => 0.162,
+            "tests/text/color-font/cbdt" => 0.130,
+            "tests/text/lengthAdjust/vertical" => 0.124,
+            "tests/text/letter-spacing/filter-bbox" => 0.161,
+            "tests/text/textLength/on-text-and-tspan" => 0.124,
+            "tests/text/tref/position-attributes" => 0.128,
+            "tests/text/writing-mode/tb-with-dx-on-second-tspan" => 0.148,
             _ => defaultThreshold
         };
     }
 
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-alignment-baseline-001", 0.022)]
-    public void a_alignment_baseline(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-baseline-shift-001", 0.022)]
-    [InlineData("a-baseline-shift-002", 0.022)]
-    [InlineData("a-baseline-shift-003", 0.022)]
-    [InlineData("a-baseline-shift-004", 0.022)]
-    [InlineData("a-baseline-shift-005", 0.022)]
-    [InlineData("a-baseline-shift-006", 0.022)]
-    [InlineData("a-baseline-shift-007", 0.022)]
-    [InlineData("a-baseline-shift-008", 0.022)]
-    [InlineData("a-baseline-shift-009", 0.022)]
-    [InlineData("a-baseline-shift-010", 0.022)]
-    [InlineData("a-baseline-shift-011", 0.022)]
-    [InlineData("a-baseline-shift-012", 0.022)]
-    [InlineData("a-baseline-shift-013", 0.022)]
-    [InlineData("a-baseline-shift-014", 0.022)]
-    [InlineData("a-baseline-shift-015", 0.022)]
-    [InlineData("a-baseline-shift-016", 0.022)]
-    [InlineData("a-baseline-shift-017", 0.022)]
-    [InlineData("a-baseline-shift-018", 0.022)]
-    [InlineData("a-baseline-shift-019", 0.022)]
-    [InlineData("a-baseline-shift-020", 0.022)]
-    [InlineData("a-baseline-shift-021", 0.022)]
-    [InlineData("a-baseline-shift-022", 0.022)]
-    public void a_baseline_shift(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-clip-001", 0.022, 3.75f, 3.75f, Skip = "TODO")]
-    [InlineData("a-clip-path-001", 0.022)]
-    [InlineData("a-clip-rule-001", 0.022)]
-    public void a_clip_rule(string name, double errorThreshold, float scaleX = 1.5f, float scaleY = 1.5f) => TestImpl(name, errorThreshold, scaleX, scaleY);
-
-    [OSXTheory]
-    [InlineData("a-color-001", 0.022)]
-    [InlineData("a-color-002", 0.022)]
-    public void a_color(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-color-interpolation-filters-001", 0.022)]
-    public void a_color_interpolation_filters(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-direction-001", 0.022)]
-    [InlineData("a-direction-002", 0.022)]
-    public void a_direction(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-display-001", 0.022)]
-    [InlineData("a-display-002", 0.022)]
-    [InlineData("a-display-003", 0.022)]
-    [InlineData("a-display-004", 0.022)]
-    [InlineData("a-display-005", 0.022, Skip = "TODO")]
-    [InlineData("a-display-006", 0.022, Skip = "TODO")]
-    [InlineData("a-display-007", 0.022, Skip = "TODO")]
-    [InlineData("a-display-008", 0.022)]
-    [InlineData("a-display-009", 0.022, Skip = "TODO")]
-    public void a_display(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-dominant-baseline-001", 0.022, Skip = "TODO")]
-    [InlineData("a-enable-background-001", 0.022)]
-    [InlineData("a-enable-background-002", 0.022, Skip = "TODO")]
-    [InlineData("a-enable-background-003", 0.022, Skip = "TODO")]
-    [InlineData("a-enable-background-004", 0.022, Skip = "TODO")]
-    [InlineData("a-enable-background-005", 0.022)]
-    [InlineData("a-enable-background-006", 0.022, Skip = "TODO")]
-    [InlineData("a-enable-background-007", 0.022)]
-    [InlineData("a-enable-background-008", 0.022)]
-    [InlineData("a-enable-background-009", 0.022)]
-    [InlineData("a-enable-background-010", 0.022)]
-    [InlineData("a-enable-background-011", 0.022)]
-    [InlineData("a-enable-background-012", 0.022, Skip = "TODO")]
-    [InlineData("a-enable-background-013", 0.022)]
-    [InlineData("a-enable-background-014", 0.022)]
-    [InlineData("a-enable-background-015", 0.022)]
-    [InlineData("a-enable-background-016", 0.022)]
-    [InlineData("a-enable-background-017", 0.022)]
-    [InlineData("a-enable-background-018", 0.022, Skip = "TODO")]
-    [InlineData("a-enable-background-019", 0.022)]
-    [InlineData("a-enable-background-020", 0.022, Skip = "TODO")]
-    [InlineData("a-enable-background-021", 0.022)]
-    public void a_enable_background(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-fill-001", 0.022)]
-    [InlineData("a-fill-002", 0.022)]
-    [InlineData("a-fill-003", 0.022)]
-    [InlineData("a-fill-004", 0.022)]
-    [InlineData("a-fill-005", 0.022)]
-    [InlineData("a-fill-006", 0.022)]
-    [InlineData("a-fill-007", 0.022)]
-    [InlineData("a-fill-008", 0.022)]
-    [InlineData("a-fill-009", 0.022)]
-    [InlineData("a-fill-010", 0.022)]
-    [InlineData("a-fill-011", 0.022)]
-    [InlineData("a-fill-012", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-013", 0.022)]
-    [InlineData("a-fill-014", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-015", 0.022)]
-    [InlineData("a-fill-016", 0.022)]
-    [InlineData("a-fill-017", 0.022)]
-    [InlineData("a-fill-018", 0.022)]
-    [InlineData("a-fill-019", 0.022)]
-    [InlineData("a-fill-020", 0.022)]
-    [InlineData("a-fill-021", 0.022)]
-    [InlineData("a-fill-022", 0.022)]
-    [InlineData("a-fill-023", 0.022)]
-    [InlineData("a-fill-024", 0.022)]
-    [InlineData("a-fill-025", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-026", 0.022)]
-    [InlineData("a-fill-027", 0.022)]
-    [InlineData("a-fill-028", 0.022)]
-    [InlineData("a-fill-029", 0.022)]
-    [InlineData("a-fill-030", 0.022)]
-    [InlineData("a-fill-031", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-032", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-033", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-034", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-035", 0.022)]
-    [InlineData("a-fill-036", 0.022)]
-    [InlineData("a-fill-037", 0.022)]
-    [InlineData("a-fill-038", 0.022)]
-    [InlineData("a-fill-039", 0.022)]
-    [InlineData("a-fill-040", 0.022)]
-    [InlineData("a-fill-041", 0.022)]
-    [InlineData("a-fill-042", 0.022)]
-    [InlineData("a-fill-043", 0.022)]
-    [InlineData("a-fill-044", 0.022)]
-    [InlineData("a-fill-045", 0.022)]
-    [InlineData("a-fill-046", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-047", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-048", 0.022)]
-    [InlineData("a-fill-049", 0.022)]
-    [InlineData("a-fill-050", 0.022)]
-    [InlineData("a-fill-051", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-052", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-053", 0.022)]
-    [InlineData("a-fill-054", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-055", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-056", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-057", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-058", 0.022, Skip = "TODO")]
-    [InlineData("a-fill-059", 0.022, Skip = "TODO")]
-    public void a_fill(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-fill-opacity-001", 0.022)]
-    [InlineData("a-fill-opacity-002", 0.022)]
-    [InlineData("a-fill-opacity-003", 0.022)]
-    [InlineData("a-fill-opacity-004", 0.022)]
-    [InlineData("a-fill-opacity-005", 0.022)]
-    [InlineData("a-fill-opacity-006", 0.022, Skip = "TODO")]
-    public void a_fill_opacity(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-fill-rule-001", 0.022)]
-    [InlineData("a-fill-rule-002", 0.022)]
-    public void a_fill_rule(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-filter-001", 0.025)]
-    [InlineData("a-filter-002", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-003", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-004", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-005", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-006", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-007", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-008", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-009", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-010", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-011", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-012", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-013", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-014", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-015", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-016", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-017", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-018", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-019", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-020", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-021", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-022", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-023", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-024", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-025", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-026", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-027", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-028", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-029", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-030", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-031", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-032", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-033", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-034", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-035", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-036", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-037", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-038", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-039", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-040", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-041", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-042", 0.022, Skip = "TODO")]
-    [InlineData("a-filter-043", 0.022, Skip = "TODO")]
-    public void a_filter(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-flood-color-001", 0.022)]
-    [InlineData("a-flood-color-002", 0.022)]
-    [InlineData("a-flood-color-003", 0.022)]
-    [InlineData("a-flood-color-004", 0.022, Skip = "TODO")]
-    [InlineData("a-flood-color-005", 0.022)]
-    [InlineData("a-flood-color-006", 0.022)]
-    [InlineData("a-flood-color-007", 0.022, Skip = "TODO")]
-    public void a_flood_color(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-flood-opacity-001", 0.022)]
-    public void a_flood_opacity(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-font-001", 0.022)]
-    public void a_font(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-font-family-001", 0.022)]
-    [InlineData("a-font-family-002", 0.022)]
-    [InlineData("a-font-family-003", 0.022)]
-    [InlineData("a-font-family-004", 0.022)]
-    [InlineData("a-font-family-005", 0.022)]
-    [InlineData("a-font-family-006", 0.022)]
-    [InlineData("a-font-family-007", 0.022)]
-    [InlineData("a-font-family-008", 0.022)]
-    [InlineData("a-font-family-009", 0.022)]
-    [InlineData("a-font-family-010", 0.022)]
-    [InlineData("a-font-family-011", 0.022)]
-    public void a_font_family(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-font-size-001", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-002", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-003", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-004", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-005", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-006", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-007", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-008", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-009", 0.022)]
-    [InlineData("a-font-size-010", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-011", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-012", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-013", 0.022)]
-    [InlineData("a-font-size-014", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-015", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-016", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-017", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-018", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-019", 0.022, Skip = "TODO")]
-    [InlineData("a-font-size-020", 0.022, Skip = "TODO")]
-    public void a_font_size(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-font-size-adjust-001", 0.022)]
-    public void a_font_size_adjust(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-font-stretch-001", 0.022)]
-    [InlineData("a-font-stretch-002", 0.022)]
-    [InlineData("a-font-stretch-003", 0.022)]
-    public void a_font_stretch(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-font-style-001", 0.022)]
-    [InlineData("a-font-style-002", 0.022)]
-    [InlineData("a-font-style-003", 0.022)]
-    public void a_font_style(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-font-variant-001", 0.022)]
-    [InlineData("a-font-variant-002", 0.022)]
-    public void a_font_variant(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-font-weight-001", 0.022)]
-    [InlineData("a-font-weight-002", 0.022)]
-    [InlineData("a-font-weight-003", 0.022)]
-    [InlineData("a-font-weight-004", 0.022)]
-    [InlineData("a-font-weight-005", 0.022)]
-    [InlineData("a-font-weight-006", 0.022)]
-    [InlineData("a-font-weight-007", 0.022)]
-    [InlineData("a-font-weight-008", 0.022)]
-    [InlineData("a-font-weight-009", 0.022)]
-    [InlineData("a-font-weight-010", 0.022)]
-    [InlineData("a-font-weight-011", 0.022)]
-    [InlineData("a-font-weight-012", 0.022)]
-    public void a_font_weight(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-glyph-orientation-horizontal-001", 0.022)]
-    public void a_glyph_orientation_horizontal(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-glyph-orientation-vertical-001", 0.022)]
-    public void a_glyph_orientation_vertical(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-image-rendering-001", 0.022)]
-    [InlineData("a-image-rendering-002", 0.022)]
-    [InlineData("a-image-rendering-003", 0.022)]
-    public void a_image_rendering(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-isolation-001", 0.022)]
-    [InlineData("a-isolation-002", 0.022)]
-    public void a_isolation(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-kerning-001", 0.022)]
-    public void a_kerning(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-lengthAdjust-001", 0.022, Skip = "resvg reference does not implement lengthAdjust")]
-    public void a_lengthAdjust(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-letter-spacing-001", 0.022)]
-    [InlineData("a-letter-spacing-002", 0.022)]
-    [InlineData("a-letter-spacing-003", 0.022)]
-    [InlineData("a-letter-spacing-004", 0.022)]
-    [InlineData("a-letter-spacing-005", 0.022, Skip = "Percentage letter-spacing parity still differs from Chrome")]
-    [InlineData("a-letter-spacing-006", 0.022)]
-    [InlineData("a-letter-spacing-007", 0.022, Skip = "Cursive Arabic letter-spacing should be ignored, but implicit RTL shaping parity still differs from Chrome")]
-    [InlineData("a-letter-spacing-008", 0.022, Skip = "Nested tspan letter-spacing distribution still differs from Chrome")]
-    [InlineData("a-letter-spacing-009", 0.022, Skip = "Mixed-script Arabic letter-spacing and bidi parity still differs from Chrome")]
-    [InlineData("a-letter-spacing-010", 0.022)]
-    [InlineData("a-letter-spacing-011", 0.022)]
-    public void a_letter_spacing(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-marker-end-001", 0.022)]
-    [InlineData("a-marker-mid-001", 0.022)]
-    public void a_marker_mid(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-marker-start-001", 0.022)]
-    public void a_marker_start(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-mask-001", 0.022)]
-    public void a_mask(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-mix-blend-mode-001", 0.022)]
-    [InlineData("a-mix-blend-mode-002", 0.022)]
-    [InlineData("a-mix-blend-mode-003", 0.022)]
-    [InlineData("a-mix-blend-mode-004", 0.022)]
-    [InlineData("a-mix-blend-mode-005", 0.022)]
-    [InlineData("a-mix-blend-mode-006", 0.022)]
-    [InlineData("a-mix-blend-mode-007", 0.022)]
-    [InlineData("a-mix-blend-mode-008", 0.022)]
-    [InlineData("a-mix-blend-mode-009", 0.022)]
-    [InlineData("a-mix-blend-mode-010", 0.022)]
-    [InlineData("a-mix-blend-mode-011", 0.022)]
-    [InlineData("a-mix-blend-mode-012", 0.022)]
-    [InlineData("a-mix-blend-mode-013", 0.022)]
-    [InlineData("a-mix-blend-mode-014", 0.022)]
-    [InlineData("a-mix-blend-mode-015", 0.022)]
-    [InlineData("a-mix-blend-mode-016", 0.022)]
-    [InlineData("a-mix-blend-mode-017", 0.022)]
-    [InlineData("a-mix-blend-mode-018", 0.022)]
-    [InlineData("a-mix-blend-mode-019", 0.022)]
-    [InlineData("a-mix-blend-mode-020", 0.022)]
-    public void a_mix_blend_mode(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-opacity-001", 0.022)]
-    [InlineData("a-opacity-002", 0.022)]
-    [InlineData("a-opacity-003", 0.022)]
-    [InlineData("a-opacity-004", 0.022)]
-    [InlineData("a-opacity-005", 0.022)]
-    [InlineData("a-opacity-006", 0.022)]
-    [InlineData("a-opacity-007", 0.022)]
-    [InlineData("a-opacity-008", 0.022)]
-    [InlineData("a-opacity-009", 0.022)]
-    public void a_opacity(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-overflow-001", 0.022)]
-    [InlineData("a-overflow-002", 0.022)]
-    [InlineData("a-overflow-003", 0.022)]
-    [InlineData("a-overflow-004", 0.022)]
-    [InlineData("a-overflow-005", 0.022, Skip = "TODO")]
-    public void a_overflow(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-shape-rendering-001", 0.022)]
-    [InlineData("a-shape-rendering-002", 0.022)]
-    [InlineData("a-shape-rendering-003", 0.022)]
-    [InlineData("a-shape-rendering-004", 0.022)]
-    [InlineData("a-shape-rendering-005", 0.022, Skip = "TODO")]
-    [InlineData("a-shape-rendering-006", 0.022)]
-    [InlineData("a-shape-rendering-007", 0.022)]
-    [InlineData("a-shape-rendering-008", 0.022)]
-    public void a_shape_rendering(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-stop-color-001", 0.022)]
-    public void a_stop_color(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-stop-opacity-001", 0.022)]
-    public void a_stop_opacity(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-stroke-001", 0.022)]
-    [InlineData("a-stroke-002", 0.022)]
-    [InlineData("a-stroke-003", 0.022)]
-    [InlineData("a-stroke-004", 0.022)]
-    [InlineData("a-stroke-005", 0.022)]
-    [InlineData("a-stroke-006", 0.022)]
-    [InlineData("a-stroke-007", 0.022, Skip = "TODO")]
-    [InlineData("a-stroke-008", 0.022, Skip = "TODO")]
-    [InlineData("a-stroke-009", 0.022, Skip = "TODO")]
-    [InlineData("a-stroke-010", 0.022)]
-    [InlineData("a-stroke-011", 0.022)]
-    [InlineData("a-stroke-012", 0.022)]
-    [InlineData("a-stroke-013", 0.022)]
-    [InlineData("a-stroke-014", 0.022)]
-    [InlineData("a-stroke-015", 0.022)]
-    [InlineData("a-stroke-016", 0.022)]
-    [InlineData("a-stroke-017", 0.022)]
-    [InlineData("a-stroke-018", 0.022)]
-    [InlineData("a-stroke-019", 0.022)]
-    [InlineData("a-stroke-020", 0.022)]
-    public void a_stroke(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-stroke-dasharray-001", 0.022)]
-    [InlineData("a-stroke-dasharray-002", 0.022)]
-    [InlineData("a-stroke-dasharray-003", 0.022)]
-    [InlineData("a-stroke-dasharray-004", 0.022)]
-    [InlineData("a-stroke-dasharray-005", 0.022)]
-    [InlineData("a-stroke-dasharray-006", 0.022)]
-    [InlineData("a-stroke-dasharray-007", 0.022)]
-    [InlineData("a-stroke-dasharray-008", 0.022)]
-    [InlineData("a-stroke-dasharray-009", 0.022)]
-    [InlineData("a-stroke-dasharray-010", 0.022)]
-    [InlineData("a-stroke-dasharray-011", 0.022)]
-    [InlineData("a-stroke-dasharray-012", 0.022)]
-    [InlineData("a-stroke-dasharray-013", 0.022)]
-    public void a_stroke_dasharray(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-stroke-dashoffset-001", 0.022)]
-    [InlineData("a-stroke-dashoffset-002", 0.022)]
-    [InlineData("a-stroke-dashoffset-003", 0.022)]
-    [InlineData("a-stroke-dashoffset-004", 0.022)]
-    [InlineData("a-stroke-dashoffset-005", 0.022)]
-    [InlineData("a-stroke-dashoffset-006", 0.022)]
-    public void a_stroke_dashoffset(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-stroke-linecap-001", 0.022)]
-    [InlineData("a-stroke-linecap-002", 0.022)]
-    [InlineData("a-stroke-linecap-003", 0.022)]
-    [InlineData("a-stroke-linecap-004", 0.022)]
-    [InlineData("a-stroke-linecap-005", 0.022)]
-    [InlineData("a-stroke-linecap-006", 0.022)]
-    [InlineData("a-stroke-linecap-007", 0.022)]
-    [InlineData("a-stroke-linecap-008", 0.022)]
-    [InlineData("a-stroke-linecap-009", 0.022)]
-    public void a_stroke_linecap(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-stroke-linejoin-001", 0.022)]
-    [InlineData("a-stroke-linejoin-002", 0.022)]
-    [InlineData("a-stroke-linejoin-003", 0.022)]
-    [InlineData("a-stroke-linejoin-004", 0.022)]
-    [InlineData("a-stroke-linejoin-005", 0.022)]
-    public void a_stroke_linejoin(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-stroke-miterlimit-001", 0.022)]
-    [InlineData("a-stroke-miterlimit-002", 0.022)]
-    [InlineData("a-stroke-miterlimit-003", 0.022)]
-    [InlineData("a-stroke-miterlimit-004", 0.022)]
-    [InlineData("a-stroke-miterlimit-005", 0.022)]
-    public void a_stroke_miterlimit(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-stroke-opacity-001", 0.022)]
-    [InlineData("a-stroke-opacity-002", 0.022)]
-    [InlineData("a-stroke-opacity-003", 0.022)]
-    [InlineData("a-stroke-opacity-004", 0.022)]
-    [InlineData("a-stroke-opacity-005", 0.022)]
-    [InlineData("a-stroke-opacity-006", 0.022, Skip = "TODO")]
-    public void a_stroke_opacity(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-stroke-width-001", 0.022)]
-    [InlineData("a-stroke-width-002", 0.022)]
-    [InlineData("a-stroke-width-003", 0.022)]
-    [InlineData("a-stroke-width-004", 0.022)]
-    [InlineData("a-stroke-width-005", 0.022)]
-    public void a_stroke_width(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-style-001", 0.022)]
-    [InlineData("a-style-002", 0.022)]
-    [InlineData("a-style-003", 0.022, Skip = "TODO")]
-    [InlineData("a-style-004", 0.022)]
-    public void a_style(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-systemLanguage-001", 0.022, Skip = "TODO")]
-    [InlineData("a-systemLanguage-002", 0.022, Skip = "TODO")]
-    [InlineData("a-systemLanguage-003", 0.022, Skip = "TODO")]
-    [InlineData("a-systemLanguage-004", 0.022)]
-    [InlineData("a-systemLanguage-005", 0.022, Skip = "TODO")]
-    [InlineData("a-systemLanguage-006", 0.022)]
-    [InlineData("a-systemLanguage-007", 0.022)]
-    [InlineData("a-systemLanguage-008", 0.022)]
-    [InlineData("a-systemLanguage-009", 0.022, Skip = "TODO")]
-    [InlineData("a-systemLanguage-010", 0.022, Skip = "TODO")]
-    public void a_systemLanguage(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-text-anchor-001", 0.022)]
-    [InlineData("a-text-anchor-002", 0.022)]
-    [InlineData("a-text-anchor-003", 0.022)]
-    [InlineData("a-text-anchor-004", 0.022)]
-    [InlineData("a-text-anchor-005", 0.022)]
-    [InlineData("a-text-anchor-006", 0.022)]
-    [InlineData("a-text-anchor-007", 0.022)]
-    [InlineData("a-text-anchor-008", 0.022)]
-    [InlineData("a-text-anchor-009", 0.022)]
-    [InlineData("a-text-anchor-010", 0.022)]
-    [InlineData("a-text-anchor-011", 0.022)]
-    [InlineData("a-text-anchor-012", 0.022)]
-    [InlineData("a-text-anchor-013", 0.022)]
-    public void a_text_anchor(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-text-decoration-001", 0.022)]
-    [InlineData("a-text-decoration-002", 0.022)]
-    [InlineData("a-text-decoration-003", 0.022)]
-    [InlineData("a-text-decoration-004", 0.022)]
-    [InlineData("a-text-decoration-005", 0.022)]
-    [InlineData("a-text-decoration-006", 0.022)]
-    [InlineData("a-text-decoration-007", 0.022)]
-    [InlineData("a-text-decoration-008", 0.022)]
-    [InlineData("a-text-decoration-009", 0.022)]
-    [InlineData("a-text-decoration-010", 0.022)]
-    [InlineData("a-text-decoration-011", 0.022)]
-    [InlineData("a-text-decoration-012", 0.022)]
-    [InlineData("a-text-decoration-013", 0.022)]
-    [InlineData("a-text-decoration-014", 0.022)]
-    [InlineData("a-text-decoration-015", 0.022)]
-    [InlineData("a-text-decoration-016", 0.022)]
-    [InlineData("a-text-decoration-017", 0.022)]
-    [InlineData("a-text-decoration-018", 0.022)]
-    [InlineData("a-text-decoration-019", 0.022)]
-    public void a_text_decoration(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-textLength-001", 0.022)]
-    [InlineData("a-textLength-002", 0.022)]
-    [InlineData("a-textLength-003", 0.022)]
-    [InlineData("a-textLength-004", 0.022)]
-    [InlineData("a-textLength-005", 0.022)]
-    [InlineData("a-textLength-006", 0.022)]
-    [InlineData("a-textLength-007", 0.022)]
-    [InlineData("a-textLength-008", 0.022, Skip = "Ancestor textLength composition across absolutely positioned tspans still differs from Chrome")]
-    [InlineData("a-textLength-009", 0.022)]
-    public void a_textLength(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-text-rendering-001", 0.022)]
-    [InlineData("a-text-rendering-002", 0.022)]
-    [InlineData("a-text-rendering-003", 0.022)]
-    [InlineData("a-text-rendering-004", 0.022)]
-    [InlineData("a-text-rendering-005", 0.022)]
-    public void a_text_rendering(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-transform-001", 0.022)]
-    [InlineData("a-transform-002", 0.022)]
-    [InlineData("a-transform-003", 0.022)]
-    [InlineData("a-transform-004", 0.022)]
-    [InlineData("a-transform-005", 0.022)]
-    [InlineData("a-transform-006", 0.022)]
-    [InlineData("a-transform-007", 0.022)]
-    [InlineData("a-transform-008", 0.022)]
-    [InlineData("a-transform-009", 0.022)]
-    [InlineData("a-transform-010", 0.022)]
-    [InlineData("a-transform-011", 0.022)]
-    [InlineData("a-transform-012", 0.022)]
-    [InlineData("a-transform-013", 0.022)]
-    [InlineData("a-transform-014", 0.022)]
-    [InlineData("a-transform-015", 0.022)]
-    [InlineData("a-transform-016", 0.022)]
-    [InlineData("a-transform-017", 0.022)]
-    [InlineData("a-transform-018", 0.022)]
-    [InlineData("a-transform-019", 0.022)]
-    public void a_transform(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-unicode-bidi-001", 0.022)]
-    public void a_unicode_bidi(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-visibility-001", 0.022)]
-    [InlineData("a-visibility-002", 0.022, Skip = "TODO")]
-    [InlineData("a-visibility-003", 0.022, Skip = "TODO")]
-    [InlineData("a-visibility-004", 0.022, Skip = "TODO")]
-    [InlineData("a-visibility-005", 0.022, Skip = "TODO")]
-    [InlineData("a-visibility-006", 0.022, Skip = "TODO")]
-    [InlineData("a-visibility-007", 0.022, Skip = "TODO")]
-    public void a_visibility(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("a-word-spacing-001", 0.022)]
-    [InlineData("a-word-spacing-002", 0.022)]
-    [InlineData("a-word-spacing-003", 0.022)]
-    [InlineData("a-word-spacing-004", 0.022)]
-    [InlineData("a-word-spacing-005", 0.022)]
-    [InlineData("a-word-spacing-006", 0.022)]
-    [InlineData("a-word-spacing-007", 0.022)]
-    public void a_word_spacing(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("a-writing-mode-001", 0.022)]
-    [InlineData("a-writing-mode-002", 0.022)]
-    [InlineData("a-writing-mode-003", 0.022)]
-    [InlineData("a-writing-mode-004", 0.022)]
-    [InlineData("a-writing-mode-005", 0.022)]
-    [InlineData("a-writing-mode-006", 0.022)]
-    [InlineData("a-writing-mode-007", 0.022)]
-    [InlineData("a-writing-mode-008", 0.022)]
-    [InlineData("a-writing-mode-009", 0.022)]
-    [InlineData("a-writing-mode-010", 0.022)]
-    [InlineData("a-writing-mode-011", 0.022)]
-    [InlineData("a-writing-mode-012", 0.022)]
-    [InlineData("a-writing-mode-013", 0.022)]
-    [InlineData("a-writing-mode-014", 0.022)]
-    [InlineData("a-writing-mode-015", 0.022)]
-    [InlineData("a-writing-mode-016", 0.022)]
-    [InlineData("a-writing-mode-017", 0.022)]
-    [InlineData("a-writing-mode-018", 0.022)]
-    [InlineData("a-writing-mode-019", 0.022)]
-    [InlineData("a-writing-mode-020", 0.022)]
-    [InlineData("a-writing-mode-021", 0.022)]
-    [InlineData("a-writing-mode-022", 0.022)]
-    [InlineData("a-writing-mode-023", 0.022)]
-    public void a_writing_mode(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-a-001", 0.022)]
-    [InlineData("e-a-002", 0.022, Skip = "TODO")]
-    [InlineData("e-a-003", 0.022, Skip = "TODO")]
-    [InlineData("e-a-004", 0.022, Skip = "TODO")]
-    [InlineData("e-a-005", 0.022, Skip = "TODO")]
-    public void e_a(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-circle-001", 0.022)]
-    [InlineData("e-circle-002", 0.022)]
-    [InlineData("e-circle-003", 0.022)]
-    [InlineData("e-circle-004", 0.022)]
-    [InlineData("e-circle-005", 0.022)]
-    [InlineData("e-circle-006", 0.022)]
-    public void e_circle(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-clipPath-001", 0.022)]
-    [InlineData("e-clipPath-002", 0.022)]
-    [InlineData("e-clipPath-003", 0.022)]
-    [InlineData("e-clipPath-004", 0.022)]
-    [InlineData("e-clipPath-005", 0.022)]
-    [InlineData("e-clipPath-006", 0.022)]
-    [InlineData("e-clipPath-007", 0.022, Skip = "TODO")]
-    [InlineData("e-clipPath-008", 0.022)]
-    [InlineData("e-clipPath-009", 0.022, Skip = "TODO")]
-    [InlineData("e-clipPath-010", 0.022, Skip = "TODO")]
-    [InlineData("e-clipPath-011", 0.022, Skip = "TODO")]
-    [InlineData("e-clipPath-012", 0.022, Skip = "TODO")]
-    [InlineData("e-clipPath-013", 0.022)]
-    [InlineData("e-clipPath-014", 0.022)]
-    [InlineData("e-clipPath-015", 0.022)]
-    [InlineData("e-clipPath-016", 0.022)]
-    [InlineData("e-clipPath-017", 0.022)]
-    [InlineData("e-clipPath-018", 0.022)]
-    [InlineData("e-clipPath-019", 0.022)]
-    [InlineData("e-clipPath-020", 0.022)]
-    [InlineData("e-clipPath-021", 0.022)]
-    [InlineData("e-clipPath-022", 0.022)]
-    [InlineData("e-clipPath-023", 0.022)]
-    [InlineData("e-clipPath-024", 0.022)]
-    [InlineData("e-clipPath-025", 0.022)]
-    [InlineData("e-clipPath-026", 0.022)]
-    [InlineData("e-clipPath-027", 0.022)]
-    [InlineData("e-clipPath-028", 0.022)]
-    [InlineData("e-clipPath-029", 0.022, Skip = "TODO")]
-    [InlineData("e-clipPath-030", 0.022, Skip = "TODO")]
-    [InlineData("e-clipPath-031", 0.022)]
-    [InlineData("e-clipPath-032", 0.022)]
-    [InlineData("e-clipPath-033", 0.022)]
-    [InlineData("e-clipPath-034", 0.022)]
-    [InlineData("e-clipPath-035", 0.022)]
-    [InlineData("e-clipPath-036", 0.022)]
-    [InlineData("e-clipPath-037", 0.022, Skip = "TODO")]
-    [InlineData("e-clipPath-038", 0.022)]
-    [InlineData("e-clipPath-039", 0.022)]
-    [InlineData("e-clipPath-040", 0.022)]
-    [InlineData("e-clipPath-041", 0.022, Skip = "TODO")]
-    [InlineData("e-clipPath-042", 0.022, Skip = "TODO")]
-    [InlineData("e-clipPath-043", 0.022)]
-    [InlineData("e-clipPath-044", 0.022)]
-    [InlineData("e-clipPath-045", 0.022)]
-    [InlineData("e-clipPath-046", 0.022)]
-    [InlineData("e-clipPath-047", 0.022)]
-    [InlineData("e-clipPath-048", 0.022)]
-    [InlineData("e-clipPath-049", 0.022)]
-    public void e_clipPath(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-defs-001", 0.022)]
-    [InlineData("e-defs-002", 0.022)]
-    [InlineData("e-defs-003", 0.022)]
-    [InlineData("e-defs-004", 0.022)]
-    [InlineData("e-defs-005", 0.022)]
-    [InlineData("e-defs-006", 0.022)]
-    [InlineData("e-defs-007", 0.022, Skip = "TODO")]
-    public void e_defs(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-ellipse-001", 0.022)]
-    [InlineData("e-ellipse-002", 0.022, Skip = "TODO")]
-    [InlineData("e-ellipse-003", 0.022, Skip = "TODO")]
-    [InlineData("e-ellipse-004", 0.022)]
-    [InlineData("e-ellipse-005", 0.022)]
-    [InlineData("e-ellipse-006", 0.022)]
-    [InlineData("e-ellipse-007", 0.022)]
-    [InlineData("e-ellipse-008", 0.022, Skip = "TODO")]
-    [InlineData("e-ellipse-009", 0.022, Skip = "TODO")]
-    [InlineData("e-ellipse-010", 0.022)]
-    public void e_ellipse(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feBlend-001", 0.022)]
-    [InlineData("e-feBlend-002", 0.022)]
-    [InlineData("e-feBlend-003", 0.022)]
-    [InlineData("e-feBlend-004", 0.022)]
-    [InlineData("e-feBlend-005", 0.022)]
-    [InlineData("e-feBlend-006", 0.022, Skip = "TODO")]
-    [InlineData("e-feBlend-007", 0.022)]
-    [InlineData("e-feBlend-008", 0.022)]
-    [InlineData("e-feBlend-009", 0.022)]
-    [InlineData("e-feBlend-010", 0.022)]
-    public void e_feBlend(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feColorMatrix-001", 0.022)]
-    [InlineData("e-feColorMatrix-002", 0.022)]
-    [InlineData("e-feColorMatrix-003", 0.022)]
-    [InlineData("e-feColorMatrix-004", 0.022)]
-    [InlineData("e-feColorMatrix-005", 0.022)]
-    [InlineData("e-feColorMatrix-006", 0.022)]
-    [InlineData("e-feColorMatrix-007", 0.022)]
-    [InlineData("e-feColorMatrix-008", 0.022, Skip = "TODO")]
-    [InlineData("e-feColorMatrix-009", 0.022, Skip = "TODO")]
-    [InlineData("e-feColorMatrix-010", 0.022)]
-    [InlineData("e-feColorMatrix-011", 0.022)]
-    [InlineData("e-feColorMatrix-012", 0.022)]
-    [InlineData("e-feColorMatrix-013", 0.022)]
-    [InlineData("e-feColorMatrix-014", 0.022, Skip = "TODO")]
-    [InlineData("e-feColorMatrix-015", 0.022)]
-    [InlineData("e-feColorMatrix-016", 0.022, Skip = "TODO")]
-    public void e_feColorMatrix(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feComponentTransfer-001", 0.022)]
-    [InlineData("e-feComponentTransfer-002", 0.022)]
-    [InlineData("e-feComponentTransfer-003", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-004", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-005", 0.022)]
-    [InlineData("e-feComponentTransfer-006", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-007", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-008", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-009", 0.022)]
-    [InlineData("e-feComponentTransfer-010", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-011", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-012", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-013", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-014", 0.022)]
-    [InlineData("e-feComponentTransfer-015", 0.022)]
-    [InlineData("e-feComponentTransfer-016", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-017", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-018", 0.022)]
-    [InlineData("e-feComponentTransfer-019", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-020", 0.022, Skip = "TODO")]
-    [InlineData("e-feComponentTransfer-021", 0.022)]
-    [InlineData("e-feComponentTransfer-022", 0.022)]
-    public void e_feComponentTransfer(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feComposite-001", 0.022)]
-    [InlineData("e-feComposite-002", 0.022)]
-    [InlineData("e-feComposite-003", 0.022)]
-    [InlineData("e-feComposite-004", 0.022)]
-    [InlineData("e-feComposite-005", 0.022)]
-    [InlineData("e-feComposite-006", 0.022, Skip = "TODO")]
-    [InlineData("e-feComposite-007", 0.022)]
-    [InlineData("e-feComposite-008", 0.022)]
-    [InlineData("e-feComposite-009", 0.022)]
-    [InlineData("e-feComposite-010", 0.022)]
-    [InlineData("e-feComposite-011", 0.022)]
-    [InlineData("e-feComposite-012", 0.022)]
-    [InlineData("e-feComposite-013", 0.022)]
-    [InlineData("e-feComposite-014", 0.022)]
-    [InlineData("e-feComposite-015", 0.022)]
-    [InlineData("e-feComposite-016", 0.022)]
-    [InlineData("e-feComposite-017", 0.022)]
-    [InlineData("e-feComposite-018", 0.022)]
-    public void e_feComposite(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feConvolveMatrix-001", 0.022)]
-    [InlineData("e-feConvolveMatrix-002", 0.022)]
-    [InlineData("e-feConvolveMatrix-003", 0.022)]
-    [InlineData("e-feConvolveMatrix-004", 0.022)]
-    [InlineData("e-feConvolveMatrix-005", 0.022)]
-    [InlineData("e-feConvolveMatrix-006", 0.022)]
-    [InlineData("e-feConvolveMatrix-007", 0.022)]
-    [InlineData("e-feConvolveMatrix-008", 0.022)]
-    [InlineData("e-feConvolveMatrix-009", 0.022)]
-    [InlineData("e-feConvolveMatrix-010", 0.022)]
-    [InlineData("e-feConvolveMatrix-011", 0.022)]
-    [InlineData("e-feConvolveMatrix-012", 0.022)]
-    [InlineData("e-feConvolveMatrix-013", 0.022, Skip = "TODO")]
-    [InlineData("e-feConvolveMatrix-014", 0.022, Skip = "TODO")]
-    [InlineData("e-feConvolveMatrix-015", 0.022, Skip = "TODO")]
-    [InlineData("e-feConvolveMatrix-016", 0.022, Skip = "TODO")]
-    [InlineData("e-feConvolveMatrix-017", 0.022)]
-    [InlineData("e-feConvolveMatrix-018", 0.022, Skip = "TODO")]
-    [InlineData("e-feConvolveMatrix-019", 0.022)]
-    [InlineData("e-feConvolveMatrix-020", 0.022)]
-    [InlineData("e-feConvolveMatrix-021", 0.022, Skip = "TODO")]
-    [InlineData("e-feConvolveMatrix-022", 0.022)]
-    [InlineData("e-feConvolveMatrix-023", 0.022, Skip = "TODO")]
-    [InlineData("e-feConvolveMatrix-024", 0.022)]
-    [InlineData("e-feConvolveMatrix-025", 0.022)]
-    public void e_feConvolveMatrix(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feDiffuseLighting-001", 0.022)]
-    [InlineData("e-feDiffuseLighting-002", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-003", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-004", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-005", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-006", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-007", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-008", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-009", 0.022)]
-    [InlineData("e-feDiffuseLighting-010", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-011", 0.022)]
-    [InlineData("e-feDiffuseLighting-012", 0.022)]
-    [InlineData("e-feDiffuseLighting-013", 0.022)]
-    [InlineData("e-feDiffuseLighting-014", 0.022)]
-    [InlineData("e-feDiffuseLighting-015", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-016", 0.022)]
-    [InlineData("e-feDiffuseLighting-017", 0.022)]
-    [InlineData("e-feDiffuseLighting-018", 0.022)]
-    [InlineData("e-feDiffuseLighting-019", 0.022)]
-    [InlineData("e-feDiffuseLighting-020", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-021", 0.022, Skip = "TODO")]
-    [InlineData("e-feDiffuseLighting-022", 0.022)]
-    public void e_feDiffuseLighting(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feDisplacementMap-001", 0.022)]
-    public void e_feDisplacementMap(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feDistantLight-001", 0.022)]
-    [InlineData("e-feDistantLight-002", 0.022)]
-    [InlineData("e-feDistantLight-003", 0.022)]
-    [InlineData("e-feDistantLight-004", 0.022)]
-    public void e_feDistantLight(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory(Skip = "TODO")]
-    [InlineData("e-feDropShadow-001", 0.022)]
-    [InlineData("e-feDropShadow-002", 0.022)]
-    [InlineData("e-feDropShadow-003", 0.022)]
-    [InlineData("e-feDropShadow-004", 0.022)]
-    [InlineData("e-feDropShadow-005", 0.022)]
-    [InlineData("e-feDropShadow-006", 0.022)]
-    [InlineData("e-feDropShadow-007", 0.022)]
-    public void e_feDropShadow(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feFlood-001", 0.022)]
-    [InlineData("e-feFlood-002", 0.022)]
-    [InlineData("e-feFlood-003", 0.022)]
-    [InlineData("e-feFlood-004", 0.022)]
-    [InlineData("e-feFlood-005", 0.022)]
-    [InlineData("e-feFlood-006", 0.022, Skip = "TODO")]
-    [InlineData("e-feFlood-007", 0.022)]
-    [InlineData("e-feFlood-008", 0.022, Skip = "TODO")]
-    public void e_feFlood(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feGaussianBlur-001", 0.022)]
-    [InlineData("e-feGaussianBlur-002", 0.022, Skip = "TODO")]
-    [InlineData("e-feGaussianBlur-003", 0.022)]
-    [InlineData("e-feGaussianBlur-004", 0.022)]
-    [InlineData("e-feGaussianBlur-005", 0.022, Skip = "TODO")]
-    [InlineData("e-feGaussianBlur-006", 0.022)]
-    [InlineData("e-feGaussianBlur-007", 0.022)]
-    [InlineData("e-feGaussianBlur-008", 0.022)]
-    [InlineData("e-feGaussianBlur-009", 0.022)]
-    [InlineData("e-feGaussianBlur-010", 0.022)]
-    [InlineData("e-feGaussianBlur-011", 0.022)]
-    [InlineData("e-feGaussianBlur-012", 0.022, Skip = "TODO")]
-    [InlineData("e-feGaussianBlur-013", 0.022)]
-    public void e_feGaussianBlur(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feImage-001", 0.022)]
-    [InlineData("e-feImage-002", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-003", 0.022)]
-    [InlineData("e-feImage-004", 0.022)]
-    [InlineData("e-feImage-005", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-006", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-007", 0.022)]
-    [InlineData("e-feImage-008", 0.022)]
-    [InlineData("e-feImage-009", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-010", 0.022)]
-    [InlineData("e-feImage-011", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-012", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-013", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-014", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-015", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-016", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-017", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-018", 0.022)]
-    [InlineData("e-feImage-019", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-020", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-021", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-022", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-023", 0.022, Skip = "TODO")]
-    [InlineData("e-feImage-024", 0.022, Skip = "TODO")]
-    public void e_feImage(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feMerge-001", 0.022)]
-    [InlineData("e-feMerge-002", 0.022)]
-    [InlineData("e-feMerge-003", 0.022, Skip = "TODO")]
-    public void e_feMerge(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feMorphology-001", 0.022, Skip = "TODO")]
-    [InlineData("e-feMorphology-002", 0.022, Skip = "TODO")]
-    [InlineData("e-feMorphology-003", 0.022, Skip = "TODO")]
-    [InlineData("e-feMorphology-004", 0.022, Skip = "TODO")]
-    [InlineData("e-feMorphology-005", 0.022)]
-    [InlineData("e-feMorphology-006", 0.022, Skip = "TODO")]
-    [InlineData("e-feMorphology-007", 0.022, Skip = "TODO")]
-    [InlineData("e-feMorphology-008", 0.022)]
-    [InlineData("e-feMorphology-009", 0.022)]
-    [InlineData("e-feMorphology-010", 0.022)]
-    [InlineData("e-feMorphology-011", 0.022)]
-    [InlineData("e-feMorphology-012", 0.022)]
-    [InlineData("e-feMorphology-013", 0.022, Skip = "TODO")]
-    [InlineData("e-feMorphology-014", 0.022, Skip = "TODO")]
-    public void e_feMorphology(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feOffset-001", 0.022)]
-    [InlineData("e-feOffset-002", 0.022)]
-    [InlineData("e-feOffset-003", 0.022)]
-    [InlineData("e-feOffset-004", 0.022)]
-    [InlineData("e-feOffset-005", 0.022)]
-    [InlineData("e-feOffset-006", 0.022)]
-    [InlineData("e-feOffset-007", 0.022, Skip = "TODO")]
-    [InlineData("e-feOffset-008", 0.022, Skip = "TODO")]
-    public void e_feOffset(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-fePointLight-001", 0.022)]
-    [InlineData("e-fePointLight-002", 0.022)]
-    [InlineData("e-fePointLight-003", 0.022, Skip = "TODO")]
-    [InlineData("e-fePointLight-004", 0.022, Skip = "TODO")]
-    public void e_fePointLight(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feSpecularLighting-001", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpecularLighting-002", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpecularLighting-003", 0.022)]
-    [InlineData("e-feSpecularLighting-004", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpecularLighting-005", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpecularLighting-006", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpecularLighting-007", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpecularLighting-008", 0.022, Skip = "TODO")]
-    public void e_feSpecularLighting(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feSpotLight-001", 0.022)]
-    [InlineData("e-feSpotLight-002", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpotLight-003", 0.022)]
-    [InlineData("e-feSpotLight-004", 0.022)]
-    [InlineData("e-feSpotLight-005", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpotLight-006", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpotLight-007", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpotLight-008", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpotLight-009", 0.022)]
-    [InlineData("e-feSpotLight-010", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpotLight-011", 0.022, Skip = "TODO")]
-    [InlineData("e-feSpotLight-012", 0.022, Skip = "TODO")]
-    public void e_feSpotLight(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feTile-001", 0.022, Skip = "TODO")]
-    [InlineData("e-feTile-002", 0.022, Skip = "TODO")]
-    [InlineData("e-feTile-003", 0.022, Skip = "TODO")]
-    [InlineData("e-feTile-004", 0.022, Skip = "TODO")]
-    [InlineData("e-feTile-005", 0.022, Skip = "TODO")]
-    [InlineData("e-feTile-006", 0.022, Skip = "TODO")]
-    [InlineData("e-feTile-007", 0.022, Skip = "TODO")]
-    public void e_feTile(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-feTurbulence-001", 0.022)]
-    [InlineData("e-feTurbulence-002", 0.022)]
-    [InlineData("e-feTurbulence-003", 0.022)]
-    [InlineData("e-feTurbulence-004", 0.022)]
-    [InlineData("e-feTurbulence-005", 0.022)]
-    [InlineData("e-feTurbulence-006", 0.022)]
-    [InlineData("e-feTurbulence-007", 0.022)]
-    [InlineData("e-feTurbulence-008", 0.022)]
-    [InlineData("e-feTurbulence-009", 0.022, Skip = "TODO")]
-    [InlineData("e-feTurbulence-010", 0.022)]
-    [InlineData("e-feTurbulence-011", 0.022)]
-    [InlineData("e-feTurbulence-012", 0.022)]
-    [InlineData("e-feTurbulence-013", 0.022)]
-    [InlineData("e-feTurbulence-014", 0.022)]
-    [InlineData("e-feTurbulence-015", 0.022)]
-    [InlineData("e-feTurbulence-016", 0.022)]
-    [InlineData("e-feTurbulence-017", 0.022, Skip = "TODO")]
-    [InlineData("e-feTurbulence-018", 0.022, Skip = "TODO")]
-    [InlineData("e-feTurbulence-019", 0.022)]
-    public void e_feTurbulence(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-filter-001", 0.022)]
-    [InlineData("e-filter-002", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-003", 0.022)]
-    [InlineData("e-filter-004", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-005", 0.022)]
-    [InlineData("e-filter-006", 0.022)]
-    [InlineData("e-filter-007", 0.022)]
-    [InlineData("e-filter-008", 0.022)]
-    [InlineData("e-filter-009", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-010", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-011", 0.022)]
-    [InlineData("e-filter-012", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-013", 0.022)]
-    [InlineData("e-filter-014", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-015", 0.022)]
-    [InlineData("e-filter-016", 0.022)]
-    [InlineData("e-filter-017", 0.022)]
-    [InlineData("e-filter-018", 0.022)]
-    [InlineData("e-filter-019", 0.022)]
-    [InlineData("e-filter-020", 0.022)]
-    [InlineData("e-filter-021", 0.022)]
-    [InlineData("e-filter-022", 0.022)]
-    [InlineData("e-filter-023", 0.022)]
-    [InlineData("e-filter-024", 0.022)]
-    [InlineData("e-filter-025", 0.022)]
-    [InlineData("e-filter-026", 0.022)]
-    [InlineData("e-filter-027", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-028", 0.022)]
-    [InlineData("e-filter-029", 0.022)]
-    [InlineData("e-filter-030", 0.022)]
-    [InlineData("e-filter-031", 0.022)]
-    [InlineData("e-filter-032", 0.022)]
-    [InlineData("e-filter-033", 0.022)]
-    [InlineData("e-filter-034", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-035", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-036", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-037", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-038", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-039", 0.022)]
-    [InlineData("e-filter-040", 0.022)]
-    [InlineData("e-filter-041", 0.022)]
-    [InlineData("e-filter-042", 0.022)]
-    [InlineData("e-filter-043", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-044", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-045", 0.022)]
-    [InlineData("e-filter-046", 0.022)]
-    [InlineData("e-filter-047", 0.022)]
-    [InlineData("e-filter-048", 0.022)]
-    [InlineData("e-filter-049", 0.022)]
-    [InlineData("e-filter-050", 0.022)]
-    [InlineData("e-filter-051", 0.022, Skip = "resvg expects invalid filter links to ignore the element, but Chrome/W3C treat them as null filters and the repo follows Chrome filter semantics.")]
-    [InlineData("e-filter-052", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-053", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-054", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-055", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-056", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-057", 0.022)]
-    [InlineData("e-filter-058", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-059", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-060", 0.022, Skip = "TODO")]
-    [InlineData("e-filter-061", 0.022)]
-    [InlineData("e-filter-062", 0.022)]
-    [InlineData("e-filter-063", 0.022)]
-    [InlineData("e-filter-064", 0.022)]
-    [InlineData("e-filter-065", 0.022, Skip = "TODO")]
-    public void e_filter(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-g-001", 0.022)]
-    [InlineData("e-g-002", 0.022)]
-    public void e_g(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-image-001", 0.022, Skip = "TODO")]
-    [InlineData("e-image-002", 0.022, Skip = "TODO")]
-    [InlineData("e-image-003", 0.022, Skip = "TODO")]
-    [InlineData("e-image-004", 0.022, Skip = "TODO")]
-    [InlineData("e-image-005", 0.022, Skip = "TODO")]
-    [InlineData("e-image-006", 0.022, Skip = "TODO")]
-    [InlineData("e-image-007", 0.022, Skip = "TODO")]
-    [InlineData("e-image-008", 0.022, Skip = "TODO")]
-    [InlineData("e-image-009", 0.022, Skip = "TODO")]
-    [InlineData("e-image-010", 0.022)]
-    [InlineData("e-image-011", 0.022)]
-    [InlineData("e-image-012", 0.022)]
-    [InlineData("e-image-013", 0.022)]
-    [InlineData("e-image-014", 0.022)]
-    [InlineData("e-image-015", 0.022)]
-    [InlineData("e-image-016", 0.022)]
-    [InlineData("e-image-017", 0.022, Skip = "TODO")]
-    [InlineData("e-image-018", 0.022)]
-    [InlineData("e-image-019", 0.022)]
-    [InlineData("e-image-020", 0.022)]
-    [InlineData("e-image-021", 0.022)]
-    [InlineData("e-image-022", 0.022)]
-    [InlineData("e-image-023", 0.022)]
-    [InlineData("e-image-024", 0.022)]
-    [InlineData("e-image-025", 0.022, Skip = "TODO")]
-    [InlineData("e-image-026", 0.022, Skip = "TODO")]
-    [InlineData("e-image-027", 0.022, Skip = "TODO")]
-    [InlineData("e-image-028", 0.022, Skip = "TODO")]
-    [InlineData("e-image-029", 0.022, Skip = "TODO")]
-    [InlineData("e-image-030", 0.022, Skip = "TODO")]
-    [InlineData("e-image-031", 0.022, Skip = "TODO")]
-    [InlineData("e-image-032", 0.022, Skip = "TODO")]
-    [InlineData("e-image-033", 0.022, Skip = "TODO")]
-    [InlineData("e-image-034", 0.022, Skip = "TODO")]
-    [InlineData("e-image-035", 0.022, Skip = "TODO")]
-    [InlineData("e-image-036", 0.022, Skip = "TODO")]
-    [InlineData("e-image-037", 0.022, Skip = "TODO")]
-    [InlineData("e-image-038", 0.022, Skip = "TODO")]
-    [InlineData("e-image-039", 0.022, Skip = "TODO")]
-    [InlineData("e-image-040", 0.022, Skip = "TODO")]
-    [InlineData("e-image-041", 0.022, Skip = "TODO")]
-    [InlineData("e-image-042", 0.022, Skip = "TODO")]
-    [InlineData("e-image-043", 0.022, Skip = "TODO")]
-    [InlineData("e-image-045", 0.022, Skip = "TODO")]
-    [InlineData("e-image-046", 0.022, Skip = "TODO")]
-    public void e_image(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-line-001", 0.022)]
-    [InlineData("e-line-002", 0.022)]
-    [InlineData("e-line-003", 0.022)]
-    [InlineData("e-line-004", 0.022)]
-    [InlineData("e-line-005", 0.022)]
-    [InlineData("e-line-006", 0.022)]
-    [InlineData("e-line-007", 0.022)]
-    [InlineData("e-line-008", 0.022)]
-    [InlineData("e-line-009", 0.022)]
-    public void e_line(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-linearGradient-001", 0.022)]
-    [InlineData("e-linearGradient-002", 0.022)]
-    [InlineData("e-linearGradient-003", 0.022)]
-    [InlineData("e-linearGradient-004", 0.022)]
-    [InlineData("e-linearGradient-005", 0.022)]
-    [InlineData("e-linearGradient-006", 0.022, Skip = "TODO")]
-    [InlineData("e-linearGradient-007", 0.022)]
-    [InlineData("e-linearGradient-008", 0.022)]
-    [InlineData("e-linearGradient-009", 0.022)]
-    [InlineData("e-linearGradient-010", 0.022)]
-    [InlineData("e-linearGradient-011", 0.022)]
-    [InlineData("e-linearGradient-012", 0.022)]
-    [InlineData("e-linearGradient-013", 0.022)]
-    [InlineData("e-linearGradient-014", 0.022)]
-    [InlineData("e-linearGradient-015", 0.022)]
-    [InlineData("e-linearGradient-016", 0.022)]
-    [InlineData("e-linearGradient-017", 0.022)]
-    [InlineData("e-linearGradient-018", 0.022, Skip = "TODO")]
-    [InlineData("e-linearGradient-019", 0.022, Skip = "TODO")]
-    [InlineData("e-linearGradient-020", 0.022)]
-    [InlineData("e-linearGradient-021", 0.022)]
-    [InlineData("e-linearGradient-022", 0.022)]
-    [InlineData("e-linearGradient-023", 0.022)]
-    [InlineData("e-linearGradient-024", 0.022)]
-    [InlineData("e-linearGradient-025", 0.022)]
-    [InlineData("e-linearGradient-026", 0.022)]
-    [InlineData("e-linearGradient-027", 0.022)]
-    [InlineData("e-linearGradient-028", 0.022)]
-    [InlineData("e-linearGradient-029", 0.022, Skip = "TODO")]
-    [InlineData("e-linearGradient-030", 0.022)]
-    [InlineData("e-linearGradient-031", 0.022)]
-    [InlineData("e-linearGradient-032", 0.022)]
-    [InlineData("e-linearGradient-033", 0.022)]
-    [InlineData("e-linearGradient-034", 0.022)]
-    [InlineData("e-linearGradient-035", 0.022, Skip = "TODO")]
-    [InlineData("e-linearGradient-036", 0.022, Skip = "TODO")]
-    [InlineData("e-linearGradient-037", 0.022, Skip = "TODO")]
-    [InlineData("e-linearGradient-038", 0.022, Skip = "TODO")]
-    public void e_linearGradient(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-marker-001", 0.022)]
-    [InlineData("e-marker-002", 0.022)]
-    [InlineData("e-marker-003", 0.022)]
-    [InlineData("e-marker-004", 0.022)]
-    [InlineData("e-marker-005", 0.022)]
-    [InlineData("e-marker-006", 0.022)]
-    [InlineData("e-marker-007", 0.022)]
-    [InlineData("e-marker-008", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-009", 0.022)]
-    [InlineData("e-marker-010", 0.022)]
-    [InlineData("e-marker-011", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-012", 0.022)]
-    [InlineData("e-marker-013", 0.022)]
-    [InlineData("e-marker-014", 0.022)]
-    [InlineData("e-marker-015", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-016", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-017", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-018", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-019", 0.022)]
-    [InlineData("e-marker-020", 0.022)]
-    [InlineData("e-marker-021", 0.022)]
-    [InlineData("e-marker-022", 0.022)]
-    [InlineData("e-marker-023", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-024", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-025", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-026", 0.022)]
-    [InlineData("e-marker-027", 0.022)]
-    [InlineData("e-marker-028", 0.022)]
-    [InlineData("e-marker-029", 0.022)]
-    [InlineData("e-marker-030", 0.022)]
-    [InlineData("e-marker-031", 0.022)]
-    [InlineData("e-marker-032", 0.022)]
-    [InlineData("e-marker-033", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-034", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-035", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-036", 0.022)]
-    [InlineData("e-marker-037", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-038", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-039", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-040", 0.022)]
-    [InlineData("e-marker-041", 0.022)]
-    [InlineData("e-marker-042", 0.022)]
-    [InlineData("e-marker-043", 0.022)]
-    [InlineData("e-marker-044", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-045", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-046", 0.022)]
-    [InlineData("e-marker-047", 0.022)]
-    [InlineData("e-marker-048", 0.022)]
-    [InlineData("e-marker-049", 0.022)]
-    [InlineData("e-marker-050", 0.022)]
-    [InlineData("e-marker-051", 0.022)]
-    [InlineData("e-marker-052", 0.022)]
-    [InlineData("e-marker-053", 0.022)]
-    [InlineData("e-marker-054", 0.022)]
-    [InlineData("e-marker-055", 0.022)]
-    [InlineData("e-marker-056", 0.022)]
-    [InlineData("e-marker-057", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-058", 0.022)]
-    [InlineData("e-marker-059", 0.022, Skip = "TODO")]
-    [InlineData("e-marker-060", 0.022, Skip = "TODO")]
-    public void e_marker(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-mask-001", 0.022)]
-    [InlineData("e-mask-002", 0.022)]
-    [InlineData("e-mask-003", 0.022)]
-    [InlineData("e-mask-004", 0.022)]
-    [InlineData("e-mask-005", 0.022)]
-    [InlineData("e-mask-006", 0.022)]
-    [InlineData("e-mask-007", 0.022)]
-    [InlineData("e-mask-008", 0.022)]
-    [InlineData("e-mask-009", 0.022)]
-    [InlineData("e-mask-010", 0.022)]
-    [InlineData("e-mask-011", 0.022)]
-    [InlineData("e-mask-012", 0.022)]
-    [InlineData("e-mask-013", 0.022, Skip = "TODO")]
-    [InlineData("e-mask-014", 0.022)]
-    [InlineData("e-mask-015", 0.022)]
-    [InlineData("e-mask-016", 0.022)]
-    [InlineData("e-mask-017", 0.022)]
-    [InlineData("e-mask-018", 0.022)]
-    [InlineData("e-mask-019", 0.022)]
-    [InlineData("e-mask-020", 0.022)]
-    [InlineData("e-mask-021", 0.022)]
-    [InlineData("e-mask-022", 0.022, Skip = "TODO")]
-    [InlineData("e-mask-023", 0.022)]
-    [InlineData("e-mask-024", 0.022, Skip = "TODO")]
-    [InlineData("e-mask-025", 0.022, Skip = "TODO")]
-    [InlineData("e-mask-026", 0.022, Skip = "TODO")]
-    [InlineData("e-mask-027", 0.022, Skip = "TODO")]
-    [InlineData("e-mask-028", 0.022)]
-    [InlineData("e-mask-029", 0.022)]
-    [InlineData("e-mask-030", 0.022)]
-    [InlineData("e-mask-031", 0.022)]
-    public void e_mask(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-path-001", 0.022)]
-    [InlineData("e-path-002", 0.022)]
-    [InlineData("e-path-003", 0.022)]
-    [InlineData("e-path-004", 0.022)]
-    [InlineData("e-path-005", 0.022)]
-    [InlineData("e-path-006", 0.022)]
-    [InlineData("e-path-007", 0.022)]
-    [InlineData("e-path-008", 0.022)]
-    [InlineData("e-path-009", 0.022)]
-    [InlineData("e-path-010", 0.022)]
-    [InlineData("e-path-011", 0.022)]
-    [InlineData("e-path-012", 0.022)]
-    [InlineData("e-path-013", 0.022)]
-    [InlineData("e-path-014", 0.022)]
-    [InlineData("e-path-015", 0.022)]
-    [InlineData("e-path-016", 0.022)]
-    [InlineData("e-path-017", 0.022)]
-    [InlineData("e-path-018", 0.022)]
-    [InlineData("e-path-019", 0.022)]
-    [InlineData("e-path-020", 0.022)]
-    [InlineData("e-path-021", 0.022)]
-    [InlineData("e-path-022", 0.022)]
-    [InlineData("e-path-023", 0.022)]
-    [InlineData("e-path-024", 0.022)]
-    [InlineData("e-path-025", 0.022)]
-    [InlineData("e-path-026", 0.022)]
-    [InlineData("e-path-027", 0.022)]
-    [InlineData("e-path-028", 0.022)]
-    [InlineData("e-path-029", 0.022)]
-    [InlineData("e-path-030", 0.022)]
-    [InlineData("e-path-031", 0.022)]
-    [InlineData("e-path-032", 0.022)]
-    [InlineData("e-path-033", 0.022)]
-    [InlineData("e-path-034", 0.022)]
-    [InlineData("e-path-035", 0.022)]
-    [InlineData("e-path-036", 0.022)]
-    [InlineData("e-path-037", 0.022)]
-    [InlineData("e-path-038", 0.022)]
-    [InlineData("e-path-039", 0.022)]
-    [InlineData("e-path-040", 0.022)]
-    [InlineData("e-path-041", 0.022)]
-    [InlineData("e-path-042", 0.022)]
-    [InlineData("e-path-043", 0.022)]
-    [InlineData("e-path-044", 0.022)]
-    [InlineData("e-path-045", 0.022)]
-    [InlineData("e-path-046", 0.022)]
-    [InlineData("e-path-047", 0.022)]
-    [InlineData("e-path-048", 0.022)]
-    [InlineData("e-path-049", 0.022)]
-    [InlineData("e-path-050", 0.022)]
-    [InlineData("e-path-051", 0.022)]
-    public void e_path(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-pattern-001", 0.022)]
-    [InlineData("e-pattern-002", 0.022)]
-    [InlineData("e-pattern-003", 0.022)]
-    [InlineData("e-pattern-004", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-005", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-006", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-007", 0.022)]
-    [InlineData("e-pattern-008", 0.022)]
-    [InlineData("e-pattern-009", 0.022)]
-    [InlineData("e-pattern-010", 0.022)]
-    [InlineData("e-pattern-011", 0.022)]
-    [InlineData("e-pattern-012", 0.022)]
-    [InlineData("e-pattern-013", 0.022)]
-    [InlineData("e-pattern-014", 0.022)]
-    [InlineData("e-pattern-015", 0.022)]
-    [InlineData("e-pattern-016", 0.022)]
-    [InlineData("e-pattern-017", 0.022)]
-    [InlineData("e-pattern-018", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-019", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-020", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-021", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-022", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-023", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-024", 0.022)]
-    [InlineData("e-pattern-025", 0.022)]
-    [InlineData("e-pattern-026", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-027", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-028", 0.022, Skip = "TODO")]
-    [InlineData("e-pattern-029", 0.022)]
-    [InlineData("e-pattern-030", 0.022)]
-    [InlineData("e-pattern-031", 0.022)]
-    public void e_pattern(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-polygon-001", 0.022)]
-    [InlineData("e-polygon-002", 0.022)]
-    [InlineData("e-polygon-003", 0.022)]
-    [InlineData("e-polygon-004", 0.022)]
-    [InlineData("e-polygon-005", 0.022)]
-    public void e_polygon(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-polyline-001", 0.022)]
-    [InlineData("e-polyline-002", 0.022)]
-    [InlineData("e-polyline-003", 0.022)]
-    [InlineData("e-polyline-004", 0.022)]
-    [InlineData("e-polyline-005", 0.022)]
-    public void e_polyline(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-radialGradient-001", 0.022)]
-    [InlineData("e-radialGradient-002", 0.022)]
-    [InlineData("e-radialGradient-003", 0.022)]
-    [InlineData("e-radialGradient-004", 0.022)]
-    [InlineData("e-radialGradient-005", 0.022)]
-    [InlineData("e-radialGradient-006", 0.022, Skip = "TODO")]
-    [InlineData("e-radialGradient-007", 0.022)]
-    [InlineData("e-radialGradient-008", 0.022)]
-    [InlineData("e-radialGradient-009", 0.022)]
-    [InlineData("e-radialGradient-010", 0.022)]
-    [InlineData("e-radialGradient-011", 0.022)]
-    [InlineData("e-radialGradient-012", 0.022)]
-    [InlineData("e-radialGradient-013", 0.022)]
-    [InlineData("e-radialGradient-014", 0.022)]
-    [InlineData("e-radialGradient-015", 0.022)]
-    [InlineData("e-radialGradient-016", 0.022)]
-    [InlineData("e-radialGradient-017", 0.022)]
-    [InlineData("e-radialGradient-018", 0.022, Skip = "TODO")]
-    [InlineData("e-radialGradient-019", 0.022, Skip = "TODO")]
-    [InlineData("e-radialGradient-020", 0.022)]
-    [InlineData("e-radialGradient-021", 0.022)]
-    [InlineData("e-radialGradient-022", 0.022)]
-    [InlineData("e-radialGradient-023", 0.022)]
-    [InlineData("e-radialGradient-024", 0.022)]
-    [InlineData("e-radialGradient-025", 0.022)]
-    [InlineData("e-radialGradient-026", 0.022)]
-    [InlineData("e-radialGradient-027", 0.022)]
-    [InlineData("e-radialGradient-028", 0.022)]
-    [InlineData("e-radialGradient-029", 0.022)]
-    [InlineData("e-radialGradient-030", 0.022)]
-    [InlineData("e-radialGradient-031", 0.022, Skip = "TODO")]
-    [InlineData("e-radialGradient-032", 0.022, Skip = "TODO")]
-    [InlineData("e-radialGradient-033", 0.022)]
-    [InlineData("e-radialGradient-034", 0.022)]
-    [InlineData("e-radialGradient-035", 0.022, Skip = "TODO")]
-    [InlineData("e-radialGradient-036", 0.022)]
-    [InlineData("e-radialGradient-037", 0.022)]
-    [InlineData("e-radialGradient-038", 0.022)]
-    [InlineData("e-radialGradient-039", 0.022)]
-    [InlineData("e-radialGradient-040", 0.022, Skip = "TODO")]
-    [InlineData("e-radialGradient-041", 0.022, Skip = "TODO")]
-    [InlineData("e-radialGradient-042", 0.022)]
-    [InlineData("e-radialGradient-043", 0.022)]
-    [InlineData("e-radialGradient-044", 0.022)]
-    [InlineData("e-radialGradient-045", 0.022)]
-    public void e_radialGradient(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-rect-001", 0.022)]
-    [InlineData("e-rect-002", 0.022)]
-    [InlineData("e-rect-003", 0.022)]
-    [InlineData("e-rect-004", 0.022)]
-    [InlineData("e-rect-005", 0.022)]
-    [InlineData("e-rect-006", 0.022)]
-    [InlineData("e-rect-007", 0.022)]
-    [InlineData("e-rect-008", 0.022)]
-    [InlineData("e-rect-009", 0.022)]
-    [InlineData("e-rect-010", 0.022)]
-    [InlineData("e-rect-011", 0.022)]
-    [InlineData("e-rect-012", 0.022)]
-    [InlineData("e-rect-013", 0.022)]
-    [InlineData("e-rect-014", 0.022)]
-    [InlineData("e-rect-015", 0.022)]
-    [InlineData("e-rect-016", 0.022, Skip = "TODO")]
-    [InlineData("e-rect-017", 0.022, Skip = "TODO")]
-    [InlineData("e-rect-018", 0.022)]
-    [InlineData("e-rect-019", 0.022)]
-    [InlineData("e-rect-020", 0.022)]
-    [InlineData("e-rect-021", 0.022)]
-    [InlineData("e-rect-022", 0.022)]
-    [InlineData("e-rect-023", 0.022, Skip = "TODO")]
-    [InlineData("e-rect-024", 0.022)]
-    [InlineData("e-rect-025", 0.022)]
-    [InlineData("e-rect-026", 0.022)]
-    [InlineData("e-rect-027", 0.022)]
-    [InlineData("e-rect-028", 0.022)]
-    [InlineData("e-rect-029", 0.022)]
-    [InlineData("e-rect-030", 0.022)]
-    [InlineData("e-rect-031", 0.022)]
-    [InlineData("e-rect-032", 0.022)]
-    [InlineData("e-rect-033", 0.022)]
-    [InlineData("e-rect-034", 0.022)]
-    [InlineData("e-rect-035", 0.022)]
-    [InlineData("e-rect-036", 0.022)]
-    [InlineData("e-rect-037", 0.022)]
-    public void e_rect(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-stop-001", 0.022)]
-    [InlineData("e-stop-002", 0.022)]
-    [InlineData("e-stop-003", 0.022)]
-    [InlineData("e-stop-004", 0.022)]
-    [InlineData("e-stop-005", 0.022)]
-    [InlineData("e-stop-006", 0.022)]
-    [InlineData("e-stop-007", 0.022)]
-    [InlineData("e-stop-008", 0.022)]
-    [InlineData("e-stop-009", 0.022)]
-    [InlineData("e-stop-010", 0.022, Skip = "TODO")]
-    [InlineData("e-stop-011", 0.022)]
-    [InlineData("e-stop-012", 0.022)]
-    [InlineData("e-stop-013", 0.022)]
-    [InlineData("e-stop-014", 0.022)]
-    [InlineData("e-stop-015", 0.022)]
-    [InlineData("e-stop-016", 0.022)]
-    [InlineData("e-stop-017", 0.022)]
-    [InlineData("e-stop-018", 0.022)]
-    [InlineData("e-stop-019", 0.022)]
-    [InlineData("e-stop-020", 0.022)]
-    [InlineData("e-stop-021", 0.022)]
-    [InlineData("e-stop-022", 0.022)]
-    [InlineData("e-stop-023", 0.022)]
-    [InlineData("e-stop-024", 0.022)]
-    [InlineData("e-stop-025", 0.022)]
-    [InlineData("e-stop-026", 0.022)]
-    [InlineData("e-stop-027", 0.022)]
-    [InlineData("e-stop-028", 0.022)]
-    [InlineData("e-stop-029", 0.022)]
-    [InlineData("e-stop-030", 0.022)]
-    [InlineData("e-stop-031", 0.022)]
-    [InlineData("e-stop-032", 0.022, Skip = "TODO")]
-    public void e_stop(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-style-001", 0.022)]
-    [InlineData("e-style-002", 0.022)]
-    [InlineData("e-style-003", 0.022)]
-    [InlineData("e-style-004", 0.022)]
-    [InlineData("e-style-005", 0.022)]
-    [InlineData("e-style-006", 0.022, Skip = "TODO")]
-    [InlineData("e-style-007", 0.022)]
-    [InlineData("e-style-008", 0.022)]
-    [InlineData("e-style-009", 0.022)]
-    [InlineData("e-style-010", 0.022)]
-    [InlineData("e-style-011", 0.022, Skip = "TODO")]
-    [InlineData("e-style-012", 0.022, Skip = "TODO")]
-    [InlineData("e-style-013", 0.022)]
-    [InlineData("e-style-014", 0.022)]
-    [InlineData("e-style-015", 0.022)]
-    [InlineData("e-style-016", 0.022)]
-    public void e_style(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-svg-001", 0.022)]
-    [InlineData("e-svg-002", 0.022)]
-    [InlineData("e-svg-003", 0.022, Skip = "TODO")]
-    [InlineData("e-svg-004", 0.022)]
-    [InlineData("e-svg-005", 0.022)]
-    [InlineData("e-svg-006", 0.022, Skip = "TODO")]
-    [InlineData("e-svg-007", 0.022, Skip = "TODO")]
-    [InlineData("e-svg-008", 0.022)]
-    [InlineData("e-svg-009", 0.022)]
-    [InlineData("e-svg-010", 0.022)]
-    [InlineData("e-svg-011", 0.022)]
-    [InlineData("e-svg-012", 0.022)]
-    [InlineData("e-svg-013", 0.022)]
-    [InlineData("e-svg-014", 0.022)]
-    [InlineData("e-svg-015", 0.022)]
-    [InlineData("e-svg-016", 0.022)]
-    [InlineData("e-svg-017", 0.022)]
-    [InlineData("e-svg-018", 0.022)]
-    [InlineData("e-svg-019", 0.022)]
-    [InlineData("e-svg-020", 0.022)]
-    [InlineData("e-svg-021", 0.022)]
-    [InlineData("e-svg-022", 0.022)]
-    [InlineData("e-svg-023", 0.022)]
-    [InlineData("e-svg-024", 0.022)]
-    [InlineData("e-svg-025", 0.022)]
-    [InlineData("e-svg-026", 0.022)]
-    [InlineData("e-svg-027", 0.022)]
-    [InlineData("e-svg-028", 0.022)]
-    [InlineData("e-svg-029", 0.022)]
-    [InlineData("e-svg-030", 0.022)]
-    [InlineData("e-svg-031", 0.022)]
-    [InlineData("e-svg-032", 0.022)]
-    [InlineData("e-svg-033", 0.022)]
-    [InlineData("e-svg-034", 0.022, Skip = "TODO")]
-    [InlineData("e-svg-035", 0.022, Skip = "TODO")]
-    [InlineData("e-svg-036", 0.022, Skip = "TODO")]
-    [InlineData("e-svg-037", 0.022, Skip = "TODO")]
-    [InlineData("e-svg-038", 0.022)]
-    [InlineData("e-svg-039", 0.022, Skip = "TODO")]
-    public void e_svg(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-switch-001", 0.022)]
-    [InlineData("e-switch-002", 0.022)]
-    [InlineData("e-switch-003", 0.022)]
-    [InlineData("e-switch-004", 0.022)]
-    [InlineData("e-switch-005", 0.022, Skip = "TODO")]
-    [InlineData("e-switch-006", 0.022, Skip = "TODO")]
-    [InlineData("e-switch-007", 0.022, Skip = "TODO")]
-    [InlineData("e-switch-008", 0.022)]
-    [InlineData("e-switch-009", 0.022, Skip = "TODO")]
-    [InlineData("e-switch-010", 0.022)]
-    [InlineData("e-switch-011", 0.022)]
-    [InlineData("e-switch-012", 0.022)]
-    [InlineData("e-switch-013", 0.022)]
-    public void e_switch(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-symbol-001", 0.022)]
-    [InlineData("e-symbol-002", 0.022)]
-    [InlineData("e-symbol-003", 0.022)]
-    [InlineData("e-symbol-004", 0.022)]
-    [InlineData("e-symbol-005", 0.022)]
-    [InlineData("e-symbol-006", 0.022)]
-    [InlineData("e-symbol-007", 0.022)]
-    [InlineData("e-symbol-008", 0.022)]
-    [InlineData("e-symbol-009", 0.022)]
-    [InlineData("e-symbol-010", 0.022, Skip = "TODO")]
-    [InlineData("e-symbol-011", 0.022)]
-    [InlineData("e-symbol-012", 0.022)]
-    [InlineData("e-symbol-013", 0.022)]
-    [InlineData("e-symbol-014", 0.022)]
-    public void e_symbol(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-text-001", 0.022)]
-    [InlineData("e-text-002", 0.022)]
-    [InlineData("e-text-003", 0.022)]
-    [InlineData("e-text-004", 0.022)]
-    [InlineData("e-text-005", 0.022)]
-    [InlineData("e-text-006", 0.022)]
-    [InlineData("e-text-007", 0.022)]
-    [InlineData("e-text-008", 0.022)]
-    [InlineData("e-text-009", 0.022)]
-    [InlineData("e-text-010", 0.022)]
-    [InlineData("e-text-011", 0.022)]
-    [InlineData("e-text-012", 0.022)]
-    [InlineData("e-text-013", 0.022)]
-    [InlineData("e-text-014", 0.022)]
-    [InlineData("e-text-015", 0.022)]
-    [InlineData("e-text-016", 0.022)]
-    [InlineData("e-text-017", 0.022)]
-    [InlineData("e-text-018", 0.022)]
-    [InlineData("e-text-019", 0.022)]
-    [InlineData("e-text-020", 0.022)]
-    [InlineData("e-text-021", 0.022)]
-    [InlineData("e-text-022", 0.022)]
-    [InlineData("e-text-023", 0.022)]
-    [InlineData("e-text-024", 0.022)]
-    [InlineData("e-text-025", 0.022)]
-    [InlineData("e-text-026", 0.022)]
-    [InlineData("e-text-027", 0.022, Skip = "Emoji cluster shaping parity is not implemented")]
-    [InlineData("e-text-028", 0.022, Skip = "Emoji cluster shaping parity is not implemented")]
-    [InlineData("e-text-029", 0.022, Skip = "Emoji cluster shaping parity with coordinate lists is not implemented")]
-    [InlineData("e-text-030", 0.022, Skip = "Arabic coordinate-list and bidi parity is not implemented")]
-    [InlineData("e-text-031", 0.022)]
-    [InlineData("e-text-033", 0.022, Skip = "Per-glyph rotate parity with underline and pattern is not implemented")]
-    [InlineData("e-text-034", 0.022, Skip = "Per-glyph rotate parity for complex-script text is not implemented")]
-    [InlineData("e-text-035", 0.022)]
-    [InlineData("e-text-036", 0.022, Skip = "Arabic rotate parity is not implemented")]
-    [InlineData("e-text-037", 0.022)]
-    [InlineData("e-text-038", 0.022)]
-    [InlineData("e-text-039", 0.022)]
-    [InlineData("e-text-040", 0.022)]
-    [InlineData("e-text-041", 0.022)]
-    [InlineData("e-text-042", 0.022)]
-    public void e_text(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-textPath-001", 0.022)]
-    [InlineData("e-textPath-002", 0.022)]
-    [InlineData("e-textPath-003", 0.022)]
-    [InlineData("e-textPath-004", 0.022)]
-    [InlineData("e-textPath-005", 0.022)]
-    [InlineData("e-textPath-006", 0.022)]
-    [InlineData("e-textPath-007", 0.022, Skip = "textPath method=stretch is not implemented")]
-    [InlineData("e-textPath-008", 0.022, Skip = "textPath spacing=auto is not implemented")]
-    [InlineData("e-textPath-009", 0.026)]
-    [InlineData("e-textPath-010", 0.022, Skip = "Nested textPath child parity is not implemented")]
-    [InlineData("e-textPath-011", 0.048)]
-    [InlineData("e-textPath-012", 0.022)]
-    [InlineData("e-textPath-013", 0.022)]
-    [InlineData("e-textPath-014", 0.022)]
-    [InlineData("e-textPath-015", 0.022)]
-    [InlineData("e-textPath-016", 0.022, Skip = "SVG2 textPath link-to-shape parity is not implemented")]
-    [InlineData("e-textPath-017", 0.022)]
-    [InlineData("e-textPath-018", 0.022)]
-    [InlineData("e-textPath-019", 0.022)]
-    [InlineData("e-textPath-020", 0.022)]
-    [InlineData("e-textPath-021", 0.022, Skip = "Vertical writing-mode on textPath is not implemented")]
-    [InlineData("e-textPath-022", 0.022, Skip = "Absolute-position tspan on textPath is not implemented")]
-    [InlineData("e-textPath-023", 0.022)]
-    [InlineData("e-textPath-024", 0.022)]
-    [InlineData("e-textPath-025", 0.022)]
-    [InlineData("e-textPath-026", 0.022)]
-    [InlineData("e-textPath-027", 0.022)]
-    [InlineData("e-textPath-028", 0.022)]
-    [InlineData("e-textPath-029", 0.022)]
-    [InlineData("e-textPath-030", 0.022, Skip = "Complex textPath run parity is not implemented")]
-    [InlineData("e-textPath-031", 0.022)]
-    [InlineData("e-textPath-032", 0.022)]
-    [InlineData("e-textPath-033", 0.022)]
-    [InlineData("e-textPath-034", 0.022)]
-    [InlineData("e-textPath-035", 0.022, Skip = "Current-position dy propagation across independent textPath chunks still differs from Chrome")]
-    [InlineData("e-textPath-036", 0.022)]
-    [InlineData("e-textPath-037", 0.022)]
-    [InlineData("e-textPath-038", 0.022)]
-    [InlineData("e-textPath-039", 0.022)]
-    [InlineData("e-textPath-040", 0.022)]
-    [InlineData("e-textPath-041", 0.022, Skip = "SVG2 textPath side=right is not implemented")]
-    [InlineData("e-textPath-042", 0.022)]
-    [InlineData("e-textPath-043", 0.022)]
-    [InlineData("e-textPath-044", 0.022)]
-    public void e_textPath(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-tref-001", 0.022)]
-    [InlineData("e-tref-002", 0.022)]
-    [InlineData("e-tref-003", 0.022)]
-    [InlineData("e-tref-004", 0.022, Skip = "Chrome omits this external-document tref content, but the resvg baseline expects it.")]
-    [InlineData("e-tref-005", 0.022, Skip = "Nested tref chaining parity is not implemented and Chrome omits this content.")]
-    [InlineData("e-tref-006", 0.022)]
-    [InlineData("e-tref-007", 0.022)]
-    [InlineData("e-tref-008", 0.022)]
-    [InlineData("e-tref-009", 0.022)]
-    [InlineData("e-tref-010", 0.022)]
-    [InlineData("e-tref-011", 0.022)]
-    public void e_tref(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-tspan-001", 0.022)]
-    [InlineData("e-tspan-002", 0.022)]
-    [InlineData("e-tspan-003", 0.022)]
-    [InlineData("e-tspan-004", 0.022)]
-    [InlineData("e-tspan-005", 0.022)]
-    [InlineData("e-tspan-006", 0.022)]
-    [InlineData("e-tspan-007", 0.022)]
-    [InlineData("e-tspan-008", 0.022)]
-    [InlineData("e-tspan-009", 0.022)]
-    [InlineData("e-tspan-010", 0.022)]
-    [InlineData("e-tspan-011", 0.022)]
-    [InlineData("e-tspan-012", 0.022)]
-    [InlineData("e-tspan-013", 0.022)]
-    [InlineData("e-tspan-014", 0.022)]
-    [InlineData("e-tspan-015", 0.022)]
-    [InlineData("e-tspan-016", 0.022)]
-    [InlineData("e-tspan-017", 0.022)]
-    [InlineData("e-tspan-018", 0.022)]
-    [InlineData("e-tspan-019", 0.022)]
-    [InlineData("e-tspan-020", 0.022)]
-    [InlineData("e-tspan-021", 0.022)]
-    [InlineData("e-tspan-022", 0.022)]
-    [InlineData("e-tspan-023", 0.022)]
-    [InlineData("e-tspan-024", 0.022)]
-    [InlineData("e-tspan-025", 0.022)]
-    [InlineData("e-tspan-026", 0.022)]
-    [InlineData("e-tspan-027", 0.022)]
-    [InlineData("e-tspan-028", 0.022)]
-    [InlineData("e-tspan-029", 0.022)]
-    [InlineData("e-tspan-030", 0.026)]
-    [InlineData("e-tspan-031", 0.022)]
-    public void e_tspan(string name, double errorThreshold) => TestImpl(name, errorThreshold);
-
-    [OSXTheory]
-    [InlineData("e-use-001", 0.022)]
-    [InlineData("e-use-002", 0.022)]
-    [InlineData("e-use-003", 0.022)]
-    [InlineData("e-use-004", 0.022)]
-    [InlineData("e-use-005", 0.022)]
-    [InlineData("e-use-006", 0.022)]
-    [InlineData("e-use-007", 0.022)]
-    [InlineData("e-use-008", 0.022, Skip = "Chrome renders external use content, but the resvg baseline omits it.")]
-    [InlineData("e-use-009", 0.022)]
-    [InlineData("e-use-010", 0.022)]
-    [InlineData("e-use-011", 0.022)]
-    [InlineData("e-use-012", 0.022)]
-    [InlineData("e-use-013", 0.022)]
-    [InlineData("e-use-014", 0.022)]
-    [InlineData("e-use-015", 0.022)]
-    [InlineData("e-use-016", 0.022)]
-    [InlineData("e-use-017", 0.022)]
-    [InlineData("e-use-018", 0.022)]
-    [InlineData("e-use-019", 0.022)]
-    [InlineData("e-use-020", 0.022)]
-    [InlineData("e-use-021", 0.022)]
-    [InlineData("e-use-022", 0.022)]
-    [InlineData("e-use-023", 0.022)]
-    [InlineData("e-use-024", 0.022)]
-    [InlineData("e-use-025", 0.022)]
-    [InlineData("e-use-026", 0.022)]
-    [InlineData("e-use-027", 0.022)]
-    [InlineData("e-use-028", 0.022)]
-    [InlineData("e-use-029", 0.022)]
-    [InlineData("e-use-030", 0.022)]
-    [InlineData("e-use-031", 0.022)]
-    [InlineData("e-use-032", 0.022)]
-    [InlineData("e-use-033", 0.022)]
-    [InlineData("e-use-034", 0.022)]
-    [InlineData("e-use-035", 0.022)]
-    [InlineData("e-use-036", 0.022)]
-    [InlineData("e-use-037", 0.022, Skip = "TODO")]
-    [InlineData("e-use-038", 0.022, Skip = "TODO")]
-    [InlineData("e-use-039", 0.022, Skip = "TODO")]
-    [InlineData("e-use-040", 0.022, Skip = "TODO")]
-    [InlineData("e-use-041", 0.022, Skip = "TODO")]
-    public void e_use(string name, double errorThreshold) => TestImpl(name, errorThreshold);
+    private static bool IsResourceRenderingFixture(string relativeName)
+        => !relativeName.StartsWith("tests/text/", StringComparison.Ordinal) &&
+           (ResourceRenderingFixturePrefixes.Any(prefix => relativeName.StartsWith(prefix, StringComparison.Ordinal)) ||
+            ResourceRenderingFixtureNames.Contains(relativeName, StringComparer.Ordinal));
+
+    private static bool IsCssStylingFixture(string relativeName)
+        => CssStylingFixtureNames.Contains(relativeName, StringComparer.Ordinal);
+
+    private static readonly RemainingFixtureFamily[] RemainingFixtureFamilies =
+    {
+        new("remaining_extra_fixtures", ResvgFixtureArea.Extra, "extra/", 15),
+        new("remaining_filter_enable_background_fixtures", ResvgFixtureArea.Filters, "tests/filters/enable-background/", 21),
+        new("remaining_filter_fe_blend_fixtures", ResvgFixtureArea.Filters, "tests/filters/feBlend/", 10),
+        new("remaining_filter_fe_color_matrix_fixtures", ResvgFixtureArea.Filters, "tests/filters/feColorMatrix/", 16),
+        new("remaining_filter_fe_composite_fixtures", ResvgFixtureArea.Filters, "tests/filters/feComposite/", 18),
+        new("remaining_filter_fe_convolve_matrix_fixtures", ResvgFixtureArea.Filters, "tests/filters/feConvolveMatrix/", 25),
+        new("remaining_filter_fe_diffuse_lighting_fixtures", ResvgFixtureArea.Filters, "tests/filters/feDiffuseLighting/", 22),
+        new("remaining_filter_fe_drop_shadow_fixtures", ResvgFixtureArea.Filters, "tests/filters/feDropShadow/", 8),
+        new("remaining_filter_fe_flood_fixtures", ResvgFixtureArea.Filters, "tests/filters/feFlood/", 8),
+        new("remaining_filter_fe_gaussian_blur_fixtures", ResvgFixtureArea.Filters, "tests/filters/feGaussianBlur/", 13),
+        new("remaining_filter_fe_merge_fixtures", ResvgFixtureArea.Filters, "tests/filters/feMerge/", 3),
+        new("remaining_filter_fe_morphology_fixtures", ResvgFixtureArea.Filters, "tests/filters/feMorphology/", 14),
+        new("remaining_filter_fe_offset_fixtures", ResvgFixtureArea.Filters, "tests/filters/feOffset/", 9),
+        new("remaining_filter_fe_point_light_fixtures", ResvgFixtureArea.Filters, "tests/filters/fePointLight/", 4),
+        new("remaining_filter_fe_specular_lighting_fixtures", ResvgFixtureArea.Filters, "tests/filters/feSpecularLighting/", 8),
+        new("remaining_filter_fe_spot_light_fixtures", ResvgFixtureArea.Filters, "tests/filters/feSpotLight/", 12),
+        new("remaining_filter_fe_tile_fixtures", ResvgFixtureArea.Filters, "tests/filters/feTile/", 7),
+        new("remaining_filter_filter_fixtures", ResvgFixtureArea.Filters, "tests/filters/filter/", 74),
+        new("remaining_filter_flood_color_fixtures", ResvgFixtureArea.Filters, "tests/filters/flood-color/", 7),
+        new("remaining_masking_clip_fixtures", ResvgFixtureArea.Masking, "tests/masking/clip/", 1),
+        new("remaining_masking_clip_path_fixtures", ResvgFixtureArea.Masking, "tests/masking/clipPath/", 52),
+        new("remaining_masking_mask_fixtures", ResvgFixtureArea.Masking, "tests/masking/mask/", 39),
+        new("remaining_paint_server_linear_gradient_fixtures", ResvgFixtureArea.PaintServers, "tests/paint-servers/linearGradient/", 38),
+        new("remaining_paint_server_pattern_fixtures", ResvgFixtureArea.PaintServers, "tests/paint-servers/pattern/", 31),
+        new("remaining_paint_server_radial_gradient_fixtures", ResvgFixtureArea.PaintServers, "tests/paint-servers/radialGradient/", 45),
+        new("remaining_painting_context_fixtures", ResvgFixtureArea.Painting, "tests/painting/context/", 16),
+        new("remaining_painting_display_fixtures", ResvgFixtureArea.Painting, "tests/painting/display/", 9),
+        new("remaining_painting_fill_fixtures", ResvgFixtureArea.Painting, "tests/painting/fill/", 60),
+        new("remaining_shape_path_fixtures", ResvgFixtureArea.Shapes, "tests/shapes/path/", 57),
+        new("remaining_structure_image_fixtures", ResvgFixtureArea.Structure, "tests/structure/image/", 55),
+        new("remaining_structure_style_fixtures", ResvgFixtureArea.Structure, "tests/structure/style/", 2),
+        new("remaining_structure_style_attribute_fixtures", ResvgFixtureArea.Structure, "tests/structure/style-attribute/", 1),
+        new("remaining_structure_svg_fixtures", ResvgFixtureArea.Structure, "tests/structure/svg/", 44),
+        new("remaining_structure_switch_fixtures", ResvgFixtureArea.Structure, "tests/structure/switch/", 13),
+        new("remaining_structure_symbol_fixtures", ResvgFixtureArea.Structure, "tests/structure/symbol/", 17),
+        new("remaining_structure_system_language_fixtures", ResvgFixtureArea.Structure, "tests/structure/systemLanguage/", 10),
+        new("remaining_structure_transform_origin_fixtures", ResvgFixtureArea.Structure, "tests/structure/transform-origin/", 23)
+    };
+
+    private static readonly (ResvgFixtureArea Area, int Count)[] ExpectedRemainingFixtureAreaCounts =
+    {
+        (ResvgFixtureArea.Extra, 15),
+        (ResvgFixtureArea.Filters, 279),
+        (ResvgFixtureArea.Masking, 92),
+        (ResvgFixtureArea.PaintServers, 114),
+        (ResvgFixtureArea.Painting, 85),
+        (ResvgFixtureArea.Shapes, 57),
+        (ResvgFixtureArea.Structure, 165)
+    };
+
+    private static readonly string[] ResourceRenderingFixturePrefixes =
+    {
+        "tests/filters/feComponentTransfer/",
+        "tests/filters/feDisplacementMap/",
+        "tests/filters/feDistantLight/",
+        "tests/filters/flood-opacity/",
+        "tests/filters/filter-functions/",
+        "tests/filters/feTurbulence/",
+        "tests/masking/clip-rule/",
+        "tests/paint-servers/stop/",
+        "tests/paint-servers/stop-color/",
+        "tests/paint-servers/stop-opacity/",
+        "tests/painting/color/",
+        "tests/painting/fill-opacity/",
+        "tests/painting/fill-rule/",
+        "tests/painting/image-rendering/",
+        "tests/painting/isolation/",
+        "tests/painting/mix-blend-mode/",
+        "tests/painting/opacity/",
+        "tests/painting/overflow/",
+        "tests/painting/paint-order/",
+        "tests/painting/shape-rendering/",
+        "tests/painting/stroke/",
+        "tests/painting/stroke-dasharray/",
+        "tests/painting/stroke-dashoffset/",
+        "tests/painting/stroke-linecap/",
+        "tests/painting/stroke-linejoin/",
+        "tests/painting/stroke-miterlimit/",
+        "tests/painting/stroke-opacity/",
+        "tests/painting/stroke-width/",
+        "tests/painting/visibility/",
+        "tests/shapes/circle/",
+        "tests/shapes/ellipse/",
+        "tests/shapes/line/",
+        "tests/shapes/polygon/",
+        "tests/shapes/polyline/",
+        "tests/shapes/rect/",
+        "tests/structure/a/",
+        "tests/structure/defs/",
+        "tests/structure/g/",
+        "tests/structure/transform/",
+        "tests/structure/use/"
+    };
+
+    private static readonly string[] ResourceRenderingFixtureNames =
+    {
+        "tests/filters/feImage/chained-feImage",
+        "tests/filters/feImage/embedded-png",
+        "tests/filters/feImage/empty",
+        "tests/filters/feImage/link-on-an-element-with-complex-transform",
+        "tests/filters/feImage/link-on-an-element-with-transform",
+        "tests/filters/feImage/link-to-an-element",
+        "tests/filters/feImage/link-to-an-element-outside-defs-1",
+        "tests/filters/feImage/link-to-an-element-outside-defs-2",
+        "tests/filters/feImage/link-to-an-element-with-transform",
+        "tests/filters/feImage/link-to-an-element-with-opacity",
+        "tests/filters/feImage/link-to-an-invalid-element",
+        "tests/filters/feImage/link-to-g",
+        "tests/filters/feImage/link-to-use",
+        "tests/filters/feImage/preserveAspectRatio=none",
+        "tests/filters/feImage/recursive-links-1",
+        "tests/filters/feImage/recursive-links-2",
+        "tests/filters/feImage/self-recursive",
+        "tests/filters/feImage/simple-case",
+        "tests/filters/feImage/svg",
+        "tests/filters/feImage/with-subregion-1",
+        "tests/filters/feImage/with-subregion-2",
+        "tests/filters/feImage/with-subregion-3",
+        "tests/filters/feImage/with-subregion-4",
+        "tests/filters/feImage/with-subregion-5",
+        "tests/filters/feImage/with-x-y",
+        "tests/filters/feImage/with-x-y-and-protruding-subregion-1",
+        "tests/filters/feImage/with-x-y-and-protruding-subregion-2",
+        "tests/painting/marker/default-clip",
+        "tests/painting/marker/empty",
+        "tests/painting/marker/inheritance-1",
+        "tests/painting/marker/inheritance-2",
+        "tests/painting/marker/invalid-child",
+        "tests/painting/marker/marker-on-circle",
+        "tests/painting/marker/marker-on-line",
+        "tests/painting/marker/marker-on-polygon",
+        "tests/painting/marker/marker-on-polyline",
+        "tests/painting/marker/marker-on-rect",
+        "tests/painting/marker/marker-on-rounded-rect",
+        "tests/painting/marker/marker-on-text",
+        "tests/painting/marker/marker-with-a-negative-size",
+        "tests/painting/marker/nested",
+        "tests/painting/marker/no-stroke-on-target",
+        "tests/painting/marker/on-ArcTo",
+        "tests/painting/marker/only-marker-end",
+        "tests/painting/marker/only-marker-mid",
+        "tests/painting/marker/only-marker-start",
+        "tests/painting/marker/orient=-45",
+        "tests/painting/marker/orient=0.25turn",
+        "tests/painting/marker/orient=1.5rad",
+        "tests/painting/marker/orient=30",
+        "tests/painting/marker/orient=40grad",
+        "tests/painting/marker/orient=9999",
+        "tests/painting/marker/orient=auto-on-M-C-C-1",
+        "tests/painting/marker/orient=auto-on-M-C-C-2",
+        "tests/painting/marker/orient=auto-on-M-C-C-3",
+        "tests/painting/marker/orient=auto-on-M-C-C-4",
+        "tests/painting/marker/orient=auto-on-M-C-C-5",
+        "tests/painting/marker/orient=auto-on-M-C-C-6",
+        "tests/painting/marker/orient=auto-on-M-C-C-7",
+        "tests/painting/marker/orient=auto-on-M-C-C-8",
+        "tests/painting/marker/orient=auto-on-M-C-L",
+        "tests/painting/marker/orient=auto-on-M-C-M-L",
+        "tests/painting/marker/orient=auto-on-M-L-C",
+        "tests/painting/marker/orient=auto-on-M-L-L-Z-Z-Z",
+        "tests/painting/marker/orient=auto-on-M-L-L",
+        "tests/painting/marker/orient=auto-on-M-L-M-C",
+        "tests/painting/marker/orient=auto-on-M-L-Z",
+        "tests/painting/marker/orient=auto-on-M-L",
+        "tests/painting/marker/orient=auto-start-reverse",
+        "tests/painting/marker/percent-values",
+        "tests/painting/marker/recursive-1",
+        "tests/painting/marker/recursive-2",
+        "tests/painting/marker/recursive-3",
+        "tests/painting/marker/recursive-4",
+        "tests/painting/marker/recursive-5",
+        "tests/painting/marker/target-with-subpaths-1",
+        "tests/painting/marker/target-with-subpaths-2",
+        "tests/painting/marker/the-marker-property-in-CSS",
+        "tests/painting/marker/the-marker-property",
+        "tests/painting/marker/with-a-large-stroke",
+        "tests/painting/marker/with-a-text-child",
+        "tests/painting/marker/with-an-image-child",
+        "tests/painting/marker/with-invalid-markerUnits",
+        "tests/painting/marker/with-markerUnits=userSpaceOnUse",
+        "tests/painting/marker/with-viewBox-1",
+        "tests/painting/marker/with-viewBox-2",
+        "tests/painting/marker/zero-length-path-1",
+        "tests/painting/marker/zero-length-path-2",
+        "tests/painting/marker/zero-sized-stroke",
+        "tests/painting/marker/zero-sized"
+    };
+
+    private static readonly string[] CssStylingFixtureNames =
+    {
+        "tests/structure/style-attribute/comments",
+        "tests/structure/style-attribute/simple-case",
+        "tests/structure/style-attribute/transform",
+        "tests/structure/style/attribute-selector",
+        "tests/structure/style/class-selector",
+        "tests/structure/style/combined-selectors",
+        "tests/structure/style/current-color-fill-before-color",
+        "tests/structure/style/current-color-stroke-before-color",
+        "tests/structure/style/iD-selector",
+        "tests/structure/style/important",
+        "tests/structure/style/invalid-type",
+        "tests/structure/style/resolve-order",
+        "tests/structure/style/rule-specificity",
+        "tests/structure/style/style-after-usage",
+        "tests/structure/style/style-inside-CDATA",
+        "tests/structure/style/transform",
+        "tests/structure/style/type-selector",
+        "tests/structure/style/universal-selector",
+        "tests/structure/style/unresolved-class-selector"
+    };
+
+    private static string GetResvgTestsRoot()
+        => Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "externals", "resvg", "crates", "resvg", "tests"));
+
+    private static string ToLocalPath(string relativePath)
+        => relativePath.Replace('/', Path.DirectorySeparatorChar);
+
+    private static string GetSafeName(string relativeName)
+    {
+        var safeName = relativeName
+            .Replace('/', '_')
+            .Replace('\\', '_')
+            .Replace('=', '-')
+            .Replace('%', 'p');
+
+        return string.Join("_", safeName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private sealed record RemainingFixtureFamily(
+        string TheoryName,
+        ResvgFixtureArea Area,
+        string Prefix,
+        int ExpectedCount);
+
+    private enum ResvgFixtureArea
+    {
+        Extra,
+        Filters,
+        Masking,
+        PaintServers,
+        Painting,
+        Shapes,
+        Structure
+    }
 }

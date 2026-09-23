@@ -1,7 +1,22 @@
 using System;
+using System.IO;
+using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Svg.Skia;
+using Avalonia.Svg.Skia.UnitTests.Views;
+using Avalonia.Threading;
+using ShimSkiaSharp;
+using ShimSkiaSharp.Editing;
+using Svg.Model;
+using Svg.Model.Services;
 using Svg.Skia;
 using Xunit;
 
@@ -9,6 +24,184 @@ namespace Avalonia.Svg.Skia.UnitTests;
 
 public class SvgControlTests
 {
+    private const string SampleSvg =
+        "<svg width=\"10\" height=\"10\"><rect x=\"0\" y=\"0\" width=\"10\" height=\"10\" fill=\"red\" /></svg>";
+
+    private const string ReplacementSvg =
+        "<svg width=\"20\" height=\"12\"><rect x=\"0\" y=\"0\" width=\"20\" height=\"12\" fill=\"blue\" /></svg>";
+
+    private const string CurrentColorSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+          <rect x="0" y="0" width="10" height="10" fill="currentColor" />
+        </svg>
+        """;
+
+    private const string ButtonSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="44" fill="#3B82F6"/>
+        </svg>
+        """;
+
+    private const string InteractiveSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80">
+            <rect id="hit" x="0" y="0" width="80" height="80" fill="#3B82F6"/>
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public async Task Source_LoadsInlineSvg()
+    {
+        var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"));
+
+        svg.Source = SampleSvg;
+
+        await WaitForSourceAsync(svg);
+
+        Assert.NotNull(svg.SkSvg);
+        Assert.NotNull(svg.Picture);
+        Assert.Equal(10, svg.Picture!.CullRect.Width);
+        Assert.Equal(10, svg.Picture.CullRect.Height);
+    }
+
+    [AvaloniaFact]
+    public async Task Source_UsesMostRecentInlineSvg()
+    {
+        var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"));
+
+        svg.Source = SampleSvg;
+        svg.Source = ReplacementSvg;
+
+        await WaitForSourceAsync(svg);
+
+        Assert.NotNull(svg.Picture);
+        Assert.Equal(20, svg.Picture!.CullRect.Width);
+        Assert.Equal(12, svg.Picture.CullRect.Height);
+    }
+
+    [AvaloniaFact]
+    public async Task SourceLoad_ClearsCompletedPendingLoad()
+    {
+        var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"));
+
+        svg.Source = SampleSvg;
+
+        await WaitForSourceAsync(svg);
+        await WaitForPendingLoadToClearAsync(svg);
+
+        Assert.Null(GetPrivateField(svg, "_pendingLoadCts"));
+    }
+
+    [AvaloniaFact]
+    public async Task Path_LoadsFileSvg()
+    {
+        var path = CreateTempSvgFile(SampleSvg);
+        try
+        {
+            var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"))
+            {
+                Path = path
+            };
+
+            await WaitForSourceAsync(svg);
+
+            Assert.NotNull(svg.Picture);
+            Assert.Equal(10, svg.Picture!.CullRect.Width);
+            Assert.Equal(10, svg.Picture.CullRect.Height);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Path_UsesMostRecentFileSvg()
+    {
+        var firstPath = CreateTempSvgFile(SampleSvg);
+        var secondPath = CreateTempSvgFile(ReplacementSvg);
+        try
+        {
+            var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"));
+
+            svg.Path = firstPath;
+            svg.Path = secondPath;
+
+            await WaitForSourceAsync(svg);
+
+            Assert.NotNull(svg.Picture);
+            Assert.Equal(20, svg.Picture!.CullRect.Width);
+            Assert.Equal(12, svg.Picture.CullRect.Height);
+        }
+        finally
+        {
+            File.Delete(firstPath);
+            File.Delete(secondPath);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task SvgSource_LoadsExternalSource()
+    {
+        using var source = SvgSource.LoadFromSvg(SampleSvg);
+        var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"))
+        {
+            SvgSource = source
+        };
+
+        await WaitForSourceAsync(svg);
+
+        Assert.NotNull(svg.Picture);
+        Assert.Equal(10, svg.Picture!.CullRect.Width);
+        Assert.Equal(10, svg.Picture.CullRect.Height);
+    }
+
+    [AvaloniaFact]
+    public void LoadFromSvgDocument_SetsCurrentSourceSynchronously()
+    {
+        var document = SvgService.FromSvg(SampleSvg);
+        Assert.NotNull(document);
+
+        var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"));
+
+        svg.LoadFromSvgDocument(document);
+
+        Assert.NotNull(svg.SkSvg);
+        Assert.NotNull(svg.Picture);
+        Assert.Equal(10, svg.Picture!.CullRect.Width);
+        Assert.Equal(10, svg.Picture.CullRect.Height);
+    }
+
+    [AvaloniaFact]
+    public async Task SvgSource_AppliesCurrentColorOverride()
+    {
+        using var source = SvgSource.LoadFromSvg(CurrentColorSvg);
+        var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"))
+        {
+            SvgSource = source,
+            CurrentColor = Color.FromRgb(0, 128, 255)
+        };
+
+        await WaitForSourceAsync(svg);
+
+        Assert.Equal(new SKColor(0, 128, 255, 255), GetFirstFillColor(svg.SkSvg));
+    }
+
+    [AvaloniaFact]
+    public async Task Source_AppliesCurrentRenderOptionsWhenLoadCompletes()
+    {
+        var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"));
+
+        svg.Source = SampleSvg;
+        svg.Wireframe = true;
+        svg.DisableFilters = true;
+
+        await WaitForSourceAsync(svg);
+
+        Assert.NotNull(svg.SkSvg);
+        Assert.True(svg.SkSvg!.Wireframe);
+        Assert.Equal(DrawAttributes.Filter, svg.SkSvg.IgnoreAttributes);
+    }
+
     [AvaloniaFact]
     public void AnimationPlaybackRate_NormalizesNonFiniteValues()
     {
@@ -69,6 +262,204 @@ public class SvgControlTests
         Assert.False((bool)GetPrivateField(svg, "_animationRenderLoopRequested"));
     }
 
+    [AvaloniaFact]
+    public async Task CurrentColor_ReloadsInlineSource()
+    {
+        var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"))
+        {
+            Source = CurrentColorSvg
+        };
+
+        await WaitForSourceAsync(svg);
+        var initialPicture = svg.Picture;
+
+        svg.CurrentColor = Color.FromRgb(0, 128, 255);
+
+        await WaitForSourceChangeAsync(svg, initialPicture);
+
+        Assert.Equal(new SKColor(0, 128, 255, 255), GetFirstFillColor(svg.SkSvg));
+    }
+
+    [AvaloniaFact]
+    public async Task XamlPath_AppliesInlineAndStyledRecolorOverrides()
+    {
+        var view = new Issue545RecolorView();
+        var window = new Window
+        {
+            Content = view
+        };
+
+        window.Show();
+        try
+        {
+            await WaitForSourceAsync(view.InlineCurrentColorControl);
+            await WaitForSourceAsync(view.InlineCssControl);
+            await WaitForSourceAsync(view.StyledCurrentColorControl);
+            await WaitForSourceAsync(view.StyledCssControl);
+            await WaitForPendingLoadToClearAsync(view.InlineCurrentColorControl);
+            await WaitForPendingLoadToClearAsync(view.InlineCssControl);
+            await WaitForPendingLoadToClearAsync(view.StyledCurrentColorControl);
+            await WaitForPendingLoadToClearAsync(view.StyledCssControl);
+            var currentColor = new SKColor(0, 128, 255, 255);
+            var cssColor = new SKColor(0, 255, 0, 255);
+            Assert.Equal(Color.FromRgb(0, 128, 255), view.InlineCurrentColorControl.CurrentColor);
+            Assert.Equal("rect { fill: #00FF00; }", Svg.GetCss(view.InlineCssControl));
+            Assert.Equal(Color.FromRgb(0, 128, 255), view.StyledCurrentColorControl.CurrentColor);
+            Assert.Equal("rect { fill: #00FF00; }", Svg.GetCss(view.StyledCssControl));
+            Assert.Equal(currentColor, GetFirstFillColor(view.InlineCurrentColorControl.SkSvg));
+            Assert.Equal(cssColor, GetFirstFillColor(view.InlineCssControl.SkSvg));
+            Assert.Equal(currentColor, GetFirstFillColor(view.StyledCurrentColorControl.SkSvg));
+            Assert.Equal(cssColor, GetFirstFillColor(view.StyledCssControl.SkSvg));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task SvgContent_BubblesPointerEventsToParentButton()
+    {
+        var pressed = 0;
+        var released = 0;
+        var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"))
+        {
+            Source = ButtonSvg,
+            Width = 80,
+            Height = 80
+        };
+        var button = new Button
+        {
+            Content = svg
+        };
+        button.AddHandler(
+            InputElement.PointerPressedEvent,
+            (_, _) => pressed++,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        button.AddHandler(
+            InputElement.PointerReleasedEvent,
+            (_, _) => released++,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        var window = new Window
+        {
+            Width = 160,
+            Height = 160,
+            Content = button
+        };
+
+        window.Show();
+        try
+        {
+            await WaitForSourceAsync(svg);
+
+            window.MouseMove(new Point(80, 80), RawInputModifiers.None);
+            window.MouseDown(new Point(80, 80), MouseButton.Left, RawInputModifiers.None);
+            Assert.True(button.IsPressed);
+            window.MouseUp(new Point(80, 80), MouseButton.Left, RawInputModifiers.None);
+
+            Assert.Equal(1, pressed);
+            Assert.Equal(1, released);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task SvgInteractionCapture_ClearsWhenReleasedOutsideControl()
+    {
+        var svg = new Svg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"))
+        {
+            Source = InteractiveSvg,
+            Width = 80,
+            Height = 80
+        };
+        var canvas = new Canvas
+        {
+            Width = 220,
+            Height = 180,
+            Children = { svg }
+        };
+        Canvas.SetLeft(svg, 20);
+        Canvas.SetTop(svg, 20);
+        var window = new Window
+        {
+            Width = 220,
+            Height = 180,
+            Content = canvas
+        };
+
+        window.Show();
+        try
+        {
+            await WaitForSourceAsync(svg);
+
+            window.MouseMove(new Point(40, 40), RawInputModifiers.None);
+            window.MouseDown(new Point(40, 40), MouseButton.Left, RawInputModifiers.None);
+            Assert.NotNull(svg.Interaction.CapturedElement);
+
+            window.MouseUp(new Point(180, 140), MouseButton.Left, RawInputModifiers.None);
+
+            Assert.Null(svg.Interaction.CapturedElement);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task SvgInteractionCapture_ClearsWhenPointerCaptureLost()
+    {
+        var svg = new CaptureLossSvg(new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"))
+        {
+            Source = InteractiveSvg,
+            Width = 80,
+            Height = 80
+        };
+        var window = new Window
+        {
+            Width = 160,
+            Height = 160,
+            Content = svg
+        };
+
+        window.Show();
+        try
+        {
+            await WaitForSourceAsync(svg);
+
+            window.MouseMove(new Point(40, 40), RawInputModifiers.None);
+            window.MouseDown(new Point(40, 40), MouseButton.Left, RawInputModifiers.None);
+            Assert.NotNull(svg.Interaction.CapturedElement);
+            Assert.NotNull(svg.Interaction.PressedElement);
+            Assert.NotNull(svg.PressedPointer);
+
+            svg.PressedPointer!.Capture(null);
+
+            Assert.Null(svg.Interaction.CapturedElement);
+            Assert.Null(svg.Interaction.PressedElement);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private sealed class CaptureLossSvg(Uri baseUri) : Svg(baseUri)
+    {
+        public IPointer? PressedPointer { get; private set; }
+
+        protected override void OnPointerPressed(PointerPressedEventArgs e)
+        {
+            base.OnPointerPressed(e);
+            PressedPointer = e.Pointer;
+        }
+    }
+
     private static void InvokeAnimationFrameCallback(Svg svg, long generation)
     {
         var callback = typeof(Svg).GetMethod(
@@ -80,6 +471,16 @@ public class SvgControlTests
 
         Assert.NotNull(callback);
         callback.Invoke(svg, new object[] { TimeSpan.Zero, generation });
+    }
+
+    private static SKColor GetFirstFillColor(SKSvg? svg)
+    {
+        var command = svg?.Model?
+            .FindCommands<DrawPathCanvasCommand>()
+            .FirstOrDefault(x => x.Paint?.Style == SKPaintStyle.Fill);
+
+        Assert.NotNull(command?.Paint?.Color);
+        return command!.Paint!.Color!.Value;
     }
 
     private static object GetPrivateField(Svg svg, string fieldName)
@@ -94,5 +495,60 @@ public class SvgControlTests
         var field = typeof(Svg).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field.SetValue(svg, value);
+    }
+
+    private static string CreateTempSvgFile(string svg)
+    {
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid():N}.svg");
+        File.WriteAllText(path, svg);
+        return path;
+    }
+
+    private static async Task WaitForSourceAsync(Svg svg)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (svg.Picture is null)
+        {
+            if (DateTime.UtcNow > deadline)
+            {
+                Assert.NotNull(svg.Picture);
+                return;
+            }
+
+            await Task.Delay(10);
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        }
+    }
+
+    private static async Task WaitForSourceChangeAsync(Svg svg, object? previousPicture)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (ReferenceEquals(svg.Picture, previousPicture))
+        {
+            if (DateTime.UtcNow > deadline)
+            {
+                Assert.NotSame(previousPicture, svg.Picture);
+                return;
+            }
+
+            await Task.Delay(10);
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        }
+    }
+
+    private static async Task WaitForPendingLoadToClearAsync(Svg svg)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (GetPrivateField(svg, "_pendingLoadCts") is not null)
+        {
+            if (DateTime.UtcNow > deadline)
+            {
+                Assert.Null(GetPrivateField(svg, "_pendingLoadCts"));
+                return;
+            }
+
+            await Task.Delay(10);
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        }
     }
 }

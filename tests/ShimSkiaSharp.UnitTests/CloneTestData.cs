@@ -16,12 +16,17 @@ internal static class CloneTestData
             StrokeCap = SKStrokeCap.Round,
             StrokeJoin = SKStrokeJoin.Bevel,
             StrokeMiter = 3,
+            IsStrokeNonScaling = true,
             Typeface = SKTypeface.FromFamilyName("Test", SKFontStyleWeight.Bold, SKFontStyleWidth.Condensed, SKFontStyleSlant.Italic),
             TextSize = 14,
             TextAlign = SKTextAlign.Center,
             LcdRenderText = true,
             SubpixelText = true,
             TextEncoding = SKTextEncoding.Utf16,
+            FontLanguage = "ja-JP",
+            FontFeatureSettings = "'liga' 0",
+            FontKerning = "none",
+            FontVariantLigatures = "no-common-ligatures",
             Color = new SKColor(1, 2, 3, 4),
             Shader = SKShader.CreateColor(new SKColor(5, 6, 7, 8), SKColorSpace.Srgb),
             ColorFilter = SKColorFilter.CreateBlendMode(new SKColor(9, 10, 11, 12), SKBlendMode.Src),
@@ -45,8 +50,20 @@ internal static class CloneTestData
     public static SKImage CreateImage()
         => new SKImage { Data = new byte[] { 1, 2, 3, 4 }, Width = 10, Height = 20 };
 
+    public static SKFont CreateFont()
+        => new(
+            SKTypeface.FromFamilyName("Font", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Italic),
+            16,
+            1.25f,
+            0.1f)
+        {
+            Subpixel = true,
+            Embolden = true,
+            Edging = SKFontEdging.SubpixelAntialias
+        };
+
     public static SKTextBlob CreateTextBlob()
-        => SKTextBlob.CreatePositioned("Text", new[] { new SKPoint(1, 2), new SKPoint(3, 4) });
+        => SKTextBlob.CreatePositioned("Text", CreateFont(), new[] { new SKPoint(1, 2), new SKPoint(3, 4) });
 
     public static ClipPath CreateClipPath()
     {

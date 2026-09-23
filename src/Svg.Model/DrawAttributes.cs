@@ -16,5 +16,12 @@ public enum DrawAttributes
     Mask = 32,
     RequiredFeatures = 64,
     RequiredExtensions = 128,
-    SystemLanguage = 256
+    SystemLanguage = 256,
+    Markers = 512
+}
+
+internal static class DrawAttributesExtensions
+{
+    public static bool Has(this DrawAttributes attributes, DrawAttributes flag)
+        => (attributes & flag) == flag;
 }

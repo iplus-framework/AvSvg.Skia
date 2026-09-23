@@ -3,8 +3,11 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -17,6 +20,7 @@ using ShimSkiaSharp;
 using Svg;
 using Svg.Model;
 using Svg.Skia;
+using DrawingColor = System.Drawing.Color;
 
 namespace Avalonia.Svg.Skia;
 
@@ -33,6 +37,7 @@ public class Svg : Control
     private double _zoom = 1.0;
     private double _panX;
     private double _panY;
+    private readonly object _cacheSync = new();
     private Dictionary<string, SvgSource>? _cache;
     private SKSvg? _trackedAnimationSvg;
     private readonly Stopwatch _animationPlaybackStopwatch = new();
@@ -48,6 +53,8 @@ public class Svg : Control
     private long _animationRenderLoopGeneration;
     private bool _nativeCompositionHostSupported = true;
     private SvgCompositionVisualScene? _nativeCompositionScene;
+    private long _sourceLoadVersion;
+    private CancellationTokenSource? _pendingLoadCts;
     private static readonly Cursor s_arrowCursor = new(StandardCursorType.Arrow);
     private static readonly Cursor s_appStartingCursor = new(StandardCursorType.AppStarting);
     private static readonly Cursor s_crossCursor = new(StandardCursorType.Cross);
@@ -79,6 +86,12 @@ public class Svg : Control
     /// </summary>
     public static readonly StyledProperty<string?> SourceProperty =
         AvaloniaProperty.Register<Svg, string?>(nameof(Source));
+
+    /// <summary>
+    /// Defines the <see cref="SvgSource"/> property.
+    /// </summary>
+    public static readonly StyledProperty<SvgSource?> SvgSourceProperty =
+        AvaloniaProperty.Register<Svg, SvgSource?>(nameof(SvgSource));
 
     /// <summary>
     /// Defines the <see cref="Stretch"/> property.
@@ -179,6 +192,12 @@ public class Svg : Control
         AvaloniaProperty.RegisterAttached<Svg, AvaloniaObject, string?>("CurrentCss", inherits: true);
 
     /// <summary>
+    /// Defines the CurrentColor property.
+    /// </summary>
+    public static readonly AttachedProperty<Color?> CurrentColorProperty =
+        AvaloniaProperty.RegisterAttached<Svg, AvaloniaObject, Color?>("CurrentColor", inherits: true);
+
+    /// <summary>
     /// Gets or sets the Svg path.
     /// </summary>
     [Content]
@@ -195,6 +214,24 @@ public class Svg : Control
     {
         get => GetValue(SourceProperty);
         set => SetValue(SourceProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets the Svg source object.
+    /// </summary>
+    public SvgSource? SvgSource
+    {
+        get => GetValue(SvgSourceProperty);
+        set => SetValue(SvgSourceProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets the default SVG currentColor value.
+    /// </summary>
+    public Color? CurrentColor
+    {
+        get => GetCurrentColor(this);
+        set => SetCurrentColor(this, value);
     }
 
     /// <summary>
@@ -370,6 +407,24 @@ public class Svg : Control
     public SKSvg? SkSvg => _svg?.Svg;
 
     /// <summary>
+    /// Loads an already parsed SVG document into the control synchronously.
+    /// </summary>
+    /// <param name="document">The SVG document to load.</param>
+    /// <param name="parameters">Optional SVG parameters.</param>
+    public void LoadFromSvgDocument(SvgDocument? document, SvgParameters? parameters = null)
+    {
+        CancelPendingLoad();
+
+        if (document is null)
+        {
+            ClearSource();
+            return;
+        }
+
+        SetCurrentSource(new LoadResult(SvgSource.LoadFromSvgDocument(document, parameters), isCacheEntry: false));
+    }
+
+    /// <summary>
     /// Converts a point from control coordinates to picture coordinates.
     /// </summary>
     /// <param name="point">Point in control coordinates.</param>
@@ -453,11 +508,12 @@ public class Svg : Control
 
     static Svg()
     {
-        AffectsRender<Svg>(PathProperty, SourceProperty, StretchProperty, StretchDirectionProperty);
-        AffectsMeasure<Svg>(PathProperty, SourceProperty, StretchProperty, StretchDirectionProperty);
+        AffectsRender<Svg>(SvgSourceProperty, PathProperty, SourceProperty, StretchProperty, StretchDirectionProperty);
+        AffectsMeasure<Svg>(SvgSourceProperty, PathProperty, SourceProperty, StretchProperty, StretchDirectionProperty);
 
         CssProperty.Changed.AddClassHandler<Control>(OnCssPropertyAttachedPropertyChanged);
         CurrentCssProperty.Changed.AddClassHandler<Control>(OnCssPropertyAttachedPropertyChanged);
+        CurrentColorProperty.Changed.AddClassHandler<Control>(OnCssPropertyAttachedPropertyChanged);
     }
 
     public static string? GetCss(AvaloniaObject element)
@@ -478,6 +534,16 @@ public class Svg : Control
     public static void SetCurrentCss(AvaloniaObject element, string? value)
     {
         element.SetValue(CurrentCssProperty, value);
+    }
+
+    public static Color? GetCurrentColor(AvaloniaObject element)
+    {
+        return element.GetValue(CurrentColorProperty);
+    }
+
+    public static void SetCurrentColor(AvaloniaObject element, Color? value)
+    {
+        element.SetValue(CurrentColorProperty, value);
     }
 
     private static void OnCssPropertyAttachedPropertyChanged(AvaloniaObject d, AvaloniaPropertyChangedEventArgs e)
@@ -516,6 +582,7 @@ public class Svg : Control
     {
         base.OnDetachedFromVisualTree(e);
         ApplyNativeCursor(null);
+        CancelPendingLoad();
         DeactivateNativeComposition();
         UpdateAnimationPlayback();
     }
@@ -601,63 +668,16 @@ public class Svg : Control
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property == PathProperty)
+        if (change.Property == SvgSourceProperty ||
+            change.Property == PathProperty ||
+            change.Property == SourceProperty ||
+            change.Property == CssProperty ||
+            change.Property == CurrentCssProperty ||
+            change.Property == CurrentColorProperty)
         {
-            var css = GetCss(this);
-            var currentCss = GetCurrentCss(this);
-            var parameters = new SvgParameters(null, string.Concat(css, ' ', currentCss));
-            var path = change.GetNewValue<string?>();
-            LoadFromPath(path, parameters);
-            InvalidateVisual();
-        }
-
-        if (change.Property == CssProperty)
-        {
-            var css = change.GetNewValue<string?>();
-            var currentCss = GetCurrentCss(this);
-            var parameters = new SvgParameters(null, string.Concat(css, ' ', currentCss));
-            var path = Path;
-            var source = Source;
-
-            if (path is { })
-            {
-                LoadFromPath(path, parameters);
-            }
-            else if (source is { })
-            {
-                LoadFromSource(source, parameters);
-            }
-
-            InvalidateVisual();
-        }
-
-        if (change.Property == CurrentCssProperty)
-        {
-            var css = GetCss(this);
-            var currentCss = change.GetNewValue<string?>();
-            var parameters = new SvgParameters(null, string.Concat(css, ' ', currentCss));
-            var path = Path;
-            var source = Source;
-
-            if (path is { })
-            {
-                LoadFromPath(path, parameters);
-            }
-            else if (source is { })
-            {
-                LoadFromSource(source, parameters);
-            }
-
-            InvalidateVisual();
-        }
-
-        if (change.Property == SourceProperty)
-        {
-            var source = change.GetNewValue<string?>();
-            var css = GetCss(this);
-            var currentCss = GetCurrentCss(this);
-            var parameters = new SvgParameters(null, string.Concat(css, ' ', currentCss));
-            LoadFromSource(source, parameters);
+            Interaction.Reset();
+            ApplyNativeCursor(null);
+            QueueSourceReload();
             InvalidateVisual();
         }
 
@@ -670,7 +690,10 @@ public class Svg : Control
             }
             else
             {
-                _cache = new Dictionary<string, SvgSource>();
+                lock (_cacheSync)
+                {
+                    _cache = new Dictionary<string, SvgSource>();
+                }
             }
         }
 
@@ -719,118 +742,471 @@ public class Svg : Control
         }
     }
 
-    private void LoadFromPath(string? path, SvgParameters? parameters = null)
+    private void QueueSourceReload()
     {
-        Interaction.Reset();
-        ApplyNativeCursor(null);
+        CancelPendingLoad();
 
-        if (path is null)
+        var source = SvgSource;
+        var path = Path;
+        var inlineSource = Source;
+        var css = GetCss(this);
+        var currentCss = GetCurrentCss(this);
+        var currentColor = CurrentColor;
+        var wireframe = _wireframe;
+        var disableFilters = _disableFilters;
+        var enableCache = _enableCache;
+        Dictionary<string, SvgSource>? cache;
+
+        lock (_cacheSync)
         {
-            ReplaceCurrentSource(null);
-            TrackAnimationSvg(null);
-            DisposeCache();
+            cache = _cache;
+        }
+
+        var loadVersion = Interlocked.Increment(ref _sourceLoadVersion);
+        if (source is null &&
+            string.IsNullOrWhiteSpace(path) &&
+            string.IsNullOrWhiteSpace(inlineSource))
+        {
+            ClearSource();
             return;
         }
 
-        if (_enableCache && _cache is { } && _cache.TryGetValue(path, out var svg))
-        {
-            ReplaceCurrentSource(CreateWorkingSource(svg));
-            if (_svg?.Svg is { } skSvg)
-            {
-                skSvg.Wireframe = _wireframe;
-                skSvg.IgnoreAttributes = _disableFilters ? DrawAttributes.Filter : DrawAttributes.None;
-                skSvg.ClearWireframePicture();
-            }
-            TrackAnimationSvg(_svg?.Svg);
-            return;
-        }
+        var cts = new CancellationTokenSource();
+        _pendingLoadCts = cts;
+        _ = ReloadSourceAsync(
+            source,
+            path,
+            inlineSource,
+            css,
+            currentCss,
+            currentColor,
+            wireframe,
+            disableFilters,
+            enableCache,
+            cache,
+            loadVersion,
+            cts.Token);
+    }
 
-        if (!_enableCache)
-        {
-            _svg?.Dispose();
-            _svg = null;
-        }
+    private async Task ReloadSourceAsync(
+        SvgSource? source,
+        string? path,
+        string? inlineSource,
+        string? css,
+        string? currentCss,
+        Color? currentColor,
+        bool wireframe,
+        bool disableFilters,
+        bool enableCache,
+        Dictionary<string, SvgSource>? cache,
+        long loadVersion,
+        CancellationToken cancellationToken)
+    {
+        LoadResult result = default;
 
         try
         {
-            var loaded = SvgSource.Load(path, _baseUri, parameters);
-            ReplaceCurrentSource(loaded);
-            if (_svg?.Svg is { } skSvg2)
+            if (source is { })
             {
-                skSvg2.Wireframe = _wireframe;
-                skSvg2.IgnoreAttributes = _disableFilters ? DrawAttributes.Filter : DrawAttributes.None;
-                skSvg2.ClearWireframePicture();
+                result = await LoadExternalSourceAsync(
+                    source,
+                    css,
+                    currentCss,
+                    currentColor,
+                    wireframe,
+                    disableFilters,
+                    cancellationToken).ConfigureAwait(false);
             }
-            TrackAnimationSvg(_svg?.Svg);
+            else if (!string.IsNullOrWhiteSpace(path))
+            {
+                result = await LoadPathAsync(
+                    path,
+                    css,
+                    currentCss,
+                    currentColor,
+                    wireframe,
+                    disableFilters,
+                    enableCache,
+                    cache,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else if (!string.IsNullOrWhiteSpace(inlineSource))
+            {
+                result = await LoadInlineSourceAsync(
+                    inlineSource,
+                    css,
+                    currentCss,
+                    currentColor,
+                    wireframe,
+                    disableFilters,
+                    cancellationToken).ConfigureAwait(false);
+            }
 
-            if (_enableCache && _cache is { } && _svg is { })
+            if (cancellationToken.IsCancellationRequested ||
+                loadVersion != Volatile.Read(ref _sourceLoadVersion))
             {
-                _cache[path] = CreateWorkingSource(_svg);
+                DisposeResultIfOwned(result);
+                return;
             }
+
+            var applied = await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (cancellationToken.IsCancellationRequested ||
+                    loadVersion != Volatile.Read(ref _sourceLoadVersion))
+                {
+                    return false;
+                }
+
+                SetCurrentSource(result);
+                return true;
+            }, DispatcherPriority.Normal);
+
+            if (!applied)
+            {
+                DisposeResultIfOwned(result);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            DisposeResultIfOwned(result);
         }
         catch (Exception e)
         {
-            Logger.TryGet(LogEventLevel.Warning, LogArea.Control)?.Log(this, "Failed to load svg image: " + e);
-            ReplaceCurrentSource(null);
-            TrackAnimationSvg(null);
+            DisposeResultIfOwned(result);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (loadVersion != Volatile.Read(ref _sourceLoadVersion))
+                {
+                    return;
+                }
+
+                Logger.TryGet(LogEventLevel.Warning, LogArea.Control)?.Log(this, "Failed to load svg image: " + e);
+                ClearSource();
+            }, DispatcherPriority.Normal);
+        }
+        finally
+        {
+            CompletePendingLoad(loadVersion);
         }
     }
 
-    private void LoadFromSource(string? source, SvgParameters? parameters = null)
+    private async Task<LoadResult> LoadExternalSourceAsync(
+        SvgSource source,
+        string? css,
+        string? currentCss,
+        Color? currentColor,
+        bool wireframe,
+        bool disableFilters,
+        CancellationToken cancellationToken)
     {
-        Interaction.Reset();
-        ApplyNativeCursor(null);
-
-        if (source is null)
+        return await Task.Run(async () =>
         {
-            ReplaceCurrentSource(null);
-            TrackAnimationSvg(null);
-            DisposeCache();
+            cancellationToken.ThrowIfCancellationRequested();
+            var workingSource = source.Clone();
+            var parameters = BuildParameters(source, css, currentCss, currentColor);
+
+            try
+            {
+                if (workingSource.HasPathSource || parameters is not null)
+                {
+                    await workingSource.ReLoadAsync(parameters, cancellationToken).ConfigureAwait(false);
+                }
+
+                ApplyRenderOptions(workingSource, wireframe, disableFilters);
+                return new LoadResult(workingSource, isCacheEntry: false);
+            }
+            catch
+            {
+                workingSource.Dispose();
+                throw;
+            }
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<LoadResult> LoadPathAsync(
+        string path,
+        string? css,
+        string? currentCss,
+        Color? currentColor,
+        bool wireframe,
+        bool disableFilters,
+        bool enableCache,
+        Dictionary<string, SvgSource>? cache,
+        CancellationToken cancellationToken)
+    {
+        return await Task.Run(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var parameters = BuildParameters(null, css, currentCss, currentColor);
+            var normalizedPath = SvgSource.NormalizePath(path, _baseUri).ToString();
+            var cacheKey = CreateCacheKey(normalizedPath, parameters);
+
+            if (enableCache && cache is { })
+            {
+                SvgSource? cachedSource = null;
+                lock (_cacheSync)
+                {
+                    if (ReferenceEquals(cache, _cache))
+                    {
+                        cache.TryGetValue(cacheKey, out cachedSource);
+                    }
+                }
+
+                if (cachedSource is { })
+                {
+                    var workingSource = CreateWorkingSource(cachedSource);
+                    ApplyRenderOptions(workingSource, wireframe, disableFilters);
+                    return new LoadResult(workingSource, ReferenceEquals(workingSource, cachedSource));
+                }
+            }
+
+            var loaded = await SvgSource.LoadAsync(path, _baseUri, parameters, cancellationToken)
+                .ConfigureAwait(false);
+            ApplyRenderOptions(loaded, wireframe, disableFilters);
+
+            var isCacheEntry = false;
+            if (enableCache && cache is { })
+            {
+                var cacheEntry = CreateWorkingSource(loaded);
+                var stored = false;
+
+                lock (_cacheSync)
+                {
+                    if (ReferenceEquals(cache, _cache))
+                    {
+                        cache[cacheKey] = cacheEntry;
+                        stored = true;
+                    }
+                }
+
+                if (!stored && !ReferenceEquals(cacheEntry, loaded))
+                {
+                    cacheEntry.Dispose();
+                }
+
+                isCacheEntry = stored && ReferenceEquals(cacheEntry, loaded);
+            }
+
+            return new LoadResult(loaded, isCacheEntry);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<LoadResult> LoadInlineSourceAsync(
+        string source,
+        string? css,
+        string? currentCss,
+        Color? currentColor,
+        bool wireframe,
+        bool disableFilters,
+        CancellationToken cancellationToken)
+    {
+        return await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var parameters = BuildParameters(null, css, currentCss, currentColor);
+            var loaded = SvgSource.LoadFromSvg(source, parameters);
+            ApplyRenderOptions(loaded, wireframe, disableFilters);
+            return new LoadResult(loaded, isCacheEntry: false);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private void SetCurrentSource(LoadResult result)
+    {
+        ApplyRenderOptions(result.Source, _wireframe, _disableFilters);
+        ReplaceCurrentSource(result.Source);
+        TrackAnimationSvg(_svg?.Svg);
+        InvalidateMeasure();
+        InvalidateArrange();
+        InvalidateVisual();
+    }
+
+    private void ClearSource()
+    {
+        ReplaceCurrentSource(null);
+        TrackAnimationSvg(null);
+        DisposeCache();
+        InvalidateMeasure();
+        InvalidateArrange();
+        InvalidateVisual();
+    }
+
+    private void CancelPendingLoad()
+    {
+        Interlocked.Increment(ref _sourceLoadVersion);
+        var cts = Interlocked.Exchange(ref _pendingLoadCts, null);
+        if (cts is null)
+        {
             return;
         }
 
-        try
+        cts.Cancel();
+        cts.Dispose();
+    }
+
+    private void CompletePendingLoad(long loadVersion)
+    {
+        if (loadVersion != Volatile.Read(ref _sourceLoadVersion))
         {
-            var bytes = Encoding.UTF8.GetBytes(source);
-            using var ms = new MemoryStream(bytes);
-            ReplaceCurrentSource(SvgSource.LoadFromStream(ms, parameters));
-            if (_svg?.Svg is { } skSvg)
-            {
-                skSvg.Wireframe = _wireframe;
-                skSvg.IgnoreAttributes = _disableFilters ? DrawAttributes.Filter : DrawAttributes.None;
-                skSvg.ClearWireframePicture();
-            }
-            TrackAnimationSvg(_svg?.Svg);
+            return;
         }
-        catch (Exception e)
+
+        var cts = Interlocked.Exchange(ref _pendingLoadCts, null);
+        cts?.Dispose();
+    }
+
+    private static void ApplyRenderOptions(SvgSource? source, bool wireframe, bool disableFilters)
+    {
+        if (source?.Svg is { } skSvg)
         {
-            Logger.TryGet(LogEventLevel.Warning, LogArea.Control)?.Log(this, "Failed to load svg image: " + e);
-            ReplaceCurrentSource(null);
-            TrackAnimationSvg(null);
+            skSvg.Wireframe = wireframe;
+            skSvg.IgnoreAttributes = disableFilters ? DrawAttributes.Filter : DrawAttributes.None;
+            skSvg.ClearWireframePicture();
+        }
+    }
+
+    private static void DisposeResultIfOwned(LoadResult result)
+    {
+        if (result.Source is { } source && !result.IsCacheEntry)
+        {
+            source.Dispose();
         }
     }
 
     private void DisposeCache()
     {
-        if (_cache is null)
+        Dictionary<string, SvgSource>? cache;
+        lock (_cacheSync)
+        {
+            cache = _cache;
+            _cache = null;
+        }
+
+        if (cache is null)
         {
             return;
         }
 
-        foreach (var kvp in _cache)
+        foreach (var kvp in cache)
         {
             if (kvp.Value != _svg)
             {
                 kvp.Value.Dispose();
             }
         }
-
-        _cache = null;
     }
 
     private static SvgSource CreateWorkingSource(SvgSource source)
     {
         return source.Svg?.HasAnimations == true ? source.Clone() : source;
+    }
+
+    private static SvgParameters? BuildParameters(SvgSource? source, string? css, string? currentCss, Color? currentColor)
+    {
+        var sourceParameters = source?.Parameters;
+        var entities = sourceParameters?.Entities ?? source?.Entities;
+        var entitiesCopy = entities is null ? null : new Dictionary<string, string>(entities);
+        var combinedCss = CombineCss(sourceParameters?.Css ?? source?.Css, css, currentCss);
+        var effectiveCurrentColor = ToDrawingColor(currentColor) ??
+                                    sourceParameters?.CurrentColor ??
+                                    ToDrawingColor(source?.CurrentColor);
+        var loadOptions = sourceParameters?.LoadOptions;
+
+        if ((entitiesCopy is null || entitiesCopy.Count == 0) &&
+            string.IsNullOrWhiteSpace(combinedCss) &&
+            effectiveCurrentColor is null &&
+            loadOptions is null)
+        {
+            return null;
+        }
+
+        return new SvgParameters(entitiesCopy, combinedCss, effectiveCurrentColor, loadOptions);
+    }
+
+    private static string? CombineCss(params string?[] values)
+    {
+        StringBuilder? builder = null;
+
+        foreach (var value in values)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            if (builder is null)
+            {
+                builder = new StringBuilder(value);
+            }
+            else
+            {
+                builder.Append(' ');
+                builder.Append(value);
+            }
+        }
+
+        return builder?.ToString();
+    }
+
+    private readonly struct LoadResult
+    {
+        public LoadResult(SvgSource? source, bool isCacheEntry)
+        {
+            Source = source;
+            IsCacheEntry = isCacheEntry;
+        }
+
+        public SvgSource? Source { get; }
+
+        public bool IsCacheEntry { get; }
+    }
+
+    private static DrawingColor? ToDrawingColor(Color? color)
+    {
+        return color is { } value
+            ? DrawingColor.FromArgb(value.A, value.R, value.G, value.B)
+            : null;
+    }
+
+    private static string CreateCacheKey(string path, SvgParameters? parameters)
+    {
+        if ((parameters?.Entities is null || parameters.Value.Entities.Count == 0) &&
+            string.IsNullOrWhiteSpace(parameters?.Css) &&
+            parameters?.CurrentColor is null &&
+            parameters?.LoadOptions is null)
+        {
+            return path;
+        }
+
+        var builder = new StringBuilder()
+            .Append(path)
+            .Append("\ncss:")
+            .Append(parameters?.Css)
+            .Append("\ncurrentColor:")
+            .Append(parameters?.CurrentColor?.ToArgb().ToString("X8", CultureInfo.InvariantCulture))
+            .Append("\nprocessingMode:")
+            .Append(parameters?.LoadOptions?.ProcessingMode)
+            .Append("\nexternalResources:")
+            .Append(parameters?.LoadOptions?.ExternalResources)
+            .Append("\npreserveUnknownElements:")
+            .Append(parameters?.LoadOptions?.PreserveUnknownElements)
+            .Append("\npreferSvg2Href:")
+            .Append(parameters?.LoadOptions?.PreferSvg2Href);
+
+        if (parameters?.Entities is { Count: > 0 } entities)
+        {
+            var keys = new List<string>(entities.Keys);
+            keys.Sort(StringComparer.Ordinal);
+            foreach (var key in keys)
+            {
+                builder
+                    .Append("\nentity:")
+                    .Append(key)
+                    .Append('=')
+                    .Append(entities[key]);
+            }
+        }
+
+        return builder.ToString();
     }
 
     private void ReplaceCurrentSource(SvgSource? source)
@@ -851,16 +1227,19 @@ public class Svg : Control
 
     private bool IsCachedSource(SvgSource source)
     {
-        if (_cache is null)
+        lock (_cacheSync)
         {
-            return false;
-        }
-
-        foreach (var cached in _cache.Values)
-        {
-            if (ReferenceEquals(cached, source))
+            if (_cache is null)
             {
-                return true;
+                return false;
+            }
+
+            foreach (var cached in _cache.Values)
+            {
+                if (ReferenceEquals(cached, source))
+                {
+                    return true;
+                }
             }
         }
 
@@ -888,7 +1267,6 @@ public class Svg : Control
             return;
         }
 
-        e.Pointer.Capture(this);
         var currentPoint = e.GetCurrentPoint(this);
         var button = MapPointerUpdateKind(currentPoint.Properties.PointerUpdateKind);
         var result = Interaction.DispatchPointerPressed(skSvg, CreatePointerInput(e, button, e.ClickCount, 0));
@@ -908,7 +1286,17 @@ public class Svg : Control
         var result = Interaction.DispatchPointerReleased(skSvg, CreatePointerInput(e, button, 0, 0));
         e.Handled |= result.Handled;
         ApplyNativeCursor(result.Cursor);
-        e.Pointer.Capture(null);
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+
+        if (Interaction.CapturedElement is not null || Interaction.PressedElement is not null)
+        {
+            Interaction.Reset();
+            ApplyNativeCursor(null);
+        }
     }
 
     private void DispatchPointerWheelChanged(PointerWheelEventArgs e)

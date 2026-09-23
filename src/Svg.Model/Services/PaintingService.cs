@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg.DataTypes;
@@ -9,6 +10,9 @@ namespace Svg.Model.Services;
 
 internal static class PaintingService
 {
+    private static readonly ConcurrentDictionary<string, SvgUnit> s_fontSizeUnitCache = new(StringComparer.Ordinal);
+    private const int FontSizeUnitCacheLimit = 512;
+
     internal static float AdjustSvgOpacity(float opacity)
     {
         return Math.Min(Math.Max(opacity, 0), 1);
@@ -22,7 +26,7 @@ internal static class PaintingService
     internal static SKColor GetColor(SvgColourServer svgColourServer, float opacity, DrawAttributes ignoreAttributes)
     {
         var colour = svgColourServer.Colour;
-        var alpha = ignoreAttributes.HasFlag(DrawAttributes.Opacity) ?
+        var alpha = ignoreAttributes.Has(DrawAttributes.Opacity) ?
             svgColourServer.Colour.A :
             CombineWithOpacity(svgColourServer.Colour.A, opacity);
 
@@ -44,7 +48,7 @@ internal static class PaintingService
         return new SKColor(0x00, 0x00, 0x00, 0xFF);
     }
 
-    internal static SKPathEffect? CreateDash(SvgElement svgElement, SKRect skBounds)
+    internal static SKPathEffect? CreateDash(SvgElement svgElement, SKRect skBounds, SKPath? geometryPath = null)
     {
         var strokeDashArray = svgElement.StrokeDashArray;
         var strokeDashOffset = svgElement.StrokeDashOffset;
@@ -54,10 +58,16 @@ internal static class PaintingService
         {
             var isOdd = count % 2 != 0;
             var sum = 0f;
-            float[] intervals = new float[isOdd ? count * 2 : count];
+            var intervals = new float[isOdd ? count * 2 : count];
+            if (geometryPath is null)
+            {
+                _ = SvgGeometryService.TryCreateEquivalentPath(svgElement, skBounds, out geometryPath);
+            }
+
+            var normalization = SvgGeometryService.CreatePathLengthNormalization(svgElement, geometryPath);
             for (var i = 0; i < count; i++)
             {
-                var dash = strokeDashArray[i].ToDeviceValue(UnitRenderingType.Other, svgElement, skBounds);
+                var dash = normalization.ToActualDistance(strokeDashArray[i].ToDeviceValue(UnitRenderingType.Other, svgElement, skBounds));
                 if (dash < 0f)
                 {
                     return default;
@@ -78,7 +88,7 @@ internal static class PaintingService
                 return default;
             }
 
-            var phase = strokeDashOffset.ToDeviceValue(UnitRenderingType.Other, svgElement, skBounds);
+            var phase = normalization.ToActualDistance(strokeDashOffset.ToDeviceValue(UnitRenderingType.Other, svgElement, skBounds));
 
             return SKPathEffect.CreateDash(intervals, phase);
         }
@@ -89,12 +99,18 @@ internal static class PaintingService
     private static List<SvgGradientServer> GetLinkedGradientServer(SvgGradientServer svgGradientServer, SvgVisualElement svgVisualElement)
     {
         var svgGradientServers = new List<SvgGradientServer>();
+        var visited = new HashSet<SvgGradientServer>();
         var currentGradientServer = svgGradientServer;
         do
         {
+            if (!visited.Add(currentGradientServer))
+            {
+                break;
+            }
+
             svgGradientServers.Add(currentGradientServer);
             currentGradientServer = SvgDeferredPaintServer.TryGet<SvgGradientServer>(currentGradientServer.InheritGradient, svgVisualElement);
-        } while (currentGradientServer is { } && currentGradientServer != svgGradientServer);
+        } while (currentGradientServer is { });
         return svgGradientServers;
     }
 
@@ -134,10 +150,8 @@ internal static class PaintingService
                     {
                         stopColor = ToLinear(stopColor);
                     }
-                    var offset = svgGradientStop.Offset.ToDeviceValue(UnitRenderingType.Horizontal, svgGradientServer, skBounds);
-                    offset /= skBounds.Width;
                     colors.Add(stopColor);
-                    colorPos.Add(offset);
+                    colorPos.Add(GetGradientStopOffset(svgGradientStop));
                 }
             }
         }
@@ -181,6 +195,23 @@ internal static class PaintingService
                 colorPos[i] = maxPos;
             }
         }
+    }
+
+    private static float GetGradientStopOffset(SvgGradientStop svgGradientStop)
+    {
+        var offset = svgGradientStop.Offset;
+        var value = offset.Type == SvgUnitType.Percentage ? offset.Value / 100f : offset.Value;
+        if (float.IsNaN(value) || float.IsNegativeInfinity(value))
+        {
+            return 0f;
+        }
+
+        if (float.IsPositiveInfinity(value))
+        {
+            return 1f;
+        }
+
+        return Math.Min(Math.Max(value, 0f), 1f);
     }
 
     internal static SKColorF[] ToSkColorF(this SKColor[] skColors)
@@ -230,8 +261,7 @@ internal static class PaintingService
         {
             if (firstSpreadMethod is null)
             {
-                var pSpreadMethod = p.SpreadMethod;
-                if (pSpreadMethod != SvgGradientSpreadMethod.Pad)
+                if (SvgService.TryGetAttribute(p, "spreadMethod", out _))
                 {
                     firstSpreadMethod = p;
                 }
@@ -246,8 +276,7 @@ internal static class PaintingService
             }
             if (firstGradientUnits is null)
             {
-                var pGradientUnits = p.GradientUnits;
-                if (pGradientUnits != SvgCoordinateUnits.ObjectBoundingBox)
+                if (SvgService.TryGetAttribute(p, "gradientUnits", out _))
                 {
                     firstGradientUnits = p;
                 }
@@ -306,6 +335,11 @@ internal static class PaintingService
         var y1 = normalizedY1.ToDeviceValue(UnitRenderingType.Vertical, svgLinearGradientServer, skBounds);
         var x2 = normalizedX2.ToDeviceValue(UnitRenderingType.Horizontal, svgLinearGradientServer, skBounds);
         var y2 = normalizedY2.ToDeviceValue(UnitRenderingType.Vertical, svgLinearGradientServer, skBounds);
+
+        if (!IsFinite(x1) || !IsFinite(y1) || !IsFinite(x2) || !IsFinite(y2))
+        {
+            return SKShader.CreateColor(new SKColor(0xFF, 0xFF, 0xFF, 0x00), skColorSpace);
+        }
 
         var skStart = new SKPoint(x1, y1);
         var skEnd = new SKPoint(x2, y2);
@@ -386,13 +420,13 @@ internal static class PaintingService
         SvgRadialGradientServer? firstRadius = default;
         SvgRadialGradientServer? firstFocalX = default;
         SvgRadialGradientServer? firstFocalY = default;
+        SvgRadialGradientServer? firstFocalRadius = default;
 
         foreach (var p in svgReferencedGradientServers)
         {
             if (firstSpreadMethod is null)
             {
-                var pSpreadMethod = p.SpreadMethod;
-                if (pSpreadMethod != SvgGradientSpreadMethod.Pad)
+                if (SvgService.TryGetAttribute(p, "spreadMethod", out _))
                 {
                     firstSpreadMethod = p;
                 }
@@ -407,8 +441,7 @@ internal static class PaintingService
             }
             if (firstGradientUnits is null)
             {
-                var pGradientUnits = p.GradientUnits;
-                if (pGradientUnits != SvgCoordinateUnits.ObjectBoundingBox)
+                if (SvgService.TryGetAttribute(p, "gradientUnits", out _))
                 {
                     firstGradientUnits = p;
                 }
@@ -455,6 +488,14 @@ internal static class PaintingService
                         firstFocalY = svgRadialGradientServerHref;
                     }
                 }
+                if (firstFocalRadius is null)
+                {
+                    var pFocalRadius = svgRadialGradientServerHref.FocalRadius;
+                    if (pFocalRadius != SvgUnit.None && SvgService.TryGetAttribute(svgRadialGradientServerHref, "fr", out _))
+                    {
+                        firstFocalRadius = svgRadialGradientServerHref;
+                    }
+                }
             }
         }
 
@@ -466,6 +507,7 @@ internal static class PaintingService
         var radiusUnit = firstRadius?.Radius ?? new SvgUnit(SvgUnitType.Percentage, 50f);
         var focalXUnit = firstFocalX?.FocalX ?? centerXUnit;
         var focalYUnit = firstFocalY?.FocalY ?? centerYUnit;
+        var focalRadiusUnit = firstFocalRadius?.FocalRadius ?? new SvgUnit(SvgUnitType.Percentage, 0f);
 
         var normalizedCenterX = centerXUnit.Normalize(svgGradientUnits);
         var normalizedCenterY = centerYUnit.Normalize(svgGradientUnits);
@@ -477,9 +519,20 @@ internal static class PaintingService
         var centerY = normalizedCenterY.ToDeviceValue(UnitRenderingType.Vertical, svgRadialGradientServer, skBounds);
 
         var radius = normalizedRadius.ToDeviceValue(UnitRenderingType.Other, svgRadialGradientServer, skBounds);
+        if (radius < 0f)
+        {
+            return SKShader.CreateColor(new SKColor(0xFF, 0xFF, 0xFF, 0x00), skColorSpace);
+        }
 
         var focalX = normalizedFocalX.ToDeviceValue(UnitRenderingType.Horizontal, svgRadialGradientServer, skBounds);
         var focalY = normalizedFocalY.ToDeviceValue(UnitRenderingType.Vertical, svgRadialGradientServer, skBounds);
+        var focalRadius = focalRadiusUnit.Normalize(svgGradientUnits).ToDeviceValue(UnitRenderingType.Other, svgRadialGradientServer, skBounds);
+
+        if (!IsFinite(centerX) || !IsFinite(centerY) || !IsFinite(radius) ||
+            !IsFinite(focalX) || !IsFinite(focalY) || !IsFinite(focalRadius))
+        {
+            return SKShader.CreateColor(new SKColor(0xFF, 0xFF, 0xFF, 0x00), skColorSpace);
+        }
 
         var skCenter = new SKPoint(centerX, centerY);
         var skFocal = new SKPoint(focalX, focalY);
@@ -516,7 +569,13 @@ internal static class PaintingService
                 skColorSpace);
         }
 
-        var isRadialGradient = skCenter.X == skFocal.X && skCenter.Y == skFocal.Y;
+        focalRadius = Math.Max(0f, focalRadius);
+        if (svgGradientUnits != SvgCoordinateUnits.ObjectBoundingBox)
+        {
+            skFocal = CorrectRadialGradientFocalPoint(skCenter, radius, skFocal, focalRadius);
+        }
+
+        var isRadialGradient = focalRadius == 0f && skCenter.X == skFocal.X && skCenter.Y == skFocal.Y;
 
         if (svgGradientUnits == SvgCoordinateUnits.ObjectBoundingBox)
         {
@@ -552,7 +611,7 @@ internal static class PaintingService
             else
             {
                 return SKShader.CreateTwoPointConicalGradient(
-                    skFocal, 0,
+                    skFocal, focalRadius,
                     skCenter, radius,
                     skColorsF, skColorSpace, skColorPos,
                     shaderTileMode,
@@ -576,7 +635,7 @@ internal static class PaintingService
                 else
                 {
                     return SKShader.CreateTwoPointConicalGradient(
-                        skFocal, 0,
+                        skFocal, focalRadius,
                         skCenter, radius,
                         skColorsF, skColorSpace, skColorPos,
                         shaderTileMode, gradientTransform);
@@ -595,7 +654,7 @@ internal static class PaintingService
                 else
                 {
                     return SKShader.CreateTwoPointConicalGradient(
-                        skFocal, 0,
+                        skFocal, focalRadius,
                         skCenter, radius,
                         skColorsF, skColorSpace, skColorPos,
                         shaderTileMode);
@@ -615,6 +674,26 @@ internal static class PaintingService
             SvgShapeRendering.CrispEdges => false,
             _ => true
         };
+    }
+
+    internal static SKPoint CorrectRadialGradientFocalPoint(SKPoint center, float radius, SKPoint focal, float focalRadius)
+    {
+        if (radius <= 0f)
+        {
+            return focal;
+        }
+
+        var maxDistance = Math.Max(0f, radius - Math.Max(0f, focalRadius));
+        var dx = focal.X - center.X;
+        var dy = focal.Y - center.Y;
+        var distance = (float)Math.Sqrt((dx * dx) + (dy * dy));
+        if (distance <= maxDistance || distance <= 0f)
+        {
+            return focal;
+        }
+
+        var scale = maxDistance / distance;
+        return new SKPoint(center.X + (dx * scale), center.Y + (dy * scale));
     }
 
     internal static bool IsValidFill(SvgElement svgElement)
@@ -833,10 +912,11 @@ internal static class PaintingService
     {
         for (SvgElement? current = svgText; current is not null; current = current.Parent)
         {
-            if (current.TryGetAttribute("direction", out var direction) &&
-                !string.IsNullOrWhiteSpace(direction))
+            if (current.TryGetOwnCascadedStyleValue("direction", out var direction) &&
+                !string.IsNullOrWhiteSpace(direction) &&
+                TryResolveDeclaredDirection(direction, out var isRightToLeft))
             {
-                return direction.Equals("rtl", StringComparison.OrdinalIgnoreCase);
+                return isRightToLeft;
             }
 
             if (current is SvgTextSpan &&
@@ -848,8 +928,7 @@ internal static class PaintingService
             if (current.TryGetAttribute("writing-mode", out var writingMode) &&
                 !string.IsNullOrWhiteSpace(writingMode))
             {
-                var normalized = writingMode.Trim().ToLowerInvariant();
-                if (normalized is "rl" or "rl-tb")
+                if (IsRightToLeftWritingModeValue(writingMode))
                 {
                     return true;
                 }
@@ -875,10 +954,46 @@ internal static class PaintingService
                 continue;
             }
 
-            return writingMode.Trim().ToLowerInvariant() is "tb" or "tb-rl" or "vertical-rl" or "vertical-lr";
+            return IsVerticalWritingModeValue(writingMode);
         }
 
         return false;
+    }
+
+    private static bool TryResolveDeclaredDirection(string direction, out bool isRightToLeft)
+    {
+        var normalized = direction.AsSpan().Trim();
+        if (normalized.Equals("rtl".AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            isRightToLeft = true;
+            return true;
+        }
+
+        if (normalized.Equals("ltr".AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+            normalized.Equals("initial".AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            isRightToLeft = false;
+            return true;
+        }
+
+        isRightToLeft = false;
+        return false;
+    }
+
+    private static bool IsRightToLeftWritingModeValue(string writingMode)
+    {
+        var normalized = writingMode.AsSpan().Trim();
+        return normalized.Equals("rl".AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("rl-tb".AsSpan(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsVerticalWritingModeValue(string writingMode)
+    {
+        var normalized = writingMode.AsSpan().Trim();
+        return normalized.Equals("tb".AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("tb-rl".AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("vertical-rl".AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("vertical-lr".AsSpan(), StringComparison.OrdinalIgnoreCase);
     }
 
     internal static SKTextAlign ToTextAlign(SvgTextAnchor textAnchor, bool isRightToLeft)
@@ -912,9 +1027,37 @@ internal static class PaintingService
 
     internal static void SetPaintText(SvgTextBase svgText, SKRect skBounds, SKPaint skPaint)
     {
+        SetPaintText(svgText, skBounds, skPaint, resolveTypeface: true, resolvedTypeface: null);
+    }
+
+    internal static void SetPaintText(SvgTextBase svgText, SKRect skBounds, SKPaint skPaint, SKTypeface? resolvedTypeface)
+    {
+        SetPaintText(svgText, skBounds, skPaint, resolveTypeface: false, resolvedTypeface);
+    }
+
+    private static void SetPaintText(
+        SvgTextBase svgText,
+        SKRect skBounds,
+        SKPaint skPaint,
+        bool resolveTypeface,
+        SKTypeface? resolvedTypeface)
+    {
         skPaint.LcdRenderText = true;
         skPaint.SubpixelText = true;
         skPaint.TextEncoding = SKTextEncoding.Utf16;
+        skPaint.FontLanguage = ResolveInheritedTextLanguage(svgText);
+        if (HasInheritedTextOpenTypePaintProperty(svgText))
+        {
+            skPaint.FontFeatureSettings = ResolveInheritedTextPaintProperty(svgText, "font-feature-settings", "normal");
+            skPaint.FontKerning = ResolveInheritedTextPaintProperty(svgText, "font-kerning", "auto");
+            skPaint.FontVariantLigatures = ResolveInheritedTextPaintProperty(svgText, "font-variant-ligatures", "normal");
+        }
+        else
+        {
+            skPaint.FontFeatureSettings = null;
+            skPaint.FontKerning = null;
+            skPaint.FontVariantLigatures = null;
+        }
 
         var isVertical = IsVerticalWritingMode(svgText);
         skPaint.TextAlign = ToTextAlign(svgText.TextAnchor, isVertical ? false : IsRightToLeft(svgText));
@@ -934,22 +1077,208 @@ internal static class PaintingService
             // TODO: Implement SvgTextDecoration.LineThrough
         }
 
-        float fontSize;
-        var fontSizeUnit = svgText.FontSize;
-        if (fontSizeUnit == SvgUnit.None || fontSizeUnit == SvgUnit.Empty)
-        {
-            // TODO: Do not use implicit float conversion from SvgUnit.ToDeviceValue
-            // fontSize = new SvgUnit(SvgUnitType.Em, 1.0f);
-            // NOTE: Use default SkPaint Font_Size
-            fontSize = 12f;
-        }
-        else
-        {
-            fontSize = fontSizeUnit.ToDeviceValue(UnitRenderingType.Vertical, svgText, skBounds);
-        }
+        var fontSize = ResolveFontSize(svgText, skBounds);
 
         skPaint.TextSize = fontSize;
 
-        SetTypeface(svgText, skPaint);
+        if (resolveTypeface)
+        {
+            SetTypeface(svgText, skPaint);
+        }
+        else
+        {
+            skPaint.Typeface = resolvedTypeface;
+        }
     }
+
+    private static string? ResolveInheritedTextLanguage(SvgElement element)
+    {
+        for (SvgElement? current = element; current is not null; current = current.Parent)
+        {
+            if (TryGetTextLanguage(current, out var language))
+            {
+                return language.Trim().Replace('_', '-');
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TryGetTextLanguage(SvgElement element, out string language)
+    {
+        if (element.TryGetAttribute("xml:lang", out language) && !string.IsNullOrWhiteSpace(language) ||
+            element.TryGetAttribute("lang", out language) && !string.IsNullOrWhiteSpace(language))
+        {
+            return true;
+        }
+
+        if (element.CustomAttributes.TryGetValue(
+                "http://www.w3.org/XML/1998/namespace:lang",
+                out var namespacedLanguage) &&
+            !string.IsNullOrWhiteSpace(namespacedLanguage))
+        {
+            language = namespacedLanguage ?? string.Empty;
+            return true;
+        }
+
+        foreach (var attribute in element.CustomAttributes)
+        {
+            if (attribute.Key.EndsWith(":lang", StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(attribute.Value))
+            {
+                language = attribute.Value;
+                return true;
+            }
+        }
+
+        language = string.Empty;
+        return false;
+    }
+
+    private static bool HasInheritedTextOpenTypePaintProperty(SvgElement element)
+    {
+        if (!element.MayHaveTextOpenTypeDeclarations())
+        {
+            return false;
+        }
+
+        for (SvgElement? current = element; current is not null; current = current.Parent)
+        {
+            if ((current.GetOwnCascadedStyleFeatureFlags(SvgCascadedStyleFeatureFlags.TextOpenType) &
+                 SvgCascadedStyleFeatureFlags.TextOpenType) != 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string? ResolveInheritedTextPaintProperty(
+        SvgElement element,
+        string propertyName,
+        string defaultValue)
+    {
+        for (SvgElement? current = element; current is not null; current = current.Parent)
+        {
+            if (!current.TryGetOwnCascadedStyleValue(propertyName, out var value) ||
+                string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            var trimmed = value.AsSpan().Trim();
+            if (trimmed.Equals("inherit".AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Equals("unset".AsSpan(), StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (trimmed.Equals("initial".AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Equals(defaultValue.AsSpan(), StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return value;
+        }
+
+        return null;
+    }
+
+    private static float ResolveFontSize(SvgElement element, SKRect skBounds)
+        => ResolveFontSize(element, skBounds, depth: 0);
+
+    private static float ResolveFontSize(SvgElement element, SKRect skBounds, int depth)
+    {
+        const int maxFontSizeInheritanceDepth = 256;
+        if (depth > maxFontSizeInheritanceDepth)
+        {
+            return 12f;
+        }
+
+        if (element is SvgTextBase textBase)
+        {
+            var inheritedFontSize = textBase.FontSize;
+            if (inheritedFontSize != SvgUnit.None &&
+                inheritedFontSize != SvgUnit.Empty &&
+                inheritedFontSize.Type is not SvgUnitType.Percentage and not SvgUnitType.Em and not SvgUnitType.Ex)
+            {
+                return inheritedFontSize.ToDeviceValue(UnitRenderingType.Vertical, element, skBounds);
+            }
+        }
+
+        if (!TryResolveSpecifiedFontSizeUnit(element, out var fontSizeUnit))
+        {
+            return ResolveParentFontSize(element, skBounds, depth);
+        }
+
+        if (fontSizeUnit == SvgUnit.None || fontSizeUnit == SvgUnit.Empty)
+        {
+            return ResolveParentFontSize(element, skBounds, depth);
+        }
+
+        return fontSizeUnit.Type switch
+        {
+            SvgUnitType.Percentage => ResolveParentFontSize(element, skBounds, depth) * fontSizeUnit.Value / 100f,
+            SvgUnitType.Em => ResolveParentFontSize(element, skBounds, depth) * fontSizeUnit.Value,
+            SvgUnitType.Ex => ResolveParentFontSize(element, skBounds, depth) * 0.5f * fontSizeUnit.Value,
+            _ => fontSizeUnit.ToDeviceValue(UnitRenderingType.Vertical, element, skBounds)
+        };
+    }
+
+    private static bool TryResolveSpecifiedFontSizeUnit(SvgElement element, out SvgUnit fontSizeUnit)
+    {
+        if (element.ComputedStyle.TryGetPropertyValue("font-size", out var rawFontSize) &&
+            TryParseFontSizeUnit(rawFontSize, out fontSizeUnit))
+        {
+            return true;
+        }
+
+        fontSizeUnit = SvgUnit.Empty;
+        return false;
+    }
+
+    private static bool TryParseFontSizeUnit(string? value, out SvgUnit fontSizeUnit)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            var cacheKey = value!;
+            if (s_fontSizeUnitCache.TryGetValue(cacheKey, out fontSizeUnit))
+            {
+                return true;
+            }
+
+            try
+            {
+                fontSizeUnit = SvgUnitConverter.Parse(cacheKey.AsSpan().Trim());
+                s_fontSizeUnitCache.TryAdd(cacheKey, fontSizeUnit);
+                if (s_fontSizeUnitCache.Count > FontSizeUnitCacheLimit)
+                {
+                    s_fontSizeUnitCache.Clear();
+                }
+
+                return true;
+            }
+            catch (FormatException)
+            {
+            }
+        }
+
+        fontSizeUnit = SvgUnit.Empty;
+        return false;
+    }
+
+    private static float ResolveParentFontSize(SvgElement element, SKRect skBounds, int depth)
+    {
+        if (element.Parent is { } parent)
+        {
+            return ResolveFontSize(parent, skBounds, depth + 1);
+        }
+
+        return 12f;
+    }
+
+    private static bool IsFinite(float value)
+        => !float.IsNaN(value) && !float.IsInfinity(value);
 }

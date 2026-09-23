@@ -43,6 +43,15 @@ public class CloneCoreTests
     }
 
     [Fact]
+    public void SKFont_Clone_DeepClone_CopiesPropertiesAndNestedObjects()
+    {
+        var font = CloneTestData.CreateFont();
+
+        AssertFontClone(font, font.Clone());
+        AssertFontClone(font, font.DeepClone());
+    }
+
+    [Fact]
     public void SKTypeface_Clone_DeepClone_CopiesProperties()
     {
         var typeface = SKTypeface.FromFamilyName("Test", SKFontStyleWeight.Bold, SKFontStyleWidth.Condensed, SKFontStyleSlant.Italic);
@@ -173,11 +182,16 @@ public class CloneCoreTests
         Assert.Equal(original.StrokeCap, clone.StrokeCap);
         Assert.Equal(original.StrokeJoin, clone.StrokeJoin);
         Assert.Equal(original.StrokeMiter, clone.StrokeMiter);
+        Assert.Equal(original.IsStrokeNonScaling, clone.IsStrokeNonScaling);
         Assert.Equal(original.TextSize, clone.TextSize);
         Assert.Equal(original.TextAlign, clone.TextAlign);
         Assert.Equal(original.LcdRenderText, clone.LcdRenderText);
         Assert.Equal(original.SubpixelText, clone.SubpixelText);
         Assert.Equal(original.TextEncoding, clone.TextEncoding);
+        Assert.Equal(original.FontLanguage, clone.FontLanguage);
+        Assert.Equal(original.FontFeatureSettings, clone.FontFeatureSettings);
+        Assert.Equal(original.FontKerning, clone.FontKerning);
+        Assert.Equal(original.FontVariantLigatures, clone.FontVariantLigatures);
         Assert.Equal(original.Color, clone.Color);
         Assert.Equal(original.BlendMode, clone.BlendMode);
         Assert.Equal(original.FilterQuality, clone.FilterQuality);
@@ -235,6 +249,23 @@ public class CloneCoreTests
         Assert.Equal(original.Text, clone.Text);
         Assert.NotSame(original.Points, clone.Points);
         Assert.Equal(original.Points, clone.Points);
+        AssertFontClone(original.Font!, clone.Font!);
+    }
+
+    private static void AssertFontClone(SKFont original, SKFont clone)
+    {
+        Assert.NotSame(original, clone);
+        Assert.NotSame(original.Typeface, clone.Typeface);
+        Assert.Equal(original.Typeface!.FamilyName, clone.Typeface!.FamilyName);
+        Assert.Equal(original.Typeface.FontWeight, clone.Typeface.FontWeight);
+        Assert.Equal(original.Typeface.FontWidth, clone.Typeface.FontWidth);
+        Assert.Equal(original.Typeface.FontSlant, clone.Typeface.FontSlant);
+        Assert.Equal(original.Size, clone.Size);
+        Assert.Equal(original.ScaleX, clone.ScaleX);
+        Assert.Equal(original.SkewX, clone.SkewX);
+        Assert.Equal(original.Subpixel, clone.Subpixel);
+        Assert.Equal(original.Embolden, clone.Embolden);
+        Assert.Equal(original.Edging, clone.Edging);
     }
 
     private static void AssertTypefaceClone(SKTypeface original, SKTypeface clone)

@@ -1,7 +1,10 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Headless.XUnit;
 using Avalonia.Svg.Skia;
 using ShimSkiaSharp;
@@ -15,6 +18,19 @@ namespace Avalonia.Svg.Skia.UnitTests;
 public class SvgSourceTests
 {
     private const string SampleSvg = "<svg width=\"10\" height=\"10\"><rect x=\"0\" y=\"0\" width=\"10\" height=\"10\" fill=\"red\" /></svg>";
+    private const string PercentageOpacitySvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" height="40" width="40" viewBox="0 0 24 24" fill="#fff" x="0" y="0" opacity="100%">
+          <path d="m19 1-5 5v11l5-4.5V1zM1 6v14.65c0 .25.25.5.5.5.1 0 .15-.05.25-.05C3.1 20.45 5.05 20 6.5 20c1.95 0 4.05.4 5.5 1.5V6c-1.45-1.1-3.55-1.5-5.5-1.5S2.45 4.9 1 6zm22 13.5V6c-.6-.45-1.25-.75-2-1v13.5c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5v2c1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.3 4.75 1.05.1.05.15.05.25.05.25 0 .5-.25.5-.5v-1.1z"/>
+        </svg>
+        """;
+    private const string JavaScriptMutationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+          <rect id="target" width="10" height="10" fill="red" />
+          <script><![CDATA[
+            document.getElementById('target').setAttribute('fill', 'green');
+          ]]></script>
+        </svg>
+        """;
     private const string SvgFontGlyphSvg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
           <defs>
@@ -43,6 +59,15 @@ public class SvgSourceTests
     }
 
     [AvaloniaFact]
+    public void LoadFromSvg_WithPercentageOpacity_DoesNotThrow()
+    {
+        using var source = SvgSource.LoadFromSvg(PercentageOpacitySvg);
+
+        Assert.NotNull(source.Svg);
+        Assert.NotNull(source.Picture);
+    }
+
+    [AvaloniaFact]
     public void LoadFromSvg_UsesSvgFontsByDefault()
     {
         using var source = SvgSource.LoadFromSvg(SvgFontGlyphSvg);
@@ -51,8 +76,165 @@ public class SvgSourceTests
         Assert.NotNull(source.Picture);
         Assert.True(source.Svg!.Settings.EnableSvgFonts);
         Assert.NotEmpty(source.Svg.Model!.FindCommands<DrawPathCanvasCommand>());
-        Assert.Empty(source.Svg.Model.FindCommands<DrawTextCanvasCommand>());
-        Assert.Empty(source.Svg.Model.FindCommands<DrawTextBlobCanvasCommand>());
+        Assert.Empty(source.Svg.Model!.FindCommands<DrawTextCanvasCommand>());
+        Assert.Empty(source.Svg.Model!.FindCommands<DrawTextBlobCanvasCommand>());
+    }
+
+    [AvaloniaFact]
+    public void LoadFromSvg_AppliesSharedSkiaModelJavaScriptSettings()
+    {
+        WithSharedJavaScriptEnabled(() =>
+        {
+            using var source = SvgSource.LoadFromSvg(JavaScriptMutationSvg);
+
+            Assert.True(source.Svg!.Settings.EnableJavaScript);
+            AssertTargetFill(source, "green");
+        });
+    }
+
+    [AvaloniaFact]
+    public void Load_AppliesSharedSkiaModelJavaScriptSettings()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.svg");
+        File.WriteAllText(path, JavaScriptMutationSvg);
+        try
+        {
+            WithSharedJavaScriptEnabled(() =>
+            {
+                using var source = SvgSource.Load(path);
+
+                Assert.True(source.Svg!.Settings.EnableJavaScript);
+                AssertTargetFill(source, "green");
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task LoadAsync_FilePath_SetsSvg()
+    {
+        var path = CreateTempSvgFile(SampleSvg);
+
+        try
+        {
+            using var source = await SvgSource.LoadAsync(path);
+
+            Assert.NotNull(source.Svg);
+            Assert.NotNull(source.Picture);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task LoadAsync_RootRelativeResource_AppliesCurrentColor()
+    {
+        var baseUri = new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/Views/Issue545RecolorView.axaml");
+        var currentColor = System.Drawing.Color.FromArgb(255, 0, 128, 255);
+        var parameters = new SvgParameters(null, null, currentColor);
+
+        using var source = await SvgSource.LoadAsync(
+            "/Assets/Issue545CurrentColor.svg",
+            baseUri,
+            parameters);
+
+        Assert.NotNull(source.Svg);
+        Assert.Equal(currentColor, source.Parameters?.CurrentColor);
+        var command = source.Svg.Model?
+            .FindCommands<DrawPathCanvasCommand>()
+            .FirstOrDefault(x => x.Paint?.Style == SKPaintStyle.Fill);
+        Assert.Equal(new SKColor(0, 128, 255, 255), command?.Paint?.Color);
+    }
+
+    [AvaloniaFact]
+    public async Task ReLoadAsync_PathBackedSource_PreservesPicture()
+    {
+        var path = CreateTempSvgFile(SampleSvg);
+
+        try
+        {
+            using var source = await SvgSource.LoadAsync(path);
+
+            await source.ReLoadAsync(new SvgParameters(null, "rect { fill: #000000; }"));
+
+            Assert.NotNull(source.Svg);
+            Assert.NotNull(source.Picture);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task LoadAsync_CancelledToken_Throws()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            SvgSource.LoadAsync("/Assets/does-not-matter.svg", cancellationToken: cts.Token));
+    }
+
+    [AvaloniaFact]
+    public void NormalizePath_RelativePath_UsesBaseUri()
+    {
+        var uri = SvgSource.NormalizePath("Assets/Icon.svg", new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/"));
+
+        Assert.Equal("avares://Svg.Controls.Skia.Avalonia.UnitTests/Assets/Icon.svg", uri.ToString());
+    }
+
+    [AvaloniaFact]
+    public void NormalizePath_RootRelativePath_UsesBaseUriAuthority()
+    {
+        var uri = SvgSource.NormalizePath(
+            "/Assets/Icon.svg",
+            new Uri("avares://Svg.Controls.Skia.Avalonia.UnitTests/Views/Sample.axaml"));
+
+        Assert.Equal("avares://Svg.Controls.Skia.Avalonia.UnitTests/Assets/Icon.svg", uri.ToString());
+    }
+
+    [AvaloniaFact]
+    public void NormalizePath_RootRelativePath_PreservesBaseUriUserInfo()
+    {
+        var uri = SvgSource.NormalizePath(
+            "/icon.svg",
+            new Uri("https://user:pass@app.example.com/Assets/Icon.svg"));
+
+        Assert.Equal("https://user:pass@app.example.com/icon.svg", uri.ToString());
+    }
+
+    [AvaloniaFact]
+    public void NormalizePath_SchemeRelativePath_PreservesAuthority()
+    {
+        var uri = SvgSource.NormalizePath(
+            "//cdn.example.com/icon.svg",
+            new Uri("https://app.example.com/Assets/Icon.svg"));
+
+        Assert.Equal("https://cdn.example.com/icon.svg", uri.ToString());
+    }
+
+    [AvaloniaFact]
+    public void TypeConverter_String_CreatesPathBackedSourceWithoutEagerLoad()
+    {
+        var path = CreateTempSvgFile(SampleSvg);
+        try
+        {
+            var converter = new SvgSourceTypeConverter();
+            var source = Assert.IsType<SvgSource>(converter.ConvertFrom(path));
+
+            Assert.Equal(path, source.Path);
+            Assert.Null(source.Svg);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [AvaloniaFact]
@@ -65,6 +247,21 @@ public class SvgSourceTests
 
         Assert.NotNull(source.Svg);
         Assert.NotNull(source.Picture);
+    }
+
+    [AvaloniaFact]
+    public void LoadFromSvgDocument_AppliesSharedSkiaModelJavaScriptSettings()
+    {
+        var document = SvgService.FromSvg(JavaScriptMutationSvg);
+        Assert.NotNull(document);
+
+        WithSharedJavaScriptEnabled(() =>
+        {
+            using var source = SvgSource.LoadFromSvgDocument(document!);
+
+            Assert.True(source.Svg!.Settings.EnableJavaScript);
+            AssertTargetFill(source, "green");
+        });
     }
 
     [AvaloniaFact]
@@ -122,6 +319,52 @@ public class SvgSourceTests
     }
 
     [AvaloniaFact]
+    public void ReLoad_DuringRender_DefersPreviousResourceDisposal()
+    {
+        using var source = SvgSource.LoadFromSvg(SampleSvg, new SvgParameters(null, " "));
+        var originalPicture = source.Picture;
+
+        Assert.NotNull(originalPicture);
+        Assert.True(BeginRender(source));
+
+        try
+        {
+            source.ReLoad(new SvgParameters(null, "rect { fill: blue; }"));
+
+            Assert.NotSame(originalPicture, source.Picture);
+            Assert.NotEqual(IntPtr.Zero, originalPicture.Handle);
+        }
+        finally
+        {
+            EndRender(source);
+        }
+
+        Assert.Equal(IntPtr.Zero, originalPicture.Handle);
+    }
+
+    [AvaloniaFact]
+    public void DrawOperation_RetainsSourceUntilOperationDisposed()
+    {
+        var source = SvgSource.LoadFromSvg(SampleSvg);
+        var picture = source.Picture;
+        var operation = new SvgSourceCustomDrawOperation(new Rect(0, 0, 10, 10), source);
+
+        Assert.NotNull(picture);
+
+        source.Dispose();
+
+        Assert.NotNull(source.Svg);
+        Assert.Same(picture, source.Picture);
+        Assert.True(BeginRender(source));
+        EndRender(source);
+
+        operation.Dispose();
+
+        Assert.Null(source.Svg);
+        Assert.Null(source.Picture);
+    }
+
+    [AvaloniaFact]
     public void Clone_DeepClonesModel()
     {
         var source = SvgSource.LoadFromSvg(SampleSvg);
@@ -139,27 +382,70 @@ public class SvgSourceTests
     public void Dispose_DuringRender_DoesNotDeadlock()
     {
         var source = SvgSource.LoadFromSvg(SampleSvg);
-        var beginRender = typeof(SvgSource).GetMethod("BeginRender", BindingFlags.Instance | BindingFlags.NonPublic);
-        var endRender = typeof(SvgSource).GetMethod("EndRender", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        Assert.NotNull(beginRender);
-        Assert.NotNull(endRender);
 
         var task = Task.Run(() =>
         {
-            var started = (bool)(beginRender!.Invoke(source, null) ?? false);
-            if (!started)
+            if (!BeginRender(source))
             {
                 return false;
             }
 
             source.Dispose();
-            endRender!.Invoke(source, null);
+            EndRender(source);
 
             return source.Svg is null && source.Picture is null;
         });
 
         Assert.True(task.Wait(TimeSpan.FromSeconds(2)));
         Assert.True(task.Result);
+    }
+
+    private static bool BeginRender(SvgSource source)
+    {
+        var beginRender = typeof(SvgSource).GetMethod("BeginRender", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(beginRender);
+        return (bool)(beginRender.Invoke(source, null) ?? false);
+    }
+
+    private static void EndRender(SvgSource source)
+    {
+        var endRender = typeof(SvgSource).GetMethod("EndRender", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(endRender);
+        endRender.Invoke(source, null);
+    }
+
+    private static void WithSharedJavaScriptEnabled(Action action)
+    {
+        var settings = SvgSource.s_skiaModel.Settings;
+        var oldEnableJavaScript = settings.EnableJavaScript;
+        var oldThrowOnJavaScriptError = settings.ThrowOnJavaScriptError;
+        try
+        {
+            settings.EnableJavaScript = true;
+            settings.ThrowOnJavaScriptError = true;
+            action();
+        }
+        finally
+        {
+            settings.EnableJavaScript = oldEnableJavaScript;
+            settings.ThrowOnJavaScriptError = oldThrowOnJavaScriptError;
+        }
+    }
+
+    private static string CreateTempSvgFile(string svg)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.svg");
+        File.WriteAllText(path, svg);
+        return path;
+    }
+
+    private static void AssertTargetFill(SvgSource source, string expected)
+    {
+        var target = source.Svg?.SourceDocument?.GetElementById("target");
+        Assert.NotNull(target);
+        Assert.True(target!.TryGetAttribute("fill", out var fill));
+        Assert.Equal(expected, fill, ignoreCase: true);
     }
 }

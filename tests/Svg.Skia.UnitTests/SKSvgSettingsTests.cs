@@ -1,7 +1,14 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Reflection;
 using SkiaSharp;
+using Svg;
 using Svg.Skia.TypefaceProviders;
 using Svg.Skia.UnitTests.Common;
 using Xunit;
+using ShimPaint = ShimSkiaSharp.SKPaint;
 
 namespace Svg.Skia.UnitTests;
 
@@ -23,10 +30,171 @@ public class SKSvgSettingsTests : SvgUnitTest
         Assert.True(settings.EnableTextReferences);
     }
 
+    [Fact]
+    public void Defaults_EnableFilterBackgroundInputs()
+    {
+        var settings = new SKSvgSettings();
+
+        Assert.True(settings.EnableFilterBackgroundInputs);
+    }
+
+    [Fact]
+    public void Defaults_EnableBrokenImagePlaceholders()
+    {
+        var settings = new SKSvgSettings();
+
+        Assert.True(settings.EnableBrokenImagePlaceholders);
+    }
+
+    [Fact]
+    public void Defaults_DisableJavaScript()
+    {
+        var settings = new SKSvgSettings();
+
+        Assert.False(settings.EnableJavaScript);
+    }
+
+    [Fact]
+    public void Defaults_EnableTextSelectionRendering()
+    {
+        var settings = new SKSvgSettings();
+
+        Assert.True(settings.EnableTextSelectionRendering);
+        Assert.Equal(new SKColor(0x00, 0x80, 0x00, 0xFF), settings.TextSelectionColor);
+    }
+
+    [Fact]
+    public void CopyTo_CopiesRenderingAndJavaScriptSettings()
+    {
+        var provider = new DefaultTypefaceProvider();
+        var systemColorProvider = new SvgDictionarySystemColorProvider(new Dictionary<string, Color>());
+        var factory = new TestJavaScriptRuntimeFactory();
+        var source = new SKSvgSettings
+        {
+            AlphaType = SKAlphaType.Premul,
+            ColorType = SKColorType.Rgba8888,
+            TypefaceProviders = new List<ITypefaceProvider> { provider },
+            StandaloneViewport = new SKRect(1, 2, 3, 4),
+            EnableSvgFonts = false,
+            EnableTextReferences = false,
+            EnableFilterBackgroundInputs = false,
+            EnableBrokenImagePlaceholders = false,
+            SystemColorProvider = systemColorProvider,
+            EnableJavaScript = true,
+            EnableTextSelectionRendering = false,
+            TextSelectionColor = new SKColor(1, 2, 3, 4),
+            EnableExternalJavaScript = false,
+            JavaScriptTimeoutMilliseconds = 123,
+            JavaScriptMaxStatements = 456,
+            ThrowOnJavaScriptError = true,
+            JavaScriptRuntimeFactory = factory
+        };
+        var target = new SKSvgSettings();
+
+        source.CopyTo(target);
+
+        Assert.Equal(source.AlphaType, target.AlphaType);
+        Assert.Equal(source.ColorType, target.ColorType);
+        Assert.Same(source.SrgbLinear, target.SrgbLinear);
+        Assert.Same(source.Srgb, target.Srgb);
+        Assert.Equal(source.StandaloneViewport, target.StandaloneViewport);
+        Assert.False(target.EnableSvgFonts);
+        Assert.False(target.EnableTextReferences);
+        Assert.False(target.EnableFilterBackgroundInputs);
+        Assert.False(target.EnableBrokenImagePlaceholders);
+        Assert.Same(systemColorProvider, target.SystemColorProvider);
+        Assert.True(target.EnableJavaScript);
+        Assert.False(target.EnableTextSelectionRendering);
+        Assert.Equal(new SKColor(1, 2, 3, 4), target.TextSelectionColor);
+        Assert.False(target.EnableExternalJavaScript);
+        Assert.Equal(123, target.JavaScriptTimeoutMilliseconds);
+        Assert.Equal(456, target.JavaScriptMaxStatements);
+        Assert.True(target.ThrowOnJavaScriptError);
+        Assert.Same(factory, target.JavaScriptRuntimeFactory);
+        Assert.NotSame(source.TypefaceProviders, target.TypefaceProviders);
+        Assert.Same(provider, Assert.Single(target.TypefaceProviders!));
+    }
+
+    [Fact]
+    public void FromSvg_UsesSettingsSystemColorProviderForCurrentLoad()
+    {
+        using var svg = new SKSvg();
+        svg.Settings.SystemColorProvider = new SvgDictionarySystemColorProvider(new Dictionary<string, Color>
+        {
+            ["Window"] = Color.FromArgb(255, 11, 22, 33)
+        });
+
+        svg.FromSvg(
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+              <rect id="shape" width="10" height="10" fill="Window" />
+            </svg>
+            """);
+
+        var shape = Assert.IsType<SvgRectangle>(svg.SourceDocument!.GetElementById("shape"));
+        var fill = Assert.IsType<SvgColourServer>(shape.Fill);
+        Assert.Equal(Color.FromArgb(255, 11, 22, 33).ToArgb(), fill.Colour.ToArgb());
+    }
+
+    [Fact]
+    public void SetAnimationTime_UsesSettingsSystemColorProviderForAnimatedColors()
+    {
+        using var svg = new SKSvg();
+        svg.Settings.SystemColorProvider = new SvgDictionarySystemColorProvider(new Dictionary<string, Color>
+        {
+            ["Window"] = Color.FromArgb(255, 11, 22, 33),
+            ["Highlight"] = Color.FromArgb(255, 44, 55, 66)
+        });
+
+        svg.FromSvg(
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+              <rect id="shape" width="10" height="10" fill="Window">
+                <animateColor attributeName="fill" values="Window;Highlight" dur="2s" fill="freeze" />
+              </rect>
+            </svg>
+            """);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(2));
+
+        using var stream = new MemoryStream();
+        Assert.True(svg.Save(stream, SKColors.Transparent));
+        stream.Position = 0;
+        using var bitmap = SKBitmap.Decode(stream);
+        Assert.Equal(new SKColor(44, 55, 66, 255), bitmap.GetPixel(5, 5));
+    }
+
+    [Fact]
+    public void Clone_CopiesJavaScriptSettings()
+    {
+        var factory = new TestJavaScriptRuntimeFactory();
+        var settings = new SKSvgSettings
+        {
+            EnableBrokenImagePlaceholders = false,
+            EnableJavaScript = true,
+            EnableExternalJavaScript = false,
+            JavaScriptTimeoutMilliseconds = 250,
+            JavaScriptMaxStatements = 789,
+            ThrowOnJavaScriptError = true,
+            JavaScriptRuntimeFactory = factory
+        };
+
+        var clone = settings.Clone();
+
+        Assert.NotSame(settings, clone);
+        Assert.False(clone.EnableBrokenImagePlaceholders);
+        Assert.True(clone.EnableJavaScript);
+        Assert.False(clone.EnableExternalJavaScript);
+        Assert.Equal(250, clone.JavaScriptTimeoutMilliseconds);
+        Assert.Equal(789, clone.JavaScriptMaxStatements);
+        Assert.True(clone.ThrowOnJavaScriptError);
+        Assert.Same(factory, clone.JavaScriptRuntimeFactory);
+    }
+
     [Theory]
     [InlineData("Amiri", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
     [InlineData("Mplus 1p", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
-    [InlineData("Noto Emoji", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
+    [InlineData("Noto Color Emoji COLR", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
     [InlineData("Noto Mono", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
     [InlineData("Noto Sans", SKFontStyleWeight.Black, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
     [InlineData("Noto Sans", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)]
@@ -93,6 +261,17 @@ public class SKSvgSettingsTests : SvgUnitTest
     }
 
     [Fact]
+    public void Clone_PreservesEnableFilterBackgroundInputs()
+    {
+        var svg = new SKSvg();
+        svg.Settings.EnableFilterBackgroundInputs = false;
+
+        var clone = svg.Clone();
+
+        Assert.False(clone.Settings.EnableFilterBackgroundInputs);
+    }
+
+    [Fact]
     public void DefaultTypefaceProvider_AllowsExplicitDefaultFamilyRequest()
     {
         var provider = new DefaultTypefaceProvider();
@@ -105,6 +284,14 @@ public class SKSvgSettingsTests : SvgUnitTest
     }
 
     [Fact]
+    public void FontManagerTypefaceProvider_DoesNotLoadDefaultFontManagerInConstructor()
+    {
+        var provider = new FontManagerTypefaceProvider();
+
+        Assert.Null(GetFontManager(provider));
+    }
+
+    [Fact]
     public void FontManagerTypefaceProvider_AllowsExplicitDefaultFamilyRequest()
     {
         var provider = new FontManagerTypefaceProvider();
@@ -114,5 +301,210 @@ public class SKSvgSettingsTests : SvgUnitTest
 
         Assert.NotNull(typeface);
         Assert.Equal(familyName, typeface!.FamilyName);
+    }
+
+    [Fact]
+    public void ToSKFont_WithoutTypeface_ResolvesDefaultTypefaceForText()
+    {
+        var model = new SkiaModel(new SKSvgSettings());
+
+        using var font = model.ToSKFont(new ShimPaint());
+
+        Assert.NotNull(font.Typeface);
+    }
+
+    [Fact]
+    public void ToSKFont_FontWithoutTypeface_ResolvesDefaultTypefaceForText()
+    {
+        var model = new SkiaModel(new SKSvgSettings());
+
+        using var font = model.ToSKFont(new ShimSkiaSharp.SKFont());
+
+        Assert.NotNull(font);
+        Assert.NotNull(font!.Typeface);
+    }
+
+    [Fact]
+    public void ToSKFont_WithImplicitTypeface_ResolvesDefaultTypefaceForText()
+    {
+        var model = new SkiaModel(new SKSvgSettings());
+        var source = new ShimPaint
+        {
+            Typeface = CreateImplicitTypeface()
+        };
+
+        using var font = model.ToSKFont(source);
+
+        Assert.NotNull(font.Typeface);
+    }
+
+    [Fact]
+    public void ToSKFont_WithImplicitBoldTypeface_PreservesBoldForText()
+    {
+        var model = new SkiaModel(new SKSvgSettings());
+        var source = new ShimPaint
+        {
+            Typeface = CreateImplicitTypeface(fontWeight: ShimSkiaSharp.SKFontStyleWeight.Bold)
+        };
+
+        using var font = model.ToSKFont(source);
+
+        Assert.NotNull(font.Typeface);
+        Assert.True(font.Embolden || font.Typeface!.FontWeight >= (int)SKFontStyleWeight.Bold);
+    }
+
+    [Fact]
+    public void ToSKFont_WithImplicitItalicTypeface_PreservesSlantForText()
+    {
+        var model = new SkiaModel(new SKSvgSettings());
+        var source = new ShimPaint
+        {
+            Typeface = CreateImplicitTypeface(fontSlant: ShimSkiaSharp.SKFontStyleSlant.Italic)
+        };
+
+        using var font = model.ToSKFont(source);
+
+        Assert.NotNull(font.Typeface);
+        Assert.NotEqual(SKFontStyleSlant.Upright, font.Typeface!.FontSlant);
+    }
+
+    [Fact]
+    public void ToSKFont_WithImplicitCondensedTypeface_PreservesWidthForText()
+    {
+        var model = new SkiaModel(new SKSvgSettings());
+        var sourceTypeface = CreateImplicitTypeface(fontWidth: ShimSkiaSharp.SKFontStyleWidth.Condensed);
+        var source = new ShimPaint
+        {
+            Typeface = sourceTypeface
+        };
+        var expectedTypeface = model.ToSKTypeface(sourceTypeface);
+
+        using var font = model.ToSKFont(source);
+
+        Assert.NotNull(font.Typeface);
+        Assert.Equal(expectedTypeface?.FontWidth, font.Typeface!.FontWidth);
+    }
+
+    [Fact]
+    public void ToSKFont_FontWithImplicitTypeface_ResolvesDefaultTypefaceForText()
+    {
+        var model = new SkiaModel(new SKSvgSettings());
+        var source = new ShimSkiaSharp.SKFont
+        {
+            Typeface = CreateImplicitTypeface()
+        };
+
+        using var font = model.ToSKFont(source);
+
+        Assert.NotNull(font);
+        Assert.NotNull(font!.Typeface);
+    }
+
+    [Fact]
+    public void TryShapeGlyphRun_WithImplicitTypeface_UsesDefaultTextTypeface()
+    {
+        var assetLoader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
+        var source = new ShimPaint
+        {
+            Typeface = CreateImplicitTypeface()
+        };
+
+        var shaped = assetLoader.TryShapeGlyphRun("ABC", source, out var shapedRun);
+
+        Assert.True(shaped);
+        Assert.NotEmpty(shapedRun.Glyphs);
+    }
+
+    [Fact]
+    public void TryShapeGlyphClusters_WithImplicitTypeface_ExposesClusterAdvances()
+    {
+        var assetLoader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
+        var source = new ShimPaint
+        {
+            Typeface = CreateImplicitTypeface()
+        };
+
+        var shaped = assetLoader.TryShapeGlyphClusters("ABC", source, rightToLeft: false, out var shapedRun, out var clusters);
+
+        Assert.True(shaped);
+        Assert.NotEmpty(shapedRun.Glyphs);
+        Assert.NotEmpty(clusters);
+        var clusterAdvance = 0f;
+        for (var i = 0; i < clusters.Length; i++)
+        {
+            Assert.True(clusters[i].CharLength > 0);
+            Assert.True(clusters[i].GlyphCount > 0);
+            clusterAdvance += clusters[i].Advance;
+        }
+
+        Assert.Equal(shapedRun.Advance, clusterAdvance, 1);
+    }
+
+    [Fact]
+    public void FindTypefaces_WithImplicitItalicTypeface_MatchesResolvedTextTypeface()
+    {
+        var model = new SkiaModel(new SKSvgSettings());
+        var assetLoader = new SkiaSvgAssetLoader(model);
+        var sourceTypeface = CreateImplicitTypeface(fontSlant: ShimSkiaSharp.SKFontStyleSlant.Italic);
+        var source = new ShimPaint
+        {
+            Typeface = sourceTypeface
+        };
+        var expectedTypeface = model.ToSKTypeface(sourceTypeface);
+
+        var span = Assert.Single(assetLoader.FindTypefaces("ABC", source));
+
+        Assert.NotNull(expectedTypeface);
+        Assert.NotNull(span.Typeface);
+        Assert.Equal((ShimSkiaSharp.SKFontStyleSlant)expectedTypeface!.FontSlant, span.Typeface!.FontSlant);
+    }
+
+    [Fact]
+    public void FindRunTypeface_WithImplicitCondensedTypeface_MatchesResolvedTextTypeface()
+    {
+        var model = new SkiaModel(new SKSvgSettings());
+        var assetLoader = new SkiaSvgAssetLoader(model);
+        var sourceTypeface = CreateImplicitTypeface(fontWidth: ShimSkiaSharp.SKFontStyleWidth.Condensed);
+        var source = new ShimPaint
+        {
+            Typeface = sourceTypeface
+        };
+        var expectedTypeface = model.ToSKTypeface(sourceTypeface);
+
+        var runTypeface = assetLoader.FindRunTypeface("ABC", source);
+
+        Assert.NotNull(expectedTypeface);
+        Assert.NotNull(runTypeface);
+        Assert.Equal((ShimSkiaSharp.SKFontStyleWidth)expectedTypeface!.FontWidth, runTypeface!.FontWidth);
+    }
+
+    private static ShimSkiaSharp.SKTypeface CreateImplicitTypeface(
+        ShimSkiaSharp.SKFontStyleWeight fontWeight = ShimSkiaSharp.SKFontStyleWeight.Normal,
+        ShimSkiaSharp.SKFontStyleWidth fontWidth = ShimSkiaSharp.SKFontStyleWidth.Normal,
+        ShimSkiaSharp.SKFontStyleSlant fontSlant = ShimSkiaSharp.SKFontStyleSlant.Upright)
+    {
+        return ShimSkiaSharp.SKTypeface.FromFamilyName(
+            null!,
+            fontWeight,
+            fontWidth,
+            fontSlant);
+    }
+
+    private static object? GetFontManager(FontManagerTypefaceProvider provider)
+    {
+        var field = typeof(FontManagerTypefaceProvider).GetField(
+            "_fontManager",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(field);
+        return field!.GetValue(provider);
+    }
+
+    private sealed class TestJavaScriptRuntimeFactory : ISKSvgJavaScriptRuntimeFactory
+    {
+        public ISKSvgJavaScriptRuntime Create(SvgDocument document, SKSvgJavaScriptRuntimeSettings settings)
+        {
+            throw new System.NotSupportedException();
+        }
     }
 }

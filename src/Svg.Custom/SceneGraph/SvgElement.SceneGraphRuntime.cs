@@ -17,6 +17,12 @@ namespace Svg
             }
 
             var originalParent = _parent;
+            var originalDocument = OwnerDocument;
+            var temporaryParentDocument = temporaryParent.OwnerDocument;
+            using var originalComputedStyleScope = originalDocument?.BeginComputedStyleTemporaryParentScope();
+            using var temporaryParentComputedStyleScope = ReferenceEquals(temporaryParentDocument, originalDocument)
+                ? null
+                : temporaryParentDocument?.BeginComputedStyleTemporaryParentScope();
             try
             {
                 _parent = temporaryParent;
@@ -26,6 +32,12 @@ namespace Svg
             {
                 _parent = originalParent;
             }
+        }
+
+        internal TResult WithUseInstanceStyleScope<TResult>(SvgUse useElement, Func<TResult> factory)
+        {
+            using var styleScope = (OwnerDocument ?? useElement.OwnerDocument)?.BeginUseInstanceStyleScope(this, useElement);
+            return WithTemporaryParent(useElement, factory);
         }
     }
 }

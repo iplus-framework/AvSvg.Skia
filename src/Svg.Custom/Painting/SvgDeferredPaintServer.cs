@@ -1,6 +1,5 @@
 ﻿using System;
 using System.ComponentModel;
-using System.Linq;
 using System.Text;
 
 namespace Svg
@@ -79,32 +78,33 @@ namespace Svg
 
         public void EnsureServer(SvgElement styleOwner)
         {
+            if (DeferredId == "currentColor" && styleOwner != null)
+            {
+                for (var current = styleOwner; current is not null; current = current.Parent)
+                {
+                    var color = GetOwnColor(current);
+                    if (IsConcreteCurrentColor(color))
+                    {
+                        _concreteServer = color;
+                        return;
+                    }
+                }
+
+                _concreteServer = new SvgColourServer(System.Drawing.Color.Black);
+                return;
+            }
+
             if (!_serverLoaded && styleOwner != null)
             {
-                if (DeferredId == "currentColor")
-                {
-                    var colorElement = styleOwner.ParentsAndSelf.OfType<SvgElement>().FirstOrDefault(
-                        e => e.Color != None && e.Color != NotSet && e.Color != Inherit);
+                // Prefer the document captured when the paint server was parsed. The
+                // original upstream code always used styleOwner.OwnerDocument, but our
+                // retained scene compiler intentionally changes the temporary parent to let
+                // inherited styles come from the <use> host. Paint server lookup must stay
+                // anchored to the document that defined the referenced gradient/pattern.
+                var document = Document ?? styleOwner.OwnerDocument;
+                _concreteServer = document?.IdManager.GetElementById(DeferredId) as SvgPaintServer;
 
-                    _concreteServer = colorElement?.Color;
-                }
-                else
-                {
-                    // Prefer the document captured when the paint server was parsed. The
-                    // original upstream code always used styleOwner.OwnerDocument, but our
-                    // retained scene compiler intentionally changes the temporary parent to let
-                    // inherited styles come from the <use> host. Paint server lookup must stay
-                    // anchored to the document that defined the referenced gradient/pattern.
-                    var document = Document ?? styleOwner.OwnerDocument;
-                    _concreteServer = document?.IdManager.GetElementById(DeferredId) as SvgPaintServer;
-
-                    _fallbackServer = FallbackServer;
-                    if (_fallbackServer == null)
-                        _fallbackServer = None;
-                    else if (!(_fallbackServer is SvgColourServer ||
-                        (_fallbackServer is SvgDeferredPaintServer && string.Equals(((SvgDeferredPaintServer)_fallbackServer).DeferredId, "currentColor"))))
-                        _fallbackServer = Inherit;
-                }
+                _fallbackServer = FallbackServer ?? None;
                 _serverLoaded = true;
             }
         }
@@ -125,6 +125,19 @@ namespace Svg
             newObj.DeferredId = DeferredId;
             newObj.FallbackServer = FallbackServer?.DeepCopy() as SvgPaintServer;
             return newObj;
+        }
+
+        internal void RebindDocument(SvgDocument document)
+        {
+            Document = document;
+            _concreteServer = null;
+            _fallbackServer = null;
+            _serverLoaded = false;
+
+            if (FallbackServer is SvgDeferredPaintServer deferredFallback)
+            {
+                deferredFallback.RebindDocument(document);
+            }
         }
 
         public override bool Equals(object obj)
@@ -158,6 +171,36 @@ namespace Svg
             var deferred = (SvgDeferredPaintServer)server;
             deferred.EnsureServer(parent);
             return (deferred._concreteServer ?? deferred._fallbackServer) as T;
+        }
+
+        private static bool IsConcreteCurrentColor(SvgPaintServer server)
+        {
+            if (server == null ||
+                server == None ||
+                server == NotSet ||
+                server == Inherit)
+            {
+                return false;
+            }
+
+            return server is SvgColourServer;
+        }
+
+        private static SvgPaintServer GetOwnColor(SvgElement element)
+        {
+            if (!element.Attributes.ContainsKey("color"))
+            {
+                if (element.TryGetOwnCascadedStyleDeclarationValue("color", out var styleColor) &&
+                    !string.IsNullOrWhiteSpace(styleColor))
+                {
+                    return SvgPaintServerFactory.Create(styleColor, element.OwnerDocument);
+                }
+
+                return NotSet;
+            }
+
+            var value = element.Attributes.GetAttribute<object>("color");
+            return value as SvgPaintServer ?? NotSet;
         }
     }
 }

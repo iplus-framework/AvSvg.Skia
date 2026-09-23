@@ -1,11 +1,11 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Xml;
-using ExCSS;
 
 namespace Svg
 {
@@ -22,9 +22,13 @@ namespace Svg
     [ElementFactory]
     internal partial class SvgElementFactory
     {
-        private const string RawTextDecorationAttributeKey = "__svgskia:text-decoration-raw";
+        private static readonly ConcurrentDictionary<Type, HashSet<string>> s_eventDescriptorAttributeNamesByType = new();
 
-        private readonly StylesheetParser stylesheetParser = new StylesheetParser(true, true, tolerateInvalidValues: true);
+        private readonly SvgInlineStyleAttributeParser inlineStyleAttributeParser = new();
+
+        internal bool PreserveJavaScriptDomState { get; set; }
+
+        internal bool PreserveCompatibilityPresentationAttributes { get; set; }
 
         /// <summary>
         /// Gets a list of available types that can be used when creating an <see cref="SvgElement"/>.
@@ -147,10 +151,14 @@ namespace Svg
                     }
                     if (localName.Equals("style") && !(element is NonSvgElement))
                     {
-                        var inlineSheet = stylesheetParser.Parse("#a{" + reader.Value + "}");
-                        foreach (var rule in inlineSheet.StyleRules)
-                            foreach (var declaration in rule.Style)
-                                element.AddStyle(declaration.Name, declaration.Original, SvgElement.StyleSpecificity_InlineStyle);
+                        if (PreserveJavaScriptDomState)
+                        {
+                            element.SetJavaScriptDomAttributeValue(localName, reader.Value);
+                            element.CustomAttributes["style"] = reader.Value;
+                            TrackCompatibilityStyleStateCandidate(document, element);
+                        }
+
+                        inlineStyleAttributeParser.ApplyStyles(element, reader.Value);
                     }
                     else if (prefix.Length == 0 && localName.Equals("marker"))
                     {
@@ -163,94 +171,341 @@ namespace Svg
                     }
                     else if (prefix.Length == 0 && IsStyleAttribute(localName))
                     {
+                        if (PreserveJavaScriptDomState)
+                        {
+                            element.SetJavaScriptDomAttributeValue(localName, reader.Value);
+                        }
+
+                        if (ShouldIgnoreInvalidPresentationStyleAttribute(localName, reader.Value))
+                        {
+                            continue;
+                        }
+
+                        if (PreserveCompatibilityPresentationAttributes)
+                        {
+                            PreserveCompatibilityPresentationAttribute(document, element, localName, reader.Value);
+                        }
+
                         element.AddStyle(localName, reader.Value, SvgElement.StyleSpecificity_PresAttribute);
                     }
                     else
                     {
                         var ns = prefix.Length == 0 ? string.Empty : reader.LookupNamespace(prefix);
-                        SetPropertyValue(element, ns, localName, reader.Value, document);
+                        if (localName.Equals("href", StringComparison.Ordinal) &&
+                            (string.IsNullOrEmpty(ns) || string.Equals(ns, SvgNamespaces.XLinkNamespace, StringComparison.Ordinal)))
+                        {
+                            element.SetCompatibilityHrefAttributeValue(ns, reader.Value);
+                        }
+
+                        if (PreserveJavaScriptDomState)
+                        {
+                            element.SetJavaScriptDomAttributeValue(GetJavaScriptDomAttributeName(prefix, localName), reader.Value);
+                        }
+
+                        if (CanBindAttributeNamespace(ns))
+                        {
+                            SetPropertyValue(element, ns, localName, reader.Value, document);
+                        }
+                        else
+                        {
+                            element.CustomAttributes[$"{ns}:{localName}"] = reader.Value;
+                        }
                     }
                 }
+            }
+
+            if (element.HasCompatibilityHrefAttributeValues() && element.Attributes.ContainsKey("href"))
+            {
+                element.SetCompatibilityHrefAttributeValueAfterParse(element.Attributes.GetAttribute<object>("href"));
             }
 
             //Trace.TraceInformation("End SetAttributes");
         }
 
+        private static void TrackCompatibilityStyleStateCandidate(SvgDocument document, SvgElement element)
+        {
+            var ownerDocument = document ?? element as SvgDocument;
+            ownerDocument?.TrackCompatibilityStyleStateCandidate(element);
+        }
+
+        private static void PreserveCompatibilityPresentationAttribute(SvgDocument document, SvgElement element, string name, string value)
+        {
+            var ownerDocument = document ?? element as SvgDocument;
+            ownerDocument?.PreserveCompatibilityPresentationAttribute(element, name, value);
+        }
+
+        private static string GetJavaScriptDomAttributeName(string prefix, string localName)
+        {
+            if (prefix.Equals("xlink", StringComparison.OrdinalIgnoreCase) &&
+                localName.Equals("href", StringComparison.OrdinalIgnoreCase))
+            {
+                return "href";
+            }
+
+            return prefix.Length == 0 ? localName : $"{prefix}:{localName}";
+        }
+
+        private static bool CanBindAttributeNamespace(string ns)
+        {
+            return string.IsNullOrEmpty(ns) ||
+                   ns.Equals(SvgNamespaces.SvgNamespace, StringComparison.Ordinal) ||
+                   ns.Equals(SvgNamespaces.XLinkNamespace, StringComparison.Ordinal) ||
+                   ns.Equals(SvgNamespaces.XmlNamespace, StringComparison.Ordinal);
+        }
+
         private static bool IsStyleAttribute(string name)
+        {
+            return SvgStyleAttributeNames.Contains(name) &&
+                   !SvgStyleAttributeNames.IsCssOnlyProperty(name) &&
+                   !IsSvg2GeometryAttribute(name);
+        }
+
+        private static bool IsSvg2GeometryAttribute(string name)
+        {
+            return name is
+                "cx" or
+                "cy" or
+                "d" or
+                "height" or
+                "r" or
+                "rx" or
+                "ry" or
+                "width" or
+                "x" or
+                "x1" or
+                "x2" or
+                "y" or
+                "y1" or
+                "y2";
+        }
+
+        private static bool IsOpacityAttribute(string name)
         {
             switch (name)
             {
-                case "alignment-baseline":
-                case "baseline-shift":
-                case "clip":
-                case "clip-path":
-                case "clip-rule":
-                case "color":
-                case "color-interpolation":
-                case "color-interpolation-filters":
-                case "color-profile":
-                case "color-rendering":
-                case "cursor":
-                case "direction":
-                case "display":
-                case "dominant-baseline":
-                case "enable-background":
-                case "fill":
                 case "fill-opacity":
-                case "fill-rule":
-                case "filter":
-                case "flood-color":
                 case "flood-opacity":
-                case "font":
-                case "font-family":
-                case "font-size":
-                case "font-size-adjust":
-                case "font-stretch":
-                case "font-style":
-                case "font-variant":
-                case "font-weight":
-                case "glyph-orientation-horizontal":
-                case "glyph-orientation-vertical":
-                case "image-rendering":
-                case "kerning":
-                case "letter-spacing":
-                case "lighting-color":
-                case "marker":
-                case "marker-end":
-                case "marker-mid":
-                case "marker-start":
-                case "mask":
                 case "opacity":
-                case "overflow":
-                case "pointer-events":
-                case "shape-rendering":
-                case "stop-color":
                 case "stop-opacity":
-                case "stroke":
-                case "stroke-dasharray":
-                case "stroke-dashoffset":
-                case "stroke-linecap":
-                case "stroke-linejoin":
-                case "stroke-miterlimit":
                 case "stroke-opacity":
-                case "stroke-width":
-                case "text-anchor":
-                case "text-decoration":
-                case "text-rendering":
-                case "text-transform":
-                case "unicode-bidi":
-                case "visibility":
-                case "word-spacing":
-                case "writing-mode":
                     return true;
             }
+
             return false;
         }
-        internal static bool SetPropertyValue(SvgElement element, string ns, string attributeName, string attributeValue, SvgDocument document, bool isStyle = false)
+
+        private static bool ShouldIgnoreInvalidPresentationStyleAttribute(string attributeName, string attributeValue)
         {
+            return IsCaseSensitivePresentationLengthAttribute(attributeName) &&
+                   HasUppercaseLengthUnitIdentifier(attributeValue.AsSpan());
+        }
+
+        private static bool IsCaseSensitivePresentationLengthAttribute(string attributeName)
+        {
+            return attributeName is
+                "stroke-width" or
+                "font-size" or
+                "letter-spacing" or
+                "word-spacing" or
+                "baseline-shift" or
+                "kerning" or
+                "shape-padding" or
+                "shape-margin" or
+                "inline-size";
+        }
+
+        private static bool HasUppercaseLengthUnitIdentifier(ReadOnlySpan<char> value)
+        {
+            value = TrimWhitespace(value);
+            if (value.Length == 0)
+            {
+                return false;
+            }
+
+            var index = 0;
+            if (value[index] is '+' or '-')
+            {
+                index++;
+            }
+
+            var sawNumber = false;
+            while (index < value.Length && char.IsDigit(value[index]))
+            {
+                sawNumber = true;
+                index++;
+            }
+
+            if (index < value.Length && value[index] == '.')
+            {
+                index++;
+                while (index < value.Length && char.IsDigit(value[index]))
+                {
+                    sawNumber = true;
+                    index++;
+                }
+            }
+
+            if (!sawNumber)
+            {
+                return false;
+            }
+
+            if (index < value.Length && (value[index] is 'e' or 'E'))
+            {
+                var exponentIndex = index + 1;
+                if (exponentIndex < value.Length && value[exponentIndex] is '+' or '-')
+                {
+                    exponentIndex++;
+                }
+
+                var exponentDigitsStart = exponentIndex;
+                while (exponentIndex < value.Length && char.IsDigit(value[exponentIndex]))
+                {
+                    exponentIndex++;
+                }
+
+                if (exponentIndex > exponentDigitsStart)
+                {
+                    index = exponentIndex;
+                }
+            }
+
+            while (index < value.Length && char.IsWhiteSpace(value[index]))
+            {
+                index++;
+            }
+
+            if (index >= value.Length || value[index] == '%')
+            {
+                return false;
+            }
+
+            while (index < value.Length && char.IsLetter(value[index]))
+            {
+                if (value[index] is >= 'A' and <= 'Z')
+                {
+                    return true;
+                }
+
+                index++;
+            }
+
+            return false;
+        }
+
+        private static ReadOnlySpan<char> TrimWhitespace(ReadOnlySpan<char> value)
+        {
+#if NETSTANDARD20
+            var start = 0;
+            while (start < value.Length && char.IsWhiteSpace(value[start]))
+            {
+                start++;
+            }
+
+            var end = value.Length;
+            while (end > start && char.IsWhiteSpace(value[end - 1]))
+            {
+                end--;
+            }
+
+            return value.Slice(start, end - start);
+#else
+            return value.Trim();
+#endif
+        }
+
+        private static bool TryParseInvariantFloat(ReadOnlySpan<char> value, out float parsed)
+        {
+#if NETSTANDARD20
+            return float.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed);
+#else
+            return float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed);
+#endif
+        }
+
+        private static bool TryHandlePercentageOpacityAttribute(string attributeName, string attributeValue, out string normalizedValue)
+        {
+            normalizedValue = attributeValue;
+
+            if (!IsOpacityAttribute(attributeName) || string.IsNullOrWhiteSpace(attributeValue))
+            {
+                return false;
+            }
+
+            var trimmedValue = TrimWhitespace(attributeValue.AsSpan());
+            if (trimmedValue.Length == 0 || trimmedValue[trimmedValue.Length - 1] != '%')
+            {
+                return false;
+            }
+
+            var percentageValue = TrimWhitespace(trimmedValue.Slice(0, trimmedValue.Length - 1));
+            if (percentageValue.Length == 0 || !TryParseInvariantFloat(percentageValue, out var parsedPercentage))
+            {
+                return true;
+            }
+
+            normalizedValue = Clamp(parsedPercentage / 100f, 0f, 1f).ToString("0.########", CultureInfo.InvariantCulture);
+            return false;
+        }
+
+        private static float Clamp(float value, float min, float max)
+        {
+            if (value < min)
+            {
+                return min;
+            }
+
+            return value > max ? max : value;
+        }
+
+        internal static bool SetPropertyValue(
+            SvgElement element,
+            string ns,
+            string attributeName,
+            string attributeValue,
+            SvgDocument document,
+            bool isStyle = false)
+        {
+            var isEventDescriptorAttribute = ns.Length == 0 &&
+                                             attributeName.Length >= 4 &&
+                                             (attributeName[0] == 'o' || attributeName[0] == 'O') &&
+                                             (attributeName[1] == 'n' || attributeName[1] == 'N') &&
+                                             IsEventDescriptorAttribute(element, attributeName);
+            if (isEventDescriptorAttribute)
+            {
+                element.CustomAttributes[attributeName] = attributeValue;
+            }
+
+            if (SvgCssVariableResolver.IsCustomPropertyName(attributeName))
+            {
+                SvgCssVariableResolver.AddCustomProperty(
+                    element,
+                    attributeName,
+                    attributeValue,
+                    isStyle ? SvgElement.StyleSpecificity_InlineStyle : SvgElement.StyleSpecificity_PresAttribute);
+                return true;
+            }
+
+            if (!isEventDescriptorAttribute &&
+                !string.IsNullOrEmpty(attributeValue) &&
+                SvgCssVariableResolver.TryResolveValue(element, attributeValue, out var resolvedAttributeValue))
+            {
+                attributeValue = resolvedAttributeValue;
+            }
+
+            if (attributeName == "mix-blend-mode" || attributeName == "isolation")
+            {
+                if (isStyle)
+                {
+                    element.CustomAttributes[ns.Length == 0 ? attributeName : $"{ns}:{attributeName}"] = attributeValue;
+                }
+
+                return true;
+            }
+
             if (attributeName == "text-decoration" && !string.IsNullOrWhiteSpace(attributeValue))
             {
-                element.CustomAttributes[RawTextDecorationAttributeKey] = attributeValue;
+                element.CustomAttributes[SvgStyleAttributeNames.RawTextDecorationAttributeKey] = attributeValue;
             }
 
             if (attributeName == "stop-opacity" && string.Equals(attributeValue, "inherit", StringComparison.OrdinalIgnoreCase))
@@ -274,6 +529,20 @@ namespace Svg
             {
                 attributeValue = "1";
             }
+
+            if (TryHandlePercentageOpacityAttribute(attributeName, attributeValue, out var normalizedOpacityValue))
+            {
+                // Percentage opacity values are normalized before reaching the upstream float
+                // converters. Malformed percentage tokens are ignored as invalid declarations.
+                return true;
+            }
+
+            attributeValue = normalizedOpacityValue;
+            if (isStyle && ShouldKeepComputedStyleDeclaration(attributeName, attributeValue))
+            {
+                return false;
+            }
+
             var setValueResult = element.SetValue(attributeName, document, CultureInfo.InvariantCulture, attributeValue);
             if (setValueResult)
             {
@@ -287,6 +556,193 @@ namespace Svg
                 element.CustomAttributes[ns.Length == 0 ? attributeName : $"{ns}:{attributeName}"] = attributeValue;
             }
             return true;
+        }
+
+        private static bool ShouldKeepComputedStyleDeclaration(string attributeName, string attributeValue)
+        {
+            return ShouldKeepFilterComputedStyleDeclaration(attributeName, attributeValue) ||
+                   IsMultiKeywordWhiteSpaceDeclaration(attributeName, attributeValue) ||
+                   (IsGeometryAttribute(attributeName) &&
+                    (IsCssIdentifier(attributeValue, "auto") ||
+                     IsCssIdentifier(attributeValue, "inherit") ||
+                     IsCssIdentifier(attributeValue, "initial") ||
+                     IsCssIdentifier(attributeValue, "unset")));
+        }
+
+        private static bool ShouldKeepFilterComputedStyleDeclaration(string attributeName, string attributeValue)
+        {
+            if (!attributeName.Equals("filter", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var trimmedValue = attributeValue.AsSpan().Trim();
+            return !IsCssIdentifier(trimmedValue, "none") &&
+                   !IsSingleCssUrlReference(trimmedValue);
+        }
+
+        private static bool IsSingleCssUrlReference(ReadOnlySpan<char> value)
+        {
+            if (value.Length < 6 ||
+                !value.Slice(0, 4).Equals("url(".AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+                value[value.Length - 1] != ')')
+            {
+                return false;
+            }
+
+            var quote = '\0';
+            for (var i = 4; i < value.Length - 1; i++)
+            {
+                var ch = value[i];
+                if (quote != '\0')
+                {
+                    if (ch == quote)
+                    {
+                        quote = '\0';
+                    }
+
+                    continue;
+                }
+
+                if (ch == '"' || ch == '\'')
+                {
+                    quote = ch;
+                    continue;
+                }
+
+                if (ch == ')')
+                {
+                    return false;
+                }
+            }
+
+            if (quote != '\0')
+            {
+                return false;
+            }
+
+            return value.Slice(4, value.Length - 5).Trim().Length > 0;
+        }
+
+        private static bool IsMultiKeywordWhiteSpaceDeclaration(string attributeName, string attributeValue)
+        {
+            return attributeName.Equals("white-space", StringComparison.OrdinalIgnoreCase) &&
+                   attributeValue.Split(new[] { ' ', '\t', '\r', '\n', '\f' }, StringSplitOptions.RemoveEmptyEntries).Length > 1 &&
+                   SvgComputedStyleMetadata.TryParseWhiteSpaceShorthandLonghands(attributeValue, out _, out _, out _);
+        }
+
+        private static bool IsGeometryAttribute(string attributeName)
+        {
+            return attributeName.Equals("x", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("y", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("x1", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("y1", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("x2", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("y2", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("cx", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("cy", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("r", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("rx", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("ry", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("width", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("height", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsCssIdentifier(string value, string identifier)
+        {
+            return value.AsSpan().Trim().Equals(identifier.AsSpan(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsCssIdentifier(ReadOnlySpan<char> value, string identifier)
+        {
+            return value.Trim().Equals(identifier.AsSpan(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsEventDescriptorAttribute(SvgElement element, string attributeName)
+        {
+            if (!IsKnownScriptAttributeName(attributeName))
+            {
+                return false;
+            }
+
+            var eventAttributeNames = s_eventDescriptorAttributeNamesByType.GetOrAdd(
+                element.GetType(),
+                _ => CreateEventDescriptorAttributeNameSet(element));
+
+            return eventAttributeNames.Contains(attributeName);
+        }
+
+        private static bool IsKnownScriptAttributeName(string attributeName)
+        {
+            if (attributeName.Length < 4 ||
+                (attributeName[0] != 'o' && attributeName[0] != 'O') ||
+                (attributeName[1] != 'n' && attributeName[1] != 'N'))
+            {
+                return false;
+            }
+
+            switch (attributeName)
+            {
+                case "onabort":
+                case "onactivate":
+                case "onbegin":
+                case "onchange":
+                case "onclick":
+                case "onend":
+                case "onerror":
+                case "onfocusin":
+                case "onfocusout":
+                case "onload":
+                case "onmousedown":
+                case "onmousemove":
+                case "onmouseout":
+                case "onmouseover":
+                case "onmouseup":
+                case "onmousescroll":
+                case "onrepeat":
+                case "onresize":
+                case "onscroll":
+                case "onunload":
+                case "onzoom":
+                    return true;
+            }
+
+            return attributeName.Equals("onabort", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onactivate", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onbegin", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onchange", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onclick", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onend", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onerror", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onfocusin", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onfocusout", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onload", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onmousedown", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onmousemove", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onmouseout", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onmouseover", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onmouseup", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onmousescroll", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onrepeat", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onresize", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onscroll", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onunload", StringComparison.OrdinalIgnoreCase) ||
+                   attributeName.Equals("onzoom", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static HashSet<string> CreateEventDescriptorAttributeNameSet(SvgElement element)
+        {
+            var eventAttributeNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var property in element.GetProperties())
+            {
+                if (property.DescriptorType == DescriptorType.Event &&
+                    !string.IsNullOrEmpty(property.AttributeName))
+                {
+                    eventAttributeNames.Add(property.AttributeName);
+                }
+            }
+
+            return eventAttributeNames;
         }
 
         /// <summary>

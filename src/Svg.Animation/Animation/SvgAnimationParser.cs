@@ -7,18 +7,21 @@ namespace Svg.Skia;
 
 internal readonly struct SvgAnimationEventTimingParseResult
 {
-    public SvgAnimationEventTimingParseResult(SvgElementAddress eventAddress, SvgPointerEventType eventType, TimeSpan offset)
+    public SvgAnimationEventTimingParseResult(SvgElementAddress eventAddress, SvgAnimationTimingEventType eventType, TimeSpan offset, int? repeatIteration = null)
     {
         EventAddress = eventAddress;
         EventType = eventType;
         Offset = offset;
+        RepeatIteration = repeatIteration;
     }
 
     public SvgElementAddress EventAddress { get; }
 
-    public SvgPointerEventType EventType { get; }
+    public SvgAnimationTimingEventType EventType { get; }
 
     public TimeSpan Offset { get; }
+
+    public int? RepeatIteration { get; }
 }
 
 internal static class SvgAnimationParser
@@ -218,7 +221,7 @@ internal static class SvgAnimationParser
             eventAddress = SvgElementAddress.Create(eventElement);
         }
 
-        if (!TryMapEventName(eventName, out var eventType))
+        if (!TryMapEventName(eventName, out var eventType, out var repeatIteration))
         {
             return false;
         }
@@ -239,8 +242,79 @@ internal static class SvgAnimationParser
             }
         }
 
-        result = new SvgAnimationEventTimingParseResult(eventAddress, eventType, offset);
+        result = new SvgAnimationEventTimingParseResult(eventAddress, eventType, offset, repeatIteration);
         return true;
+    }
+
+    internal static bool TryParseAccessKeyTimingSpec(string value, out string accessKey, out TimeSpan offset)
+    {
+        accessKey = string.Empty;
+        offset = TimeSpan.Zero;
+
+        if (!TryGetTrimmedString(value, out var trimmedValue))
+        {
+            return false;
+        }
+
+        var span = trimmedValue.AsSpan();
+        var signIndex = FindEventTimingSignIndex(span);
+        var functionSegment = signIndex >= 0
+            ? Trim(span.Slice(0, signIndex))
+            : span;
+
+        if (!TryReadFunctionArgument(functionSegment, "accessKey", out var argument) ||
+            argument.Length == 0)
+        {
+            return false;
+        }
+
+        if (argument.Length >= 2 &&
+            ((argument[0] == '\'' && argument[argument.Length - 1] == '\'') ||
+             (argument[0] == '"' && argument[argument.Length - 1] == '"')))
+        {
+            argument = Trim(argument.Slice(1, argument.Length - 2));
+        }
+
+        if (argument.Length == 0)
+        {
+            return false;
+        }
+
+        if (signIndex >= 0)
+        {
+            var sign = span[signIndex];
+            var offsetText = Trim(span.Slice(signIndex + 1));
+            if (offsetText.Length == 0 || !TryParseClockValue(offsetText, out offset))
+            {
+                return false;
+            }
+
+            if (sign == '-')
+            {
+                offset = -offset;
+            }
+        }
+
+        accessKey = argument.ToString();
+        return true;
+    }
+
+    internal static bool TryParseWallclockTimingSpec(string value, out DateTimeOffset wallclockTime)
+    {
+        wallclockTime = default;
+
+        if (!TryGetTrimmedString(value, out var trimmedValue) ||
+            !TryReadFunctionArgument(trimmedValue.AsSpan(), "wallclock", out var argument) ||
+            argument.Length == 0)
+        {
+            return false;
+        }
+
+        return DateTimeOffset.TryParse(
+            argument.ToString(),
+            s_invariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out wallclockTime);
     }
 
     internal static bool TryParseMotionCoordinatePair(string value, SvgElement owner, out SKPoint point)
@@ -530,52 +604,116 @@ internal static class SvgAnimationParser
         return true;
     }
 
-    private static bool TryMapEventName(ReadOnlySpan<char> eventName, out SvgPointerEventType eventType)
+    private static bool TryMapEventName(ReadOnlySpan<char> eventName, out SvgAnimationTimingEventType eventType, out int? repeatIteration)
     {
+        repeatIteration = null;
+
         if (EqualsAsciiIgnoreCase(eventName, "click"))
         {
-            eventType = SvgPointerEventType.Click;
+            eventType = SvgAnimationTimingEventType.Click;
             return true;
         }
 
         if (EqualsAsciiIgnoreCase(eventName, "mousedown"))
         {
-            eventType = SvgPointerEventType.Press;
+            eventType = SvgAnimationTimingEventType.Press;
             return true;
         }
 
         if (EqualsAsciiIgnoreCase(eventName, "mouseup"))
         {
-            eventType = SvgPointerEventType.Release;
+            eventType = SvgAnimationTimingEventType.Release;
             return true;
         }
 
         if (EqualsAsciiIgnoreCase(eventName, "mousemove"))
         {
-            eventType = SvgPointerEventType.Move;
+            eventType = SvgAnimationTimingEventType.Move;
             return true;
         }
 
         if (EqualsAsciiIgnoreCase(eventName, "mouseover"))
         {
-            eventType = SvgPointerEventType.Enter;
+            eventType = SvgAnimationTimingEventType.Enter;
             return true;
         }
 
         if (EqualsAsciiIgnoreCase(eventName, "mouseout"))
         {
-            eventType = SvgPointerEventType.Leave;
+            eventType = SvgAnimationTimingEventType.Leave;
             return true;
         }
 
         if (EqualsAsciiIgnoreCase(eventName, "mousescroll"))
         {
-            eventType = SvgPointerEventType.Wheel;
+            eventType = SvgAnimationTimingEventType.Wheel;
+            return true;
+        }
+
+        if (EqualsAsciiIgnoreCase(eventName, "begin"))
+        {
+            eventType = SvgAnimationTimingEventType.Begin;
+            return true;
+        }
+
+        if (EqualsAsciiIgnoreCase(eventName, "end"))
+        {
+            eventType = SvgAnimationTimingEventType.End;
+            return true;
+        }
+
+        if (TryParseRepeatEventName(eventName, out repeatIteration))
+        {
+            eventType = SvgAnimationTimingEventType.Repeat;
             return true;
         }
 
         eventType = default;
         return false;
+    }
+
+    private static bool TryParseRepeatEventName(ReadOnlySpan<char> eventName, out int? repeatIteration)
+    {
+        repeatIteration = null;
+        var trimmed = Trim(eventName);
+        const string repeat = "repeat";
+        if (trimmed.Length == repeat.Length && EqualsAsciiIgnoreCase(trimmed, repeat))
+        {
+            return true;
+        }
+
+        if (trimmed.Length <= repeat.Length + 2 ||
+            !EqualsAsciiIgnoreCase(trimmed.Slice(0, repeat.Length), repeat) ||
+            trimmed[repeat.Length] != '(' ||
+            trimmed[trimmed.Length - 1] != ')')
+        {
+            return false;
+        }
+
+        var ordinal = Trim(trimmed.Slice(repeat.Length + 1, trimmed.Length - repeat.Length - 2));
+        if (!int.TryParse(ordinal.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) || parsed <= 0)
+        {
+            return false;
+        }
+
+        repeatIteration = parsed;
+        return true;
+    }
+
+    private static bool TryReadFunctionArgument(ReadOnlySpan<char> value, string functionName, out ReadOnlySpan<char> argument)
+    {
+        argument = default;
+        var trimmed = Trim(value);
+        if (trimmed.Length <= functionName.Length + 1 ||
+            !EqualsAsciiIgnoreCase(trimmed.Slice(0, functionName.Length), functionName) ||
+            trimmed[functionName.Length] != '(' ||
+            trimmed[trimmed.Length - 1] != ')')
+        {
+            return false;
+        }
+
+        argument = Trim(trimmed.Slice(functionName.Length + 1, trimmed.Length - functionName.Length - 2));
+        return true;
     }
 
     internal static float ToMotionCoordinate(SvgUnit unit, UnitRenderingType renderingType, SvgElement owner)

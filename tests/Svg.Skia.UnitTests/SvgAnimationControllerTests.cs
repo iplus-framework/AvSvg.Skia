@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -120,15 +123,15 @@ public class SvgAnimationControllerTests
         Assert.True(svg.HasAnimations);
         Assert.True(svg.UsesAnimationLayerCaching);
 
-        var initialPictures = GetAnimatedSubtreePictures(svg);
+        var initialSignatures = GetAnimatedSubtreeSignatures(svg);
 
         svg.SetAnimationTime(TimeSpan.FromSeconds(1));
 
-        var updatedPictures = GetAnimatedSubtreePictures(svg);
-        Assert.Equal(2, initialPictures.Count);
-        Assert.Equal(2, updatedPictures.Count);
-        Assert.Equal(GetPictureSignature(initialPictures[0]), GetPictureSignature(updatedPictures[0]));
-        Assert.NotEqual(GetPictureSignature(initialPictures[1]), GetPictureSignature(updatedPictures[1]));
+        var updatedSignatures = GetAnimatedSubtreeSignatures(svg);
+        Assert.Equal(2, initialSignatures.Count);
+        Assert.Equal(2, updatedSignatures.Count);
+        Assert.Equal(initialSignatures[0], updatedSignatures[0]);
+        Assert.NotEqual(initialSignatures[1], updatedSignatures[1]);
     }
 
     [Fact]
@@ -189,6 +192,35 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void TryApplyRetainedSceneMutationByIdAndRender_DisablesAnimationLayerCachingBeforeDraw()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(TopLevelLayeredAnimationSvg);
+
+        Assert.True(svg.HasAnimations);
+        Assert.True(svg.UsesAnimationLayerCaching);
+
+        var sourceDocument = GetRenderedDocument(svg);
+        var staticRect = sourceDocument.GetElementById<SvgRectangle>("static");
+        Assert.NotNull(staticRect);
+        staticRect!.Fill = new SvgColourServer(System.Drawing.Color.Lime);
+
+        var updated = svg.TryApplyRetainedSceneMutationByIdAndRender("static", new[] { "fill" }, out var result);
+
+        Assert.True(updated);
+        Assert.NotNull(result);
+        Assert.True(result!.Succeeded);
+        Assert.False(svg.UsesAnimationLayerCaching);
+
+        using var bitmap = DrawBitmap(svg);
+        var pixel = bitmap.GetPixel(2, 2);
+        Assert.True(pixel.Alpha > 200);
+        Assert.True(pixel.Red < 80);
+        Assert.True(pixel.Green > 200);
+        Assert.True(pixel.Blue < 80);
+    }
+
+    [Fact]
     public void SetAnimationTime_RebuildsInheritedStrokeAnimationsUnderLayerCaching()
     {
         using var svg = new SKSvg();
@@ -242,6 +274,43 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void CreateAnimatedDocument_RendersInheritedGradientStopOpacityAnimations()
+    {
+        var document = SvgService.FromSvg(InheritedGradientStopOpacityAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+        foreach (var animation in animated.Descendants().OfType<SvgAnimationElement>().ToArray())
+        {
+            animation.Parent?.Children.Remove(animation);
+        }
+
+        using var svg = SKSvg.CreateFromSvgDocument(animated);
+        using var updatedBitmap = RenderBitmap(svg);
+        var updatedRight = updatedBitmap.GetPixel(18, 5);
+        Assert.True(updatedRight.Alpha > 200, $"Expected opaque pixel, got {updatedRight}.");
+        Assert.True(updatedRight.Red < 80, $"Expected low red channel, got {updatedRight}.");
+        Assert.True(updatedRight.Green > 100, $"Expected green channel, got {updatedRight}.");
+        Assert.True(updatedRight.Blue < 80, $"Expected low blue channel, got {updatedRight}.");
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_RebindsRootDeferredPaintServers()
+    {
+        var document = SvgService.FromSvg(RootDeferredPaintServerAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var fill = Assert.IsType<SvgDeferredPaintServer>(animated.Fill);
+#pragma warning disable CS0618
+        Assert.Same(animated, fill.Document);
+#pragma warning restore CS0618
+    }
+
+    [Fact]
     public void CreateAnimatedDocument_AppliesInheritedCssAnimationsWhenWhitespaceCssParameterIsProvided()
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(InheritedFontSizeAnimationSvg));
@@ -265,6 +334,24 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void CreateAnimatedDocument_PreservesAlphaWhenInterpolatingHexAlphaPaint()
+    {
+        var document = SvgService.FromSvg(HexAlphaPaintAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+
+        var fill = Assert.IsType<SvgColourServer>(target!.Fill);
+        Assert.Equal((byte)0, fill.Colour.R);
+        Assert.Equal((byte)0, fill.Colour.G);
+        Assert.Equal((byte)0, fill.Colour.B);
+        Assert.Equal((byte)64, fill.Colour.A);
+    }
+
+    [Fact]
     public void SetAnimationTime_RebuildsRootViewBoxAnimations()
     {
         using var svg = new SKSvg();
@@ -282,7 +369,7 @@ public class SvgAnimationControllerTests
         Assert.Equal(50f, renderedDocument.ViewBox.Width, 3);
         Assert.Equal(50f, renderedDocument.ViewBox.Height, 3);
         Assert.Null(svg.HitTestTopmostElement(new SKPoint(65, 65)));
-        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(25, 25))?.ID);
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(15, 15))?.ID);
     }
 
     [Fact]
@@ -371,6 +458,27 @@ public class SvgAnimationControllerTests
         var target = animated.GetElementById<SvgRectangle>("target");
         Assert.NotNull(target);
         Assert.Equal(7.5f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_ComposesMotionWithEarlierTransformAnimation()
+    {
+        var document = SvgService.FromSvg(MotionAfterTransformAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(2, target!.Transforms.Count);
+
+        var motionTranslate = Assert.IsType<SvgTranslate>(target.Transforms[0]);
+        var transformTranslate = Assert.IsType<SvgTranslate>(target.Transforms[1]);
+        Assert.Equal(10f, motionTranslate.X, 3);
+        Assert.Equal(0f, motionTranslate.Y, 3);
+        Assert.Equal(0f, transformTranslate.X, 3);
+        Assert.Equal(5f, transformTranslate.Y, 3);
     }
 
     [Fact]
@@ -474,6 +582,29 @@ public class SvgAnimationControllerTests
         var target = animated.GetElementById<SvgRectangle>("target");
         Assert.NotNull(target);
         Assert.Equal(5f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_ConstrainsIndefiniteSetWithValidMaximumDuration()
+    {
+        var document = SvgService.FromSvg(IndefiniteSetMaxDurationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var during = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+        var duringTarget = during.GetElementById<SvgRectangle>("capped");
+        Assert.NotNull(duringTarget);
+        Assert.Equal(10f, duringTarget!.X.Value, 3);
+
+        var afterMax = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(3));
+        var capped = afterMax.GetElementById<SvgRectangle>("capped");
+        Assert.NotNull(capped);
+        Assert.Equal(0f, capped!.X.Value, 3);
+
+        var invalidPair = afterMax.GetElementById<SvgRectangle>("invalid-pair");
+        Assert.NotNull(invalidPair);
+        Assert.Equal(10f, invalidPair!.X.Value, 3);
     }
 
     [Fact]
@@ -642,6 +773,74 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void NotifyAccessKey_ResolvesMultipleBeginConditions()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(AccessKeyMultipleBeginSvg);
+
+        Assert.True(svg.NotifyAccessKey("a", TimeSpan.FromSeconds(2)));
+
+        Assert.Equal(34f, GetAnimatedRectangleX(svg, "target", TimeSpan.FromSeconds(2.5)), 3);
+        Assert.Equal(0f, GetAnimatedRectangleX(svg, "target", TimeSpan.FromSeconds(3.5)), 3);
+        Assert.Equal(34f, GetAnimatedRectangleX(svg, "target", TimeSpan.FromSeconds(6.5)), 3);
+        Assert.Equal(0f, GetAnimatedRectangleX(svg, "target", TimeSpan.FromSeconds(7.5)), 3);
+    }
+
+    [Fact]
+    public void NotifyAccessKey_ResolvesEarlyAndLateEndConditions()
+    {
+        using var early = new SKSvg();
+        early.FromSvg(AccessKeyEndSvg);
+
+        Assert.True(early.NotifyAccessKey("a", TimeSpan.FromSeconds(2)));
+        Assert.Equal(34f, GetAnimatedRectangleX(early, "target", TimeSpan.FromSeconds(3)), 3);
+        Assert.Equal(0f, GetAnimatedRectangleX(early, "target", TimeSpan.FromSeconds(7.5)), 3);
+
+        using var late = new SKSvg();
+        late.FromSvg(AccessKeyEndSvg);
+
+        Assert.True(late.NotifyAccessKey("a", TimeSpan.FromSeconds(6)));
+        Assert.Equal(0f, GetAnimatedRectangleX(late, "target", TimeSpan.FromSeconds(6.1)), 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_ResolvesWallclockBeginAndEndAgainstOrigin()
+    {
+        var document = SvgService.FromSvg(WallclockTimingSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(
+            document!,
+            new DateTimeOffset(2026, 5, 28, 0, 0, 0, TimeSpan.Zero));
+
+        var animated = controller.CreateAnimatedDocument(TimeSpan.Zero);
+
+        Assert.Equal(34f, GetRectangleX(animated, "pastBegin"), 3);
+        Assert.Equal(34f, GetRectangleX(animated, "futureEnd"), 3);
+    }
+
+    [Fact]
+    public void NotifyPointerEventAndAccessKey_ReplaysRepeatedUserEventSequence()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(MixedUserEventSequenceSvg);
+
+        var trigger = svg.SourceDocument!.GetElementById("target");
+        Assert.NotNull(trigger);
+
+        Assert.True(svg.NotifyPointerEvent(trigger, SvgPointerEventType.Click, TimeSpan.FromSeconds(1)));
+        Assert.Equal(34f, GetAnimatedRectangleX(svg, "target", TimeSpan.FromSeconds(1.5)), 3);
+        Assert.Equal(0f, GetAnimatedRectangleX(svg, "target", TimeSpan.FromSeconds(2.5)), 3);
+
+        Assert.True(svg.NotifyPointerEvent(trigger, SvgPointerEventType.Click, TimeSpan.FromSeconds(3)));
+        Assert.Equal(34f, GetAnimatedRectangleX(svg, "target", TimeSpan.FromSeconds(3.5)), 3);
+        Assert.Equal(0f, GetAnimatedRectangleX(svg, "target", TimeSpan.FromSeconds(4.5)), 3);
+
+        Assert.True(svg.NotifyAccessKey("b", TimeSpan.FromSeconds(5)));
+        Assert.Equal(34f, GetAnimatedRectangleX(svg, "target", TimeSpan.FromSeconds(5.5)), 3);
+    }
+
+    [Fact]
     public void CreateAnimatedDocument_UsesAnimateMotionValuesPath()
     {
         var document = SvgService.FromSvg(MotionValuesSvg);
@@ -751,6 +950,22 @@ public class SvgAnimationControllerTests
     }
 
     [Fact]
+    public void CreateAnimatedDocument_PreservesBaseTransformForByOnlyAnimateTransform()
+    {
+        var document = SvgService.FromSvg(ByOnlyTransformWithBaseSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        var translate = Assert.IsType<SvgTranslate>(Assert.Single(target!.Transforms));
+        Assert.Equal(12.5f, translate.X, 3);
+        Assert.Equal(0f, translate.Y, 3);
+    }
+
+    [Fact]
     public void CreateAnimatedDocument_SaturatesLargeRepeatIterationCounts()
     {
         var document = SvgService.FromSvg(LargeRepeatIterationAnimationSvg);
@@ -762,6 +977,557 @@ public class SvgAnimationControllerTests
         var target = animated.GetElementById<SvgRectangle>("target");
         Assert.NotNull(target);
         Assert.True(target!.X.Value > 1_000_000f);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_ResolvesSyncbaseRepeatTiming()
+    {
+        var document = SvgService.FromSvg(SyncbaseRepeatTimingSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var beforeRepeat = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(0.75));
+        var beforeTarget = beforeRepeat.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(beforeTarget);
+        Assert.Equal(0f, beforeTarget!.X.Value, 3);
+
+        var afterRepeat = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1.5));
+        var afterTarget = afterRepeat.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(afterTarget);
+        Assert.Equal(5f, afterTarget!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_GeneratesSelfEndBeginIntervals()
+    {
+        var document = SvgService.FromSvg(SelfEndBeginTimingSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var firstActive = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(0.5));
+        Assert.Equal(10f, firstActive.GetElementById<SvgRectangle>("pulse")!.X.Value, 3);
+
+        var firstGap = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1.5));
+        Assert.Equal(0f, firstGap.GetElementById<SvgRectangle>("pulse")!.X.Value, 3);
+
+        var secondActive = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2.5));
+        Assert.Equal(10f, secondActive.GetElementById<SvgRectangle>("pulse")!.X.Value, 3);
+
+        var followerActive = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(4.5));
+        Assert.Equal(10f, followerActive.GetElementById<SvgRectangle>("follower")!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_UsesHalfOpenActiveIntervals()
+    {
+        var document = SvgService.FromSvg(HalfOpenIntervalAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+
+        var removed = animated.GetElementById<SvgRectangle>("removed");
+        Assert.NotNull(removed);
+        Assert.Equal(0f, removed!.X.Value, 3);
+
+        var frozen = animated.GetElementById<SvgRectangle>("frozen");
+        Assert.NotNull(frozen);
+        Assert.Equal(10f, frozen!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_TruncatesRestartedIntervalsForSyncbaseEnd()
+    {
+        var document = SvgService.FromSvg(RestartTruncationSyncbaseSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(0.75));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(2.5f, target!.Y.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_UsesSelfBeginTimingForEndInstances()
+    {
+        var document = SvgService.FromSvg(SelfBeginEndTimingSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(3));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(2f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void TryGetStartTime_ResolvesFutureSyncbaseIntervals()
+    {
+        var document = SvgService.FromSvg(FutureSyncbaseStartTimeSvg);
+        Assert.NotNull(document);
+        var animation = document!.GetElementById<SvgAnimate>("dependent");
+        Assert.NotNull(animation);
+
+        using var controller = new SvgAnimationController(document);
+        var method = typeof(SvgAnimationController).GetMethod(
+            "TryGetStartTime",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            new[] { typeof(SvgAnimationElement), typeof(TimeSpan), typeof(TimeSpan).MakeByRefType() },
+            modifiers: null);
+        Assert.NotNull(method);
+
+        var args = new object?[] { animation, TimeSpan.Zero, default(TimeSpan) };
+        var resolved = Assert.IsType<bool>(method!.Invoke(controller, args));
+
+        Assert.True(resolved);
+        Assert.Equal(TimeSpan.FromSeconds(2), Assert.IsType<TimeSpan>(args[2]));
+    }
+
+    [Fact]
+    public void GetTimelineCallbacks_IncludesRepeatEvents()
+    {
+        var document = SvgService.FromSvg(RepeatTimelineCallbackSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var callbacks = InvokeTimelineCallbacks(controller, TimeSpan.FromSeconds(1), TimeSpan.Zero);
+
+        Assert.Contains(callbacks, callback => callback.EventType == "repeatEvent" && callback.AttributeName == "onrepeat");
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_IgnoresRepeatZeroTiming()
+    {
+        var document = SvgService.FromSvg(RepeatZeroTimingSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(0f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_IgnoresNonProgressingSelfBeginTiming()
+    {
+        var document = SvgService.FromSvg(NonProgressingSelfBeginTimingSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1.5));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.Equal(10f, target!.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_InterpolatesNumberListsAndPathData()
+    {
+        var document = SvgService.FromSvg(NumberListAndPathDataAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+
+        var polygon = animated.GetElementById<SvgPolygon>("polygon");
+        Assert.NotNull(polygon);
+        Assert.Equal(10f, polygon!.Points[2].Value, 3);
+        Assert.Equal(10f, polygon.Points[5].Value, 3);
+
+        var path = animated.GetElementById<SvgPath>("path");
+        Assert.NotNull(path);
+        Assert.Contains("10", path!.PathData.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_UsesDiscreteFallbackForNonInterpolableLinearValues()
+    {
+        var document = SvgService.FromSvg(NonInterpolableLinearAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+
+        var beforeMidpoint = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(0.999));
+        var beforeMidpointTarget = beforeMidpoint.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(beforeMidpointTarget);
+        Assert.Equal("hidden", beforeMidpointTarget!.Visibility);
+
+        var midpoint = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+        var midpointTarget = midpoint.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(midpointTarget);
+        Assert.Equal("visible", midpointTarget!.Visibility);
+
+        var endpoint = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+        var endpointTarget = endpoint.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(endpointTarget);
+        Assert.Equal("visible", endpointTarget!.Visibility);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AppliesToOnlyNonInterpolableAttributesImmediately()
+    {
+        var document = SvgService.FromSvg(ToOnlyNonInterpolableAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(3));
+
+        Assert.Equal(SvgCoordinateUnits.UserSpaceOnUse, animated.GetElementById<SvgClipPath>("clip")!.ClipPathUnits);
+        Assert.Equal("off", animated.GetElementById<Svg.FilterEffects.SvgComposite>("composite")!.Input);
+        Assert.Equal(SvgPreserveAspectRatio.xMinYMin, animated.GetElementById<SvgFragment>("fragment")!.AspectRatio.Align);
+        Assert.Equal(SvgGradientSpreadMethod.Pad, animated.GetElementById<SvgLinearGradientServer>("gradient")!.SpreadMethod);
+
+        var use = animated.GetElementById<SvgUse>("use");
+        Assert.NotNull(use);
+        Assert.True(use!.TryGetEffectiveHrefString(out var href));
+        Assert.Equal("#target-b", href);
+
+        var classTarget = animated.GetElementById<SvgRectangle>("class-target");
+        Assert.NotNull(classTarget);
+        Assert.True(classTarget!.TryGetAttribute("class", out var className));
+        Assert.Equal("off", className);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AnimatesHrefUsingNormalizedAttributeName()
+    {
+        var document = SvgService.FromSvg(HrefNameNormalizationAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var target = animated.GetElementById<SvgUse>("target");
+        Assert.NotNull(target);
+        Assert.True(target!.TryGetEffectiveHrefString(out var href));
+        Assert.Equal("#template-b", href);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AnimatesDirectXLinkHrefAttributeName()
+    {
+        var document = SvgService.FromSvg(XLinkHrefAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var target = animated.GetElementById<SvgUse>("target");
+        Assert.NotNull(target);
+        Assert.True(target!.TryGetEffectiveHrefString(out var href));
+        Assert.Equal("#template-b", href);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_PreservesCustomNamespacePrefixAttributeNames()
+    {
+        var document = SvgService.FromSvg(CustomNamespaceAttributeAnimationSvg);
+        Assert.NotNull(document);
+
+        var animation = document!.Descendants().OfType<SvgAnimate>().Single();
+        var resolveAttributeName = typeof(SvgAnimationController).GetMethod(
+            "ResolveAttributeName",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(resolveAttributeName);
+        Assert.Equal("foo:flag", resolveAttributeName!.Invoke(null, new object?[] { animation }));
+
+        using var controller = new SvgAnimationController(document);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.True(target!.TryGetAttribute("urn:example:flag", out var flag));
+        Assert.Equal("on", flag);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AnimatesHrefUsingNamespaceAlias()
+    {
+        var document = SvgService.FromSvg(AliasedXLinkHrefAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var target = animated.GetElementById<SvgUse>("target");
+        Assert.NotNull(target);
+        Assert.True(target!.TryGetEffectiveHrefString(out var href));
+        Assert.Equal("#template-b", href);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_ReappliesClassSelectorsAfterClassAnimation()
+    {
+        var document = SvgService.FromSvg(ClassSelectorAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.True(target!.TryGetAttribute("class", out var className));
+        Assert.Equal("off", className);
+        var fill = Assert.IsType<SvgColourServer>(target.Fill);
+        Assert.Equal((byte)255, fill.Colour.R);
+        Assert.Equal((byte)0, fill.Colour.G);
+        Assert.Equal((byte)0, fill.Colour.B);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_UsesToValueAtNonInterpolableMidpoint()
+    {
+        var document = SvgService.FromSvg(NonInterpolableMidpointClassAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(5));
+
+        var target = animated.GetElementById<SvgCircle>("target");
+        Assert.NotNull(target);
+        Assert.True(target!.TryGetAttribute("class", out var className));
+        Assert.Equal("final midway", className);
+
+        var fill = Assert.IsType<SvgColourServer>(target.Fill);
+        Assert.Equal((byte)128, fill.Colour.R);
+        Assert.Equal((byte)0, fill.Colour.G);
+        Assert.Equal((byte)0, fill.Colour.B);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AppliesSelectorMutationsBeforeOtherFrameAttributes()
+    {
+        var document = SvgService.FromSvg(SelectorMutationOrderingAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(3));
+
+        var guide = animated.GetElementById<SvgRectangle>("guide");
+        Assert.NotNull(guide);
+        var guideFill = Assert.IsType<SvgColourServer>(guide!.Fill);
+        Assert.Equal((byte)204, guideFill.Colour.R);
+        Assert.Equal((byte)204, guideFill.Colour.G);
+        Assert.Equal((byte)204, guideFill.Colour.B);
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        var targetFill = Assert.IsType<SvgColourServer>(target!.Fill);
+        Assert.Equal((byte)255, targetFill.Colour.R);
+        Assert.Equal((byte)0, targetFill.Colour.G);
+        Assert.Equal((byte)0, targetFill.Colour.B);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AppliesAnimatedInlineStyle()
+    {
+        var document = SvgService.FromSvg(StyleAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        var fill = Assert.IsType<SvgColourServer>(target!.Fill);
+        Assert.Equal((byte)0, fill.Colour.R);
+        Assert.Equal((byte)128, fill.Colour.G);
+        Assert.Equal((byte)0, fill.Colour.B);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_PreservesClassCustomAttributeDuringAnimation()
+    {
+        var document = SvgService.FromSvg(ClassPreservationAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+
+        var target = animated.GetElementById<SvgRectangle>("target");
+        Assert.NotNull(target);
+        Assert.True(target!.TryGetAttribute("class", out var className));
+        Assert.Equal("base highlighted", className);
+        Assert.Equal(10f, target.X.Value, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AnimatesInheritedGradientStopColorAndOpacity()
+    {
+        var document = SvgService.FromSvg(InheritedStopAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+
+        var gradient = animated.GetElementById<SvgLinearGradientServer>("gradient");
+        Assert.NotNull(gradient);
+        var gradientColor = Assert.IsType<SvgColourServer>(gradient!.StopColor);
+        Assert.Equal((byte)128, gradientColor.Colour.R);
+        Assert.Equal((byte)0, gradientColor.Colour.G);
+        Assert.Equal((byte)128, gradientColor.Colour.B);
+        Assert.Equal(0.5f, gradient.StopOpacity, 3);
+
+        var inheritedStop = animated.GetElementById<SvgGradientStop>("inherited-stop");
+        Assert.NotNull(inheritedStop);
+        var inheritedColor = Assert.IsType<SvgColourServer>(inheritedStop!.StopColor);
+        Assert.Equal(gradientColor.Colour, inheritedColor.Colour);
+        Assert.Equal(0.5f, inheritedStop.StopOpacity, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AnimatesInheritedStopOpacityFromParentScope()
+    {
+        var document = SvgService.FromSvg(W3CParentScopedStopOpacityAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(5));
+
+        var scope = animated.GetElementById<SvgGroup>("scope");
+        Assert.NotNull(scope);
+        Assert.True(scope!.TryGetAttribute("stop-opacity", out var animatedOpacity));
+        Assert.Equal("1", animatedOpacity);
+        Assert.True(scope.TryGetAttribute("stop-color", out var stopColor));
+        Assert.Equal("yellow", Convert.ToString(stopColor), ignoreCase: true);
+        Assert.True(scope.TryGetAttribute("color", out var color));
+        Assert.Equal("yellow", Convert.ToString(color), ignoreCase: true);
+
+        var gradient = animated.GetElementById<SvgLinearGradientServer>("gradient");
+        Assert.NotNull(gradient);
+        Assert.Equal(1f, gradient!.StopOpacity, 3);
+
+        var inheritedStop = gradient.Children.OfType<SvgGradientStop>().Last();
+        Assert.Equal(1f, inheritedStop.StopOpacity, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_ResolvesCurrentColorAndInheritColorEndpoints()
+    {
+        var document = SvgService.FromSvg(ColorKeywordAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var currentColorTarget = animated.GetElementById<SvgRectangle>("current-color");
+        Assert.NotNull(currentColorTarget);
+        var currentColorFill = Assert.IsType<SvgColourServer>(currentColorTarget!.Fill);
+        Assert.Equal((byte)0, currentColorFill.Colour.R);
+        Assert.Equal((byte)128, currentColorFill.Colour.G);
+        Assert.Equal((byte)0, currentColorFill.Colour.B);
+
+        var inheritTarget = animated.GetElementById<SvgRectangle>("inherit-color");
+        Assert.NotNull(inheritTarget);
+        var inheritFill = Assert.IsType<SvgColourServer>(inheritTarget!.Fill);
+        Assert.Equal(currentColorFill.Colour, inheritFill.Colour);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_UsesSameFrameAnimatedColorForCurrentColor()
+    {
+        var document = SvgService.FromSvg(SameFrameCurrentColorAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        AssertAnimatedFill(animated, "color-first", Color.Cyan);
+        AssertAnimatedFill(animated, "fill-first", Color.Cyan);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_InterpolatesW3CAnimateColorBasicFixture()
+    {
+        var start = CreateAnimatedW3CDocument("animate-elem-23-t.svg", TimeSpan.FromSeconds(3));
+        AssertVisualFill(GetLargeAnimatedCircle(start), Color.Blue);
+
+        var midpoint = CreateAnimatedW3CDocument("animate-elem-23-t.svg", TimeSpan.FromSeconds(6));
+        AssertVisualFill(GetLargeAnimatedCircle(midpoint), Color.FromArgb(0, 128, 128));
+
+        var end = CreateAnimatedW3CDocument("animate-elem-23-t.svg", TimeSpan.FromSeconds(9));
+        AssertVisualFill(GetLargeAnimatedCircle(end), Color.Lime);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_InterpolatesW3CAnimateColorKeywordFixture()
+    {
+        var animated = CreateAnimatedW3CDocument("animate-elem-84-t.svg", TimeSpan.FromSeconds(7));
+        var animatedRects = animated.Descendants()
+            .OfType<SvgRectangle>()
+            .Where(rectangle => NearlyEqual(rectangle.Width.Value, 100f) && NearlyEqual(rectangle.Height.Value, 100f))
+            .ToArray();
+
+        Assert.Equal(5, animatedRects.Length);
+        foreach (var rectangle in animatedRects)
+        {
+            var expected = NearlyEqual(rectangle.X.Value, 240f) && NearlyEqual(rectangle.Y.Value, 0f)
+                ? Color.FromArgb(0, 119, 0)
+                : Color.Green;
+            AssertVisualFill(rectangle, expected);
+        }
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_UsesSameFrameCurrentColorForW3CAnimateColorFixture()
+    {
+        var firstEnd = CreateAnimatedW3CDocument("animate-elem-85-t.svg", TimeSpan.FromSeconds(5));
+        var topRects = GetW3CAnimateElem85TopRectangles(firstEnd);
+        Assert.Equal(4, topRects.Length);
+        Assert.All(topRects, rectangle => AssertVisualFill(rectangle, Color.Green));
+
+        var firstEndBottomRects = GetW3CAnimateElem85BottomRectangles(firstEnd);
+        Assert.Equal(2, firstEndBottomRects.Length);
+        Assert.All(firstEndBottomRects, rectangle => AssertVisualFill(rectangle, Color.Green));
+
+        var midpoint = CreateAnimatedW3CDocument("animate-elem-85-t.svg", TimeSpan.FromSeconds(7.5));
+        var midpointBottomRects = GetW3CAnimateElem85BottomRectangles(midpoint);
+        Assert.Equal(2, midpointBottomRects.Length);
+        Assert.All(midpointBottomRects, rectangle => AssertVisualFill(rectangle, Color.FromArgb(0, 128, 128)));
+
+        var end = CreateAnimatedW3CDocument("animate-elem-85-t.svg", TimeSpan.FromSeconds(10));
+        var endBottomRects = GetW3CAnimateElem85BottomRectangles(end);
+        Assert.Equal(2, endBottomRects.Length);
+        Assert.All(endBottomRects, rectangle => AssertVisualFill(rectangle, Color.Cyan));
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_InterpolatesFeCompositeArithmeticCoefficients()
+    {
+        var document = SvgService.FromSvg(FeCompositeCoefficientAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(1));
+
+        var composite = animated.GetElementById<Svg.FilterEffects.SvgComposite>("composite");
+        Assert.NotNull(composite);
+        Assert.Equal(0.5f, composite!.K2, 3);
+        Assert.Equal(0.5f, composite.K3, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_FreezesFeCompositeArithmeticCoefficientsAtEndpoint()
+    {
+        var document = SvgService.FromSvg(FeCompositeCoefficientAnimationSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(2));
+
+        var composite = animated.GetElementById<Svg.FilterEffects.SvgComposite>("composite");
+        Assert.NotNull(composite);
+        Assert.Equal(0f, composite!.K2, 3);
+        Assert.Equal(1f, composite.K3, 3);
     }
 
     [Fact]
@@ -810,6 +1576,24 @@ public class SvgAnimationControllerTests
         var accumulatedMotion = Assert.IsType<SvgTranslate>(Assert.Single(motionTarget!.Transforms));
         Assert.Equal(12.5f, accumulatedMotion.X, 3);
         Assert.Equal(0f, accumulatedMotion.Y, 3);
+    }
+
+    [Fact]
+    public void CreateAnimatedDocument_AccumulatesDiscreteEndValuesPerIteration()
+    {
+        var document = SvgService.FromSvg(DiscreteAccumulateSvg);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        var animated = controller.CreateAnimatedDocument(TimeSpan.FromSeconds(7));
+
+        var accumulated = animated.GetElementById<SvgRectangle>("accumulated");
+        Assert.NotNull(accumulated);
+        Assert.Equal(40f, accumulated!.Height.Value, 3);
+
+        var additive = animated.GetElementById<SvgRectangle>("additive");
+        Assert.NotNull(additive);
+        Assert.Equal(60f, additive!.Height.Value, 3);
     }
 
     [Fact]
@@ -968,6 +1752,54 @@ public class SvgAnimationControllerTests
             name));
     }
 
+    private static SvgDocument CreateAnimatedW3CDocument(string name, TimeSpan time)
+    {
+        var path = GetW3CTestSvgPath(name);
+        Assert.True(File.Exists(path), $"Expected W3C SVG fixture at '{path}'.");
+
+        var document = SvgService.Open(path);
+        Assert.NotNull(document);
+
+        using var controller = new SvgAnimationController(document!);
+        return controller.CreateAnimatedDocument(time);
+    }
+
+    private static SvgCircle GetLargeAnimatedCircle(SvgDocument document)
+    {
+        return Assert.Single(document.Descendants().OfType<SvgCircle>(), circle => circle.Radius.Value > 100f);
+    }
+
+    private static SvgRectangle[] GetW3CAnimateElem85TopRectangles(SvgDocument document)
+    {
+        return GetW3CAnimateElem85Rectangles(document, y: 50f);
+    }
+
+    private static SvgRectangle[] GetW3CAnimateElem85BottomRectangles(SvgDocument document)
+    {
+        return document.Descendants()
+            .OfType<SvgRectangle>()
+            .Where(rectangle => NearlyEqual(rectangle.X.Value, 100f) &&
+                                (NearlyEqual(rectangle.Y.Value, 180f) || NearlyEqual(rectangle.Y.Value, 245f)) &&
+                                NearlyEqual(rectangle.Width.Value, 280f) &&
+                                NearlyEqual(rectangle.Height.Value, 60f))
+            .ToArray();
+    }
+
+    private static SvgRectangle[] GetW3CAnimateElem85Rectangles(SvgDocument document, float y)
+    {
+        return document.Descendants()
+            .OfType<SvgRectangle>()
+            .Where(rectangle => NearlyEqual(rectangle.Y.Value, y) &&
+                                NearlyEqual(rectangle.Width.Value, 90f) &&
+                                NearlyEqual(rectangle.Height.Value, 100f))
+            .ToArray();
+    }
+
+    private static bool NearlyEqual(float actual, float expected)
+    {
+        return Math.Abs(actual - expected) < 0.001f;
+    }
+
     private const string AnimationRuntimeSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -1067,6 +1899,17 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
+    private const string HexAlphaPaintAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="10"
+             height="10"
+             viewBox="0 0 10 10">
+          <rect id="target" x="0" y="0" width="10" height="10" fill="#00000000">
+            <animate attributeName="fill" from="#00000000" to="#00000080" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
     private const string TopLevelLayeredAnimationSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              width="40"
@@ -1160,6 +2003,43 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
+    private const string InheritedGradientStopOpacityAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="10"
+             viewBox="0 0 20 10">
+          <rect width="20" height="10" fill="white" />
+          <defs>
+            <g id="gradient-scope" stop-opacity="0.2">
+              <animate attributeName="stop-opacity" begin="0s" dur="2s" fill="freeze" from="0.2" to="1" />
+              <linearGradient id="gradient" stop-opacity="inherit">
+                <stop offset="0" stop-color="green" stop-opacity="1" />
+                <stop offset="1" stop-color="green" stop-opacity="inherit" />
+              </linearGradient>
+            </g>
+          </defs>
+          <rect x="0" y="0" width="20" height="10" fill="url(#gradient)" />
+        </svg>
+        """;
+
+    private const string RootDeferredPaintServerAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="10"
+             viewBox="0 0 20 10"
+             fill="url(#gradient)">
+          <defs>
+            <linearGradient id="gradient">
+              <stop id="animated-stop" offset="0" stop-color="red">
+                <animate attributeName="stop-color" begin="0s" dur="2s" fill="freeze" from="red" to="green" />
+              </stop>
+              <stop offset="1" stop-color="green" />
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="20" height="10" />
+        </svg>
+        """;
+
     private const string ColonClockAnimationSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              width="20"
@@ -1179,6 +2059,23 @@ public class SvgAnimationControllerTests
           <rect id="target" x="0" y="0" width="4" height="4" fill="red">
             <animate attributeName="x" from="0" to="10" dur="2s" fill="freeze" />
             <animate attributeName="x" from="0" to="5" dur="2s" additive="sum" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string MotionAfterTransformAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <animateTransform attributeName="transform"
+                              type="translate"
+                              from="0 0"
+                              to="0 10"
+                              dur="2s"
+                              fill="freeze" />
+            <animateMotion values="0,0;20,0" dur="2s" fill="freeze" />
           </rect>
         </svg>
         """;
@@ -1271,6 +2168,20 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
+    private const string IndefiniteSetMaxDurationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="30"
+             height="20"
+             viewBox="0 0 30 20">
+          <rect id="capped" x="0" y="0" width="4" height="4" fill="red">
+            <set attributeName="x" to="10" dur="indefinite" max="2s" />
+          </rect>
+          <rect id="invalid-pair" x="0" y="8" width="4" height="4" fill="green">
+            <set attributeName="x" to="10" end="4s" min="5s" max="2s" />
+          </rect>
+        </svg>
+        """;
+
     private const string EventEndSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              width="40"
@@ -1280,6 +2191,53 @@ public class SvgAnimationControllerTests
             <animate attributeName="x" from="0" to="10" begin="0s" dur="10s" end="trigger.click" fill="freeze" />
           </rect>
           <circle id="trigger" cx="20" cy="5" r="3" fill="blue" />
+        </svg>
+        """;
+
+    private const string AccessKeyMultipleBeginSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="50"
+             height="10"
+             viewBox="0 0 50 10">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <set attributeName="x" to="34" begin="accessKey(a) + 0s;accessKey(a)+4s" dur="1s" />
+          </rect>
+        </svg>
+        """;
+
+    private const string AccessKeyEndSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="50"
+             height="10"
+             viewBox="0 0 50 10">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <set attributeName="x" to="34" begin="0s" end="accessKey(a) - 5s;accessKey(a)+5s" dur="indefinite" />
+          </rect>
+        </svg>
+        """;
+
+    private const string WallclockTimingSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="60"
+             height="20"
+             viewBox="0 0 60 20">
+          <rect id="pastBegin" x="0" y="0" width="5" height="5" fill="red">
+            <set attributeName="x" to="34" begin="wallclock(2000-06-10T12:34:56Z)" dur="indefinite" />
+          </rect>
+          <rect id="futureEnd" x="0" y="10" width="5" height="5" fill="red">
+            <set attributeName="x" to="34" begin="0s" end="wallclock(2200-06-10T12:34:56Z)" dur="indefinite" />
+          </rect>
+        </svg>
+        """;
+
+    private const string MixedUserEventSequenceSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="50"
+             height="10"
+             viewBox="0 0 50 10">
+          <rect id="target" x="0" y="0" width="5" height="5" fill="red">
+            <set attributeName="x" to="34" begin="target.click;accessKey(b)" dur="1s" />
+          </rect>
         </svg>
         """;
 
@@ -1447,6 +2405,35 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
+    private const string DiscreteAccumulateSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="50"
+             height="80"
+             viewBox="0 0 50 80">
+          <rect id="accumulated" x="0" y="0" width="10" height="20" fill="red">
+            <animate attributeName="height"
+                     calcMode="discrete"
+                     from="200"
+                     to="20"
+                     dur="4s"
+                     repeatCount="2"
+                     accumulate="sum"
+                     fill="freeze" />
+          </rect>
+          <rect id="additive" x="20" y="0" width="10" height="20" fill="green">
+            <animate attributeName="height"
+                     calcMode="discrete"
+                     additive="sum"
+                     from="200"
+                     to="20"
+                     dur="4s"
+                     repeatCount="2"
+                     accumulate="sum"
+                     fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
     private const string PacedValuesAnimationSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              width="120"
@@ -1458,6 +2445,28 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
+    private static List<(string EventType, string AttributeName)> InvokeTimelineCallbacks(
+        SvgAnimationController controller,
+        TimeSpan currentTime,
+        TimeSpan? previousTime)
+    {
+        var method = typeof(SvgAnimationController).GetMethod(
+            "GetTimelineCallbacks",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var result = (System.Collections.IEnumerable)method!.Invoke(controller, new object?[] { currentTime, previousTime })!;
+        var callbacks = new List<(string EventType, string AttributeName)>();
+        foreach (var callback in result)
+        {
+            callbacks.Add((
+                Assert.IsType<string>(callback.GetType().GetProperty("EventType")!.GetValue(callback)),
+                Assert.IsType<string>(callback.GetType().GetProperty("AttributeName")!.GetValue(callback))));
+        }
+
+        return callbacks;
+    }
+
     private const string PacedTransformAnimationSvg = """
         <svg xmlns="http://www.w3.org/2000/svg"
              width="120"
@@ -1465,6 +2474,17 @@ public class SvgAnimationControllerTests
              viewBox="0 0 120 20">
           <rect id="target" x="0" y="0" width="4" height="4" fill="red">
             <animateTransform attributeName="transform" type="translate" values="0 0;10 0;110 0" calcMode="paced" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string ByOnlyTransformWithBaseSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red" transform="translate(10 0)">
+            <animateTransform attributeName="transform" type="translate" by="5 0" dur="2s" fill="freeze" />
           </rect>
         </svg>
         """;
@@ -1480,7 +2500,407 @@ public class SvgAnimationControllerTests
         </svg>
         """;
 
-    private static System.Collections.Generic.List<ShimSkiaSharp.SKPicture> GetAnimatedSubtreePictures(SKSvg svg)
+    private const string SyncbaseRepeatTimingSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="base" x="0" y="0" width="4" height="4" fill="green">
+            <animate id="repeater" attributeName="width" from="4" to="8" dur="1s" repeatCount="3" />
+          </rect>
+          <rect id="target" x="0" y="10" width="4" height="4" fill="blue">
+            <animate attributeName="x" from="0" to="10" begin="repeater.repeat(1)" dur="1s" />
+          </rect>
+        </svg>
+        """;
+
+    private const string HalfOpenIntervalAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="removed" x="0" y="0" width="4" height="4" fill="green">
+            <animate attributeName="x" from="0" to="10" dur="1s" />
+          </rect>
+          <rect id="frozen" x="0" y="10" width="4" height="4" fill="blue">
+            <animate attributeName="x" from="0" to="10" dur="1s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string RestartTruncationSyncbaseSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="green">
+            <animate id="driver" attributeName="x" from="0" to="10" begin="0s; 0.5s" dur="1s" restart="always" />
+            <animate attributeName="y" from="0" to="10" begin="driver.end" dur="1s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string SelfBeginEndTimingSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="green">
+            <animate id="bounded" attributeName="x" from="0" to="10" begin="0s" dur="10s" end="bounded.begin + 2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string FutureSyncbaseStartTimeSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="driver-target" x="0" y="0" width="4" height="4" fill="green">
+            <animate id="driver" attributeName="x" from="0" to="10" begin="0s" dur="1s" />
+          </rect>
+          <rect id="target" x="0" y="10" width="4" height="4" fill="blue">
+            <animate id="dependent" attributeName="x" from="0" to="10" begin="driver.end + 1s" dur="1s" />
+          </rect>
+        </svg>
+        """;
+
+    private const string RepeatTimelineCallbackSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="green">
+            <animate id="repeater" attributeName="x" from="0" to="10" dur="1s" repeatCount="3" onrepeat="window.__repeat = true;" />
+          </rect>
+        </svg>
+        """;
+
+    private const string RepeatZeroTimingSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="base" x="0" y="0" width="4" height="4" fill="green">
+            <animate id="repeater" attributeName="width" from="4" to="8" dur="1s" repeatCount="3" />
+          </rect>
+          <rect id="target" x="0" y="10" width="4" height="4" fill="blue">
+            <animate attributeName="x" from="0" to="10" begin="repeater.repeat(0)" dur="1s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string SelfEndBeginTimingSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="pulse" x="0" y="0" width="4" height="4" fill="green">
+            <set id="pulse-set" attributeName="x" to="10" begin="0s; pulse-set.end + 1s" dur="1s" />
+          </rect>
+          <rect id="driver" x="0" y="10" width="4" height="4" fill="blue">
+            <set id="driver-set" attributeName="x" to="10" begin="0s; driver-set.end + 1s" dur="1s" />
+          </rect>
+          <rect id="follower" x="0" y="15" width="4" height="4" fill="purple">
+            <set attributeName="x" to="10" begin="driver-set.end + 1s" dur="1s" />
+          </rect>
+        </svg>
+        """;
+
+    private const string NonProgressingSelfBeginTimingSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="green">
+            <animate id="pulse" attributeName="x" from="0" to="10" begin="0s; pulse.begin" dur="1s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string NumberListAndPathDataAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="30"
+             height="30"
+             viewBox="0 0 30 30">
+          <polygon id="polygon" points="0,0 20,0 0,20" fill="green">
+            <animate attributeName="points" values="0,0 20,0 0,20; 0,0 0,20 20,0" dur="2s" fill="freeze" />
+          </polygon>
+          <path id="path" d="M0 0 L20 0 L0 20 Z" fill="none" stroke="blue">
+            <animate attributeName="d" values="M0 0 L20 0 L0 20 Z; M0 0 L0 20 L20 0 Z" dur="2s" fill="freeze" />
+          </path>
+        </svg>
+        """;
+
+    private const string NonInterpolableLinearAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red" visibility="hidden">
+            <animate attributeName="visibility" values="hidden;visible" calcMode="linear" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string ToOnlyNonInterpolableAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <defs>
+            <style>.on { fill: red; } .off { fill: #ccc; }</style>
+            <clipPath id="clip" clipPathUnits="objectBoundingBox">
+              <rect width="1" height="1" />
+              <animate attributeName="clipPathUnits" to="userSpaceOnUse" begin="2s" dur="2s" fill="freeze" />
+            </clipPath>
+            <filter id="filter">
+              <feFlood result="off" flood-color="#ccc" />
+              <feFlood result="on" flood-color="red" />
+              <feComposite id="composite" in="on" in2="SourceGraphic">
+                <animate attributeName="in" to="off" begin="2s" dur="2s" fill="freeze" />
+              </feComposite>
+            </filter>
+            <linearGradient id="gradient" spreadMethod="reflect">
+              <animate attributeName="spreadMethod" to="pad" begin="2s" dur="2s" fill="freeze" />
+            </linearGradient>
+            <rect id="target-a" width="4" height="4" fill="red" />
+            <rect id="target-b" width="4" height="4" fill="blue" />
+          </defs>
+          <svg id="fragment" width="10" height="10" viewBox="0 0 20 20" preserveAspectRatio="none">
+            <animate attributeName="preserveAspectRatio" to="xMinYMin" begin="2s" dur="2s" fill="freeze" />
+          </svg>
+          <use id="use" xlink:href="#target-a">
+            <animate attributeName="xlink:href" to="#target-b" begin="2s" dur="2s" fill="freeze" />
+          </use>
+          <rect id="class-target" class="on" width="4" height="4">
+            <animate attributeName="class" to="off" begin="2s" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string HrefNameNormalizationAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <defs>
+            <rect id="template-a" width="4" height="4" fill="red" />
+            <rect id="template-b" width="4" height="4" fill="blue" />
+          </defs>
+          <use id="target" xlink:href="#template-a">
+            <animate attributeName="href" from="#template-a" to="#template-b" dur="2s" fill="freeze" />
+          </use>
+        </svg>
+        """;
+
+    private const string XLinkHrefAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <defs>
+            <rect id="template-a" width="4" height="4" fill="red" />
+            <rect id="template-b" width="4" height="4" fill="blue" />
+          </defs>
+          <use id="target" xlink:href="#template-a">
+            <animate attributeName="xlink:href" from="#template-a" to="#template-b" dur="2s" fill="freeze" />
+          </use>
+        </svg>
+        """;
+
+    private const string CustomNamespaceAttributeAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:foo="urn:example"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" foo:flag="off">
+            <animate attributeName="foo:flag" from="off" to="on" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string AliasedXLinkHrefAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:xl="http://www.w3.org/1999/xlink"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <defs>
+            <rect id="template-a" width="4" height="4" fill="red" />
+            <rect id="template-b" width="4" height="4" fill="blue" />
+          </defs>
+          <use id="target" xl:href="#template-a">
+            <animate attributeName="xl:href" from="#template-a" to="#template-b" dur="2s" fill="freeze" />
+          </use>
+        </svg>
+        """;
+
+    private const string ClassSelectorAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <style type="text/css">
+            .on { fill: #008000; }
+            .off { fill: #ff0000; }
+          </style>
+          <rect id="target" class="on" x="0" y="0" width="4" height="4">
+            <animate attributeName="class" from="on" to="off" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string NonInterpolableMidpointClassAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <style type="text/css">
+            .start { visibility: hidden; }
+            .midway { visibility: visible; fill: #0000ff; }
+            #body .final { fill: rgb(128,0,0); }
+          </style>
+          <g id="body">
+            <circle id="target" cx="10" cy="10" r="5" class="start">
+              <set attributeName="class" to="midway" begin="2s" dur="2s" fill="freeze" />
+              <animate attributeName="class" from="midway" to="final midway" begin="3s" dur="4s" fill="freeze" />
+            </circle>
+          </g>
+        </svg>
+        """;
+
+    private const string SelectorMutationOrderingAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <style type="text/css">
+            .on { fill: #0000ff; }
+            .off { fill: #ff0000; }
+          </style>
+          <rect id="guide" x="0" y="0" width="4" height="4" fill="rgb(204,0,102)">
+            <set attributeName="fill" to="#cccccc" begin="2s" dur="2s" fill="freeze" />
+          </rect>
+          <rect id="target" class="on" x="10" y="0" width="4" height="4">
+            <animate attributeName="class" to="off" begin="2s" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string StyleAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" x="0" y="0" width="4" height="4" fill="red">
+            <set attributeName="style" to="fill: #008000" begin="0s" dur="1s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string ClassPreservationAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="target" class="base highlighted" x="0" y="0" width="4" height="4" fill="red">
+            <animate attributeName="x" from="0" to="20" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string ColorKeywordAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="current-color" color="#008000" fill="#000000" x="0" y="0" width="4" height="4">
+            <animateColor attributeName="fill" from="#000000" to="currentColor" dur="2s" fill="freeze" />
+          </rect>
+          <g fill="#008000">
+            <rect id="inherit-color" fill="#000000" x="10" y="0" width="4" height="4">
+              <animateColor attributeName="fill" from="#000000" to="inherit" dur="2s" fill="freeze" />
+            </rect>
+          </g>
+        </svg>
+        """;
+
+    private const string SameFrameCurrentColorAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <rect id="color-first" color="#008000" fill="#000000" x="0" y="0" width="4" height="4">
+            <animate attributeName="color" from="#008000" to="#00ffff" dur="2s" fill="freeze" />
+            <animateColor attributeName="fill" from="#000000" to="currentColor" dur="2s" fill="freeze" />
+          </rect>
+          <rect id="fill-first" color="#008000" fill="#000000" x="10" y="0" width="4" height="4">
+            <animateColor attributeName="fill" from="#000000" to="currentColor" dur="2s" fill="freeze" />
+            <animate attributeName="color" from="#008000" to="#00ffff" dur="2s" fill="freeze" />
+          </rect>
+        </svg>
+        """;
+
+    private const string InheritedStopAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <defs>
+            <linearGradient id="gradient" stop-color="red" stop-opacity="0.2">
+              <stop id="inherited-stop" offset="0" stop-color="inherit" stop-opacity="inherit" />
+              <stop offset="1" stop-color="white" stop-opacity="1" />
+              <animate attributeName="stop-color" from="red" to="blue" dur="2s" fill="freeze" />
+              <animate attributeName="stop-opacity" from="0.2" to="0.8" dur="2s" fill="freeze" />
+            </linearGradient>
+          </defs>
+          <rect id="target" x="0" y="0" width="20" height="20" fill="url(#gradient)" />
+        </svg>
+        """;
+
+    private const string W3CParentScopedStopOpacityAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <defs>
+            <g id="scope" stop-color="yellow" stop-opacity="0" color="yellow">
+              <animateColor attributeName="stop-color" from="red" to="green" dur="5s" fill="freeze" />
+              <animateColor attributeName="color" from="yellow" to="green" dur="5s" fill="freeze" />
+              <animate attributeName="stop-opacity" from="0.5" to="1" dur="5s" fill="freeze" />
+              <linearGradient id="gradient" stop-opacity="inherit">
+                <stop offset="0" stop-color="green" stop-opacity="1" />
+                <stop offset="1" stop-color="green" stop-opacity="inherit" />
+              </linearGradient>
+            </g>
+          </defs>
+          <rect id="target" x="0" y="0" width="20" height="20" fill="url(#gradient)" />
+        </svg>
+        """;
+
+    private const string FeCompositeCoefficientAnimationSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="20"
+             height="20"
+             viewBox="0 0 20 20">
+          <defs>
+            <filter id="filter">
+              <feComposite id="composite" operator="arithmetic" in="SourceGraphic" in2="BackgroundImage" k1="0" k2="1" k3="0" k4="0">
+                <animate attributeName="k2" values="1;0" dur="2s" fill="freeze" />
+                <animate attributeName="k3" values="0;1" dur="2s" fill="freeze" />
+              </feComposite>
+            </filter>
+          </defs>
+          <rect id="target" x="0" y="0" width="20" height="20" fill="red" filter="url(#filter)" />
+        </svg>
+        """;
+
+    private static System.Collections.Generic.List<string> GetAnimatedSubtreeSignatures(SKSvg svg)
     {
         var compositePicture = svg.Model;
         Assert.NotNull(compositePicture);
@@ -1490,10 +2910,10 @@ public class SvgAnimationControllerTests
 
         var dynamicLayerPicture = layerPictures[layerPictures.Count - 1].Picture;
         Assert.NotNull(dynamicLayerPicture);
-        return CollectLeafPictures(dynamicLayerPicture!);
+        return CollectLeafPictureSignatures(dynamicLayerPicture!);
     }
 
-    private static System.Collections.Generic.List<ShimSkiaSharp.SKPicture> CollectLeafPictures(ShimSkiaSharp.SKPicture picture)
+    private static System.Collections.Generic.List<string> CollectLeafPictureSignatures(ShimSkiaSharp.SKPicture picture)
     {
         var nestedPictures = picture.Commands!
             .OfType<DrawPictureCanvasCommand>()
@@ -1502,18 +2922,108 @@ public class SvgAnimationControllerTests
             .Cast<ShimSkiaSharp.SKPicture>()
             .ToList();
 
-        if (nestedPictures.Count == 0)
+        if (nestedPictures.Count > 0)
         {
-            return new System.Collections.Generic.List<ShimSkiaSharp.SKPicture> { picture };
+            var leafSignatures = new System.Collections.Generic.List<string>();
+            for (var i = 0; i < nestedPictures.Count; i++)
+            {
+                leafSignatures.AddRange(CollectLeafPictureSignatures(nestedPictures[i]));
+            }
+
+            return leafSignatures;
         }
 
-        var leafPictures = new System.Collections.Generic.List<SKPicture>();
-        for (var i = 0; i < nestedPictures.Count; i++)
+        var commandRangeSignatures = CollectTopLevelCommandRangeSignatures(picture);
+        if (commandRangeSignatures.Count > 0)
         {
-            leafPictures.AddRange(CollectLeafPictures(nestedPictures[i]));
+            return commandRangeSignatures;
         }
 
-        return leafPictures;
+        var leafCommandSignatures = CollectLeafCommandSignatures(picture);
+        if (leafCommandSignatures.Count > 0)
+        {
+            return leafCommandSignatures;
+        }
+
+        return new System.Collections.Generic.List<string> { GetPictureSignature(picture) };
+    }
+
+    private static System.Collections.Generic.List<string> CollectLeafCommandSignatures(ShimSkiaSharp.SKPicture picture)
+    {
+        if (picture.Commands is not { Count: > 0 } commands)
+        {
+            return new System.Collections.Generic.List<string>();
+        }
+
+        var signatures = new System.Collections.Generic.List<string>();
+        for (var i = 0; i < commands.Count; i++)
+        {
+            if (IsLeafDrawCommand(commands[i]))
+            {
+                signatures.Add(GetCommandRangeSignature(picture, commands, i, i));
+            }
+        }
+
+        return signatures;
+    }
+
+    private static bool IsLeafDrawCommand(CanvasCommand command)
+    {
+        return command is DrawPathCanvasCommand or
+            DrawTextCanvasCommand or
+            DrawTextBlobCanvasCommand or
+            DrawTextOnPathCanvasCommand or
+            DrawImageCanvasCommand;
+    }
+
+    private static System.Collections.Generic.List<string> CollectTopLevelCommandRangeSignatures(ShimSkiaSharp.SKPicture picture)
+    {
+        if (picture.Commands is not { Count: > 0 } commands)
+        {
+            return new System.Collections.Generic.List<string>();
+        }
+
+        var signatures = new System.Collections.Generic.List<string>();
+        var depth = 0;
+        var segmentStart = -1;
+
+        for (var i = 0; i < commands.Count; i++)
+        {
+            switch (commands[i])
+            {
+                case SaveCanvasCommand:
+                case SaveLayerCanvasCommand:
+                    if (depth == 1)
+                    {
+                        segmentStart = i;
+                    }
+
+                    depth++;
+                    break;
+                case RestoreCanvasCommand:
+                    depth--;
+                    if (depth == 1 && segmentStart >= 0)
+                    {
+                        signatures.Add(GetCommandRangeSignature(picture, commands, segmentStart, i));
+                        segmentStart = -1;
+                    }
+                    break;
+            }
+        }
+
+        return signatures;
+    }
+
+    private static string GetCommandRangeSignature(ShimSkiaSharp.SKPicture picture, IList<CanvasCommand> commands, int start, int end)
+    {
+        var builder = new StringBuilder();
+
+        for (var i = start; i <= end; i++)
+        {
+            AppendCommandSignature(builder, commands[i]);
+        }
+
+        return builder.ToString();
     }
 
     private static string GetPictureSignature(ShimSkiaSharp.SKPicture picture)
@@ -1540,13 +3050,92 @@ public class SvgAnimationControllerTests
 
         for (var i = 0; i < commands.Count; i++)
         {
-            var command = commands[i];
-            builder.Append('|').Append(command.GetType().Name);
-            if (command is DrawPictureCanvasCommand drawPicture && drawPicture.Picture is { } nestedPicture)
-            {
-                AppendPictureSignature(builder, nestedPicture);
-            }
+            AppendCommandSignature(builder, commands[i]);
         }
+    }
+
+    private static void AppendCommandSignature(StringBuilder builder, CanvasCommand command)
+    {
+        builder.Append('|').Append(command.GetType().Name);
+        switch (command)
+        {
+            case DrawPictureCanvasCommand drawPicture when drawPicture.Picture is { } nestedPicture:
+                AppendPictureSignature(builder, nestedPicture);
+                break;
+            case DrawPathCanvasCommand drawPath:
+                AppendRectSignature(builder, drawPath.Path?.Bounds ?? SKRect.Empty);
+                AppendPaintSignature(builder, drawPath.Paint);
+                break;
+            case DrawTextCanvasCommand drawText:
+                builder
+                    .Append('(')
+                    .Append(drawText.Text)
+                    .Append('@')
+                    .Append(drawText.X)
+                    .Append(',')
+                    .Append(drawText.Y)
+                    .Append(')');
+                AppendPaintSignature(builder, drawText.Paint);
+                break;
+            case DrawTextBlobCanvasCommand drawTextBlob:
+                builder
+                    .Append('(')
+                    .Append(drawTextBlob.X)
+                    .Append(',')
+                    .Append(drawTextBlob.Y)
+                    .Append(')');
+                AppendPaintSignature(builder, drawTextBlob.Paint);
+                break;
+            case DrawImageCanvasCommand drawImage:
+                AppendRectSignature(builder, drawImage.Source);
+                AppendRectSignature(builder, drawImage.Dest);
+                AppendPaintSignature(builder, drawImage.Paint);
+                break;
+            case ClipRectCanvasCommand clipRect:
+                AppendRectSignature(builder, clipRect.Rect);
+                break;
+            case SetMatrixCanvasCommand setMatrix:
+                builder
+                    .Append('(')
+                    .Append(setMatrix.DeltaMatrix.ScaleX).Append(',')
+                    .Append(setMatrix.DeltaMatrix.SkewX).Append(',')
+                    .Append(setMatrix.DeltaMatrix.TransX).Append(',')
+                    .Append(setMatrix.DeltaMatrix.SkewY).Append(',')
+                    .Append(setMatrix.DeltaMatrix.ScaleY).Append(',')
+                    .Append(setMatrix.DeltaMatrix.TransY)
+                    .Append(')');
+                break;
+        }
+    }
+
+    private static void AppendRectSignature(StringBuilder builder, SKRect rect)
+    {
+        builder
+            .Append('[')
+            .Append(rect.Left).Append(',')
+            .Append(rect.Top).Append(',')
+            .Append(rect.Right).Append(',')
+            .Append(rect.Bottom)
+            .Append(']');
+    }
+
+    private static void AppendPaintSignature(StringBuilder builder, SKPaint? paint)
+    {
+        if (paint is null)
+        {
+            builder.Append("(null)");
+            return;
+        }
+
+        builder
+            .Append('(')
+            .Append(paint.Style).Append(',')
+            .Append(paint.Color?.Red ?? 0).Append(',')
+            .Append(paint.Color?.Green ?? 0).Append(',')
+            .Append(paint.Color?.Blue ?? 0).Append(',')
+            .Append(paint.Color?.Alpha ?? 0).Append(',')
+            .Append(paint.StrokeWidth)
+            .Append(')');
     }
 
     private static SkiaBitmap RenderBitmap(SKSvg svg)
@@ -1561,6 +3150,60 @@ public class SvgAnimationControllerTests
             svg.Settings.Srgb);
 
         return Assert.IsType<SkiaBitmap>(bitmap);
+    }
+
+    private static float GetAnimatedRectangleX(SKSvg svg, string elementId, TimeSpan time)
+    {
+        Assert.NotNull(svg.AnimationController);
+        var animated = svg.AnimationController!.CreateAnimatedDocument(time);
+        return GetRectangleX(animated, elementId);
+    }
+
+    private static float GetRectangleX(SvgDocument document, string elementId)
+    {
+        var target = document.GetElementById<SvgRectangle>(elementId);
+        Assert.NotNull(target);
+        if (target!.TryGetAttribute("x", out string rawX) &&
+            float.TryParse(rawX, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedX))
+        {
+            return parsedX;
+        }
+
+        return target.X.Value;
+    }
+
+    private static void AssertAnimatedFill(SvgDocument document, string elementId, Color expectedColor)
+    {
+        var target = document.GetElementById<SvgRectangle>(elementId);
+        Assert.NotNull(target);
+        AssertVisualFill(target, expectedColor);
+    }
+
+    private static void AssertVisualFill(SvgElement? element, Color expectedColor)
+    {
+        var visualElement = Assert.IsAssignableFrom<SvgVisualElement>(element);
+        AssertPaintColor(visualElement.Fill, expectedColor);
+    }
+
+    private static void AssertPaintColor(SvgPaintServer? paintServer, Color expectedColor)
+    {
+        var fill = Assert.IsType<SvgColourServer>(paintServer);
+        Assert.Equal(expectedColor.A, fill.Colour.A);
+        Assert.Equal(expectedColor.R, fill.Colour.R);
+        Assert.Equal(expectedColor.G, fill.Colour.G);
+        Assert.Equal(expectedColor.B, fill.Colour.B);
+    }
+
+    private static SkiaBitmap DrawBitmap(SKSvg svg)
+    {
+        Assert.NotNull(svg.Picture);
+        var width = Math.Max(1, (int)Math.Ceiling(svg.Picture!.CullRect.Width));
+        var height = Math.Max(1, (int)Math.Ceiling(svg.Picture!.CullRect.Height));
+        var bitmap = new SkiaBitmap(new SkiaSharp.SKImageInfo(width, height, SkiaColorType.Rgba8888, SkiaAlphaType.Unpremul, svg.Settings.Srgb));
+        using var canvas = new SkiaSharp.SKCanvas(bitmap);
+        canvas.Clear(SkiaColors.Transparent);
+        svg.Draw(canvas);
+        return bitmap;
     }
 
     private static string GetBitmapSignature(SkiaBitmap bitmap)

@@ -114,6 +114,32 @@ public class HitTestTests : SvgUnitTest
         </svg>
         """;
 
+    private const string NonScalingStrokeHitTestSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+          <g transform="scale(0.5)">
+            <line id="target"
+                  x1="20"
+                  y1="100"
+                  x2="180"
+                  y2="100"
+                  stroke="black"
+                  stroke-width="10"
+                  vector-effect="non-scaling-stroke"
+                  pointer-events="stroke" />
+          </g>
+        </svg>
+        """;
+
+    private const string TextHitTestSvgFontDefs = """
+          <defs>
+            <font horiz-adv-x="10">
+              <font-face font-family="HitTestSvgFont" units-per-em="10" ascent="10" descent="0" alphabetic="0" />
+              <glyph unicode="A" horiz-adv-x="10" d="M0 0 L10 0 L10 10 L0 10 Z" />
+              <glyph unicode=" " horiz-adv-x="10" />
+            </font>
+          </defs>
+        """;
+
     private static string GetSvgPath(string name)
         => Path.Combine("..", "..", "..", "..", "Tests", name);
 
@@ -236,7 +262,7 @@ public class HitTestTests : SvgUnitTest
     }
 
     [Fact]
-    public void HitTest_Point_MaskContainerWithoutPaint_DoesNotCountAsVisible()
+    public void HitTest_Point_MaskCoverage_DoesNotSuppressPointerTargets()
     {
         using var svg = new SKSvg();
         svg.FromSvg(MaskHitTestSvg);
@@ -245,11 +271,11 @@ public class HitTestTests : SvgUnitTest
         var outsideResults = svg.HitTestElements(new SKPoint(30, 20)).Select(e => e.ID).ToList();
 
         Assert.Contains("target", insideResults);
-        Assert.DoesNotContain("target", outsideResults);
+        Assert.Contains("target", outsideResults);
     }
 
     [Fact]
-    public void HitTest_Point_MaskCoverage_IgnoresPointerEventSemantics()
+    public void HitTest_Point_MaskContentPointerEvents_DoNotAffectMaskedTarget()
     {
         using var svg = new SKSvg();
         svg.FromSvg(MaskPointerEventsHitTestSvg);
@@ -258,7 +284,7 @@ public class HitTestTests : SvgUnitTest
         var outsideResults = svg.HitTestElements(new SKPoint(30, 20)).Select(e => e.ID).ToList();
 
         Assert.Contains("target", insideResults);
-        Assert.DoesNotContain("target", outsideResults);
+        Assert.Contains("target", outsideResults);
     }
 
     [Fact]
@@ -327,6 +353,76 @@ public class HitTestTests : SvgUnitTest
         Assert.Equal("back", topmostElement!.ID);
         Assert.NotNull(topmostNode);
         Assert.Equal("back", topmostNode!.ElementId);
+    }
+
+    [Fact]
+    public void HitTest_Point_NonScalingStroke_UsesDeviceSpaceStrokeWidth()
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(NonScalingStrokeHitTestSvg);
+
+        var strokeElement = svg.HitTestTopmostElement(new SKPoint(50, 54));
+        var outsideElement = svg.HitTestTopmostElement(new SKPoint(50, 56));
+
+        Assert.NotNull(strokeElement);
+        Assert.Equal("target", strokeElement!.ID);
+        Assert.Null(outsideElement);
+    }
+
+    [Fact]
+    public void HitTest_TextPointerEvents_RejectsLetterSpacingGap()
+    {
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = true;
+        svg.FromSvg($$"""
+            <svg xmlns="http://www.w3.org/2000/svg" width="160" height="80" viewBox="0 0 160 80">
+              {{TextHitTestSvgFontDefs}}
+              <rect id="back" x="0" y="0" width="160" height="80" fill="green" />
+              <text id="target" x="10" y="50" font-family="HitTestSvgFont" font-size="20" letter-spacing="30" pointer-events="all">AA</text>
+            </svg>
+            """);
+
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(20, 40))?.ID);
+        Assert.Equal("back", svg.HitTestTopmostElement(new SKPoint(45, 40))?.ID);
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(60, 40))?.ID);
+    }
+
+    [Fact]
+    public void HitTest_TextPointerEvents_HitsSpaceCharacterCellButNotAdjacentLetterSpacing()
+    {
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = true;
+        svg.FromSvg($$"""
+            <svg xmlns="http://www.w3.org/2000/svg" width="160" height="80" viewBox="0 0 160 80">
+              {{TextHitTestSvgFontDefs}}
+              <rect id="back" x="0" y="0" width="160" height="80" fill="green" />
+              <text id="target" x="10" y="50" font-family="HitTestSvgFont" font-size="20" letter-spacing="20" pointer-events="all">A A</text>
+            </svg>
+            """);
+
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(20, 40))?.ID);
+        Assert.Equal("back", svg.HitTestTopmostElement(new SKPoint(40, 40))?.ID);
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(60, 40))?.ID);
+        Assert.Equal("back", svg.HitTestTopmostElement(new SKPoint(80, 40))?.ID);
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(100, 40))?.ID);
+    }
+
+    [Fact]
+    public void HitTest_TextPointerEvents_UsesPositionedGlyphCellsInsteadOfTextBounds()
+    {
+        using var svg = new SKSvg();
+        svg.Settings.EnableSvgFonts = true;
+        svg.FromSvg($$"""
+            <svg xmlns="http://www.w3.org/2000/svg" width="160" height="130" viewBox="0 0 160 130">
+              {{TextHitTestSvgFontDefs}}
+              <rect id="back" x="0" y="0" width="160" height="130" fill="green" />
+              <text id="target" x="20" y="50" dx="0 30" dy="0 40" font-family="HitTestSvgFont" font-size="20" pointer-events="all">AA</text>
+            </svg>
+            """);
+
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(30, 40))?.ID);
+        Assert.Equal("back", svg.HitTestTopmostElement(new SKPoint(30, 70))?.ID);
+        Assert.Equal("target", svg.HitTestTopmostElement(new SKPoint(80, 80))?.ID);
     }
 
     private static bool IntersectsWith(SKRect a, SKRect b)

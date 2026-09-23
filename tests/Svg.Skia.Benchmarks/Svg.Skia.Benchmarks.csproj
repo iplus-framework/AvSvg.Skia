@@ -8,15 +8,18 @@
   </PropertyGroup>
 
   <Import Project="..\..\build\ReferenceAssemblies.props" />
-  <Import Project="..\..\build\SkiaSharp.v3.props" />
-  <Import Project="..\..\build\SkiaSharp.Native.v3.props" />
+  <Import Project="..\..\build\SkiaSharp.props" />
+  <Import Project="..\..\build\SkiaSharp.Native.props" />
+  <Import Project="..\..\build\SignAssembly.props" />
 
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Svg.JavaScript\Svg.JavaScript.csproj" />
     <ProjectReference Include="..\..\src\Svg.Skia\Svg.Skia.csproj" />
+    <ProjectReference Include="..\..\src\Svg.Skia.JavaScript\Svg.Skia.JavaScript.csproj" />
   </ItemGroup>
 
 </Project>

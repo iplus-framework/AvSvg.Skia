@@ -33,9 +33,17 @@ public static class SkiaCSharpModelExtensions
 
     public static string ToFloatString(this float value)
     {
-        if (float.IsNaN(value) || float.IsNegativeInfinity(value) || float.IsPositiveInfinity(value))
+        if (float.IsNaN(value))
         {
-            return string.Concat("float.", value.ToString(s_ci));
+            return "float.NaN";
+        }
+        if (float.IsNegativeInfinity(value))
+        {
+            return "float.NegativeInfinity";
+        }
+        if (float.IsPositiveInfinity(value))
+        {
+            return "float.PositiveInfinity";
         }
         return string.Concat(value.ToString(s_ci), "f");
     }
@@ -67,7 +75,7 @@ public static class SkiaCSharpModelExtensions
 
         for (int i = 0; i < array.Length; i++)
         {
-            sb.AppendFormat(s_ci, "{0:g}f, ", array[i]); // C# allows trailing , on end element
+            sb.Append(array[i].ToFloatString()).Append(", "); // C# allows trailing , on end element
         }
 
         sb.Append(" }");
@@ -81,12 +89,22 @@ public static class SkiaCSharpModelExtensions
 
         for (int i = 0; i < array.Length; i++)
         {
-            sb.AppendFormat(s_ci, "@\"{0}\", ", array[i]); // C# allows trailing , on end element
+            sb.AppendFormat(s_ci, "@\"{0}\", ", array[i].Replace("\"", "\"\"")); // C# allows trailing , on end element
         }
 
         sb.Append(" }");
 
         return sb;
+    }
+
+    private static string ToGradientColorPositions(float[]? array)
+    {
+        if (array is null || array.Any(static value => float.IsNaN(value) || float.IsNegativeInfinity(value) || float.IsPositiveInfinity(value)))
+        {
+            return "null";
+        }
+
+        return array.ToFloatArray().ToString();
     }
 
     public static string ToSKPoint(this SKPoint point)
@@ -226,6 +244,20 @@ public static class SkiaCSharpModelExtensions
                 return "SKTextEncoding.Utf32";
             case SKTextEncoding.GlyphId:
                 return "SKTextEncoding.GlyphId";
+        }
+    }
+
+    public static string ToSKFontEdging(this SKFontEdging edging)
+    {
+        switch (edging)
+        {
+            default:
+            case SKFontEdging.Antialias:
+                return "SKFontEdging.Antialias";
+            case SKFontEdging.Alias:
+                return "SKFontEdging.Alias";
+            case SKFontEdging.SubpixelAntialias:
+                return "SKFontEdging.SubpixelAntialias";
         }
     }
 
@@ -434,12 +466,13 @@ public static class SkiaCSharpModelExtensions
                 }
             case LinearGradientShader linearGradientShader:
                 {
-                    if (linearGradientShader.Colors is null || linearGradientShader.ColorPos is null)
+                    if (linearGradientShader.Colors is null)
                     {
                         sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = default(SKShader);");
                         return;
                     }
 
+                    var colorPos = ToGradientColorPositions(linearGradientShader.ColorPos);
                     if (linearGradientShader.LocalMatrix is { })
                     {
                         sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
@@ -448,7 +481,7 @@ public static class SkiaCSharpModelExtensions
                         sb.AppendLine($"{indent}    {linearGradientShader.End.ToSKPoint()},");
                         sb.AppendLine($"{indent}    {linearGradientShader.Colors.ToSKColors()},");
                         sb.AppendLine($"{indent}    {(linearGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.ColorPos.ToFloatArray()},");
+                        sb.AppendLine($"{indent}    {colorPos},");
                         sb.AppendLine($"{indent}    {linearGradientShader.Mode.ToSKShaderTileMode()},");
                         sb.AppendLine($"{indent}    {linearGradientShader.LocalMatrix.Value.ToSKMatrix()});");
                         return;
@@ -461,19 +494,20 @@ public static class SkiaCSharpModelExtensions
                         sb.AppendLine($"{indent}    {linearGradientShader.End.ToSKPoint()},");
                         sb.AppendLine($"{indent}    {linearGradientShader.Colors.ToSKColors()},");
                         sb.AppendLine($"{indent}    {(linearGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.ColorPos.ToFloatArray()},");
+                        sb.AppendLine($"{indent}    {colorPos},");
                         sb.AppendLine($"{indent}    {linearGradientShader.Mode.ToSKShaderTileMode()});");
                         return;
                     }
                 }
             case RadialGradientShader radialGradientShader:
                 {
-                    if (radialGradientShader.Colors is null || radialGradientShader.ColorPos is null)
+                    if (radialGradientShader.Colors is null)
                     {
                         sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = default(SKShader);");
                         return;
                     }
 
+                    var colorPos = ToGradientColorPositions(radialGradientShader.ColorPos);
                     if (radialGradientShader.LocalMatrix is { })
                     {
                         sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
@@ -482,7 +516,7 @@ public static class SkiaCSharpModelExtensions
                         sb.AppendLine($"{indent}    {radialGradientShader.Radius.ToFloatString()},");
                         sb.AppendLine($"{indent}    {radialGradientShader.Colors.ToSKColors()},");
                         sb.AppendLine($"{indent}    {(radialGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.ColorPos.ToFloatArray()},");
+                        sb.AppendLine($"{indent}    {colorPos},");
                         sb.AppendLine($"{indent}    {radialGradientShader.Mode.ToSKShaderTileMode()},");
                         sb.AppendLine($"{indent}    {radialGradientShader.LocalMatrix.Value.ToSKMatrix()});");
                         return;
@@ -495,19 +529,20 @@ public static class SkiaCSharpModelExtensions
                         sb.AppendLine($"{indent}    {radialGradientShader.Radius.ToFloatString()},");
                         sb.AppendLine($"{indent}    {radialGradientShader.Colors.ToSKColors()},");
                         sb.AppendLine($"{indent}    {(radialGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.ColorPos.ToFloatArray()},");
+                        sb.AppendLine($"{indent}    {colorPos},");
                         sb.AppendLine($"{indent}    {radialGradientShader.Mode.ToSKShaderTileMode()});");
                         return;
                     }
                 }
             case TwoPointConicalGradientShader twoPointConicalGradientShader:
                 {
-                    if (twoPointConicalGradientShader.Colors is null || twoPointConicalGradientShader.ColorPos is null)
+                    if (twoPointConicalGradientShader.Colors is null)
                     {
                         sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = default(SKShader);");
                         return;
                     }
 
+                    var colorPos = ToGradientColorPositions(twoPointConicalGradientShader.ColorPos);
                     if (twoPointConicalGradientShader.LocalMatrix is { })
                     {
                         sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
@@ -518,7 +553,7 @@ public static class SkiaCSharpModelExtensions
                         sb.AppendLine($"{indent}    {twoPointConicalGradientShader.EndRadius.ToFloatString()},");
                         sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Colors.ToSKColors()},");
                         sb.AppendLine($"{indent}    {(twoPointConicalGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.ColorPos.ToFloatArray()},");
+                        sb.AppendLine($"{indent}    {colorPos},");
                         sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Mode.ToSKShaderTileMode()},");
                         sb.AppendLine($"{indent}    {twoPointConicalGradientShader.LocalMatrix.Value.ToSKMatrix()});");
                         return;
@@ -533,7 +568,7 @@ public static class SkiaCSharpModelExtensions
                         sb.AppendLine($"{indent}    {twoPointConicalGradientShader.EndRadius.ToFloatString()},");
                         sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Colors.ToSKColors()},");
                         sb.AppendLine($"{indent}    {(twoPointConicalGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.ColorPos.ToFloatArray()},");
+                        sb.AppendLine($"{indent}    {colorPos},");
                         sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Mode.ToSKShaderTileMode()});");
                         return;
                     }
@@ -927,7 +962,7 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {counter.ImageVarName}{counterImage},");
                     sb.AppendLine($"{indent}    {imageImageFilter.Src.ToSKRect()},");
                     sb.AppendLine($"{indent}    {imageImageFilter.Dst.ToSKRect()},");
-                    sb.AppendLine($"{indent}    SKFilterQuality.High);");
+                    sb.AppendLine($"{indent}    {imageImageFilter.FilterQuality.ToSKSamplingOptions()});");
                     return;
                 }
             case MatrixConvolutionImageFilter matrixConvolutionImageFilter:
@@ -1188,7 +1223,7 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {spotLitSpecularImageFilter.LightColor.ToSKColor()},");
                     sb.AppendLine($"{indent}    {spotLitSpecularImageFilter.SurfaceScale.ToFloatString()},");
                     sb.AppendLine($"{indent}    {spotLitSpecularImageFilter.Ks.ToFloatString()},");
-                    sb.AppendLine($"{indent}    {spotLitSpecularImageFilter.SpecularExponent.ToFloatString()},");
+                    sb.AppendLine($"{indent}    {spotLitSpecularImageFilter.Shininess.ToFloatString()},");
                     sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
                     sb.AppendLine($"{indent}    {spotLitSpecularImageFilter.Clip?.ToSKRect() ?? "null"});");
                     return;
@@ -1314,20 +1349,68 @@ public static class SkiaCSharpModelExtensions
         }
     }
 
-    public static string ToSKFilterQuality(this SKFilterQuality filterQuality)
+    public static string ToSKSamplingOptions(this SKFilterQuality filterQuality)
     {
         switch (filterQuality)
         {
             default:
             case SKFilterQuality.None:
-                return "SKFilterQuality.None";
+                return "new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None)";
             case SKFilterQuality.Low:
-                return "SKFilterQuality.Low";
+                return "new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None)";
             case SKFilterQuality.Medium:
-                return "SKFilterQuality.Medium";
+                return "new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear)";
             case SKFilterQuality.High:
-                return "SKFilterQuality.High";
+                return "new SKSamplingOptions(SKCubicResampler.Mitchell)";
         }
+    }
+
+    public static string ToSKFilterMode(this SKFilterMode filterMode)
+    {
+        switch (filterMode)
+        {
+            default:
+            case SKFilterMode.Nearest:
+                return "SKFilterMode.Nearest";
+            case SKFilterMode.Linear:
+                return "SKFilterMode.Linear";
+        }
+    }
+
+    public static string ToSKMipmapMode(this SKMipmapMode mipmapMode)
+    {
+        switch (mipmapMode)
+        {
+            default:
+            case SKMipmapMode.None:
+                return "SKMipmapMode.None";
+            case SKMipmapMode.Nearest:
+                return "SKMipmapMode.Nearest";
+            case SKMipmapMode.Linear:
+                return "SKMipmapMode.Linear";
+        }
+    }
+
+    public static string ToSKCubicResampler(this SKCubicResampler cubic)
+    {
+        if (cubic.Equals(SKCubicResampler.Mitchell))
+        {
+            return "SKCubicResampler.Mitchell";
+        }
+
+        if (cubic.Equals(SKCubicResampler.CatmullRom))
+        {
+            return "SKCubicResampler.CatmullRom";
+        }
+
+        return $"new SKCubicResampler({cubic.B.ToFloatString()}, {cubic.C.ToFloatString()})";
+    }
+
+    public static string ToSKSamplingOptions(this SKSamplingOptions samplingOptions)
+    {
+        return samplingOptions.UseCubic
+            ? $"new SKSamplingOptions({samplingOptions.Cubic.ToSKCubicResampler()})"
+            : $"new SKSamplingOptions({samplingOptions.Filter.ToSKFilterMode()}, {samplingOptions.Mipmap.ToSKMipmapMode()})";
     }
 
     public static void ToSKPaint(this SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
@@ -1343,14 +1426,8 @@ public static class SkiaCSharpModelExtensions
         // StrokeCap=Butt
         // StrokeJoin=Miter
         // StrokeMiter=4
-        // TextSize=12
-        // TextAlign=Left
-        // LcdRenderText=false
-        // SubpixelText=false
-        // TextEncoding=Utf8
         // Color=#ff000000
         // BlendMode=SrcOver
-        // FilterQuality=None
 
         if (paint.Style != SKPaintStyle.Fill)
         {
@@ -1380,42 +1457,6 @@ public static class SkiaCSharpModelExtensions
         if (paint.StrokeMiter != 4f)
         {
             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeMiter = {paint.StrokeMiter.ToFloatString()};");
-        }
-
-        if (paint.TextSize != 12f)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.TextSize = {paint.TextSize.ToFloatString()};");
-        }
-
-        if (paint.TextAlign != SKTextAlign.Left)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.TextAlign = {paint.TextAlign.ToSKTextAlign()};");
-        }
-
-        if (paint.Typeface is { })
-        {
-            var counterTypeface = ++counter.Typeface;
-            paint.Typeface?.ToSKTypeface(counter, sb, indent);
-            sb.AppendLine($"{indent}if ({counter.TypefaceVarName}{counterTypeface} is null)");
-            sb.AppendLine($"{indent}{{");
-            sb.AppendLine($"{indent}    {counter.TypefaceVarName}{counterTypeface} = SKTypeface.Default;");
-            sb.AppendLine($"{indent}}}");
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.Typeface = {counter.TypefaceVarName}{counterTypeface};");
-        }
-
-        if (paint.LcdRenderText != false)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.LcdRenderText = {paint.LcdRenderText.ToBoolString()};");
-        }
-
-        if (paint.SubpixelText != false)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.SubpixelText = {paint.SubpixelText.ToBoolString()};");
-        }
-
-        if (paint.TextEncoding != SKTextEncoding.Utf8)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.TextEncoding = {paint.TextEncoding.ToSKTextEncoding()};");
         }
 
         if (paint.Color is { })
@@ -1459,10 +1500,72 @@ public static class SkiaCSharpModelExtensions
         {
             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.BlendMode = {paint.BlendMode.ToSKBlendMode()};");
         }
+    }
 
-        if (paint.FilterQuality != SKFilterQuality.None)
+    public static void ToSKFont(this SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    {
+        var counterFont = counter.Font;
+        var typefaceExpression = "SKTypeface.Default";
+
+        if (paint.Typeface is { })
         {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.FilterQuality = {paint.FilterQuality.ToSKFilterQuality()};");
+            var counterTypeface = ++counter.Typeface;
+            paint.Typeface?.ToSKTypeface(counter, sb, indent);
+            sb.AppendLine($"{indent}if ({counter.TypefaceVarName}{counterTypeface} is null)");
+            sb.AppendLine($"{indent}{{");
+            sb.AppendLine($"{indent}    {counter.TypefaceVarName}{counterTypeface} = SKTypeface.Default;");
+            sb.AppendLine($"{indent}}}");
+            typefaceExpression = $"{counter.TypefaceVarName}{counterTypeface}";
+        }
+
+        sb.AppendLine($"{indent}var {counter.FontVarName}{counterFont} = new SKFont({typefaceExpression}, {paint.TextSize.ToFloatString()});");
+
+        if (!paint.IsAntialias)
+        {
+            sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}.Edging = SKFontEdging.Alias;");
+        }
+        else if (paint.LcdRenderText != false)
+        {
+            sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}.Edging = SKFontEdging.SubpixelAntialias;");
+        }
+
+        if (paint.SubpixelText != false)
+        {
+            sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}.Subpixel = {paint.SubpixelText.ToBoolString()};");
+        }
+    }
+
+    public static void ToSKFont(this SKFont font, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    {
+        var counterFont = counter.Font;
+        var typefaceExpression = "SKTypeface.Default";
+
+        if (font.Typeface is { })
+        {
+            var counterTypeface = ++counter.Typeface;
+            font.Typeface?.ToSKTypeface(counter, sb, indent);
+            sb.AppendLine($"{indent}if ({counter.TypefaceVarName}{counterTypeface} is null)");
+            sb.AppendLine($"{indent}{{");
+            sb.AppendLine($"{indent}    {counter.TypefaceVarName}{counterTypeface} = SKTypeface.Default;");
+            sb.AppendLine($"{indent}}}");
+            typefaceExpression = $"{counter.TypefaceVarName}{counterTypeface}";
+        }
+
+        sb.AppendLine($"{indent}var {counter.FontVarName}{counterFont} = new SKFont({typefaceExpression}, {font.Size.ToFloatString()}, {font.ScaleX.ToFloatString()}, {font.SkewX.ToFloatString()});");
+
+        if (font.Edging != SKFontEdging.Antialias)
+        {
+            sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}.Edging = {font.Edging.ToSKFontEdging()};");
+        }
+
+        if (font.Subpixel != false)
+        {
+            sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}.Subpixel = {font.Subpixel.ToBoolString()};");
+        }
+
+        if (font.Embolden != false)
+        {
+            sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}.Embolden = {font.Embolden.ToBoolString()};");
         }
     }
 
@@ -1705,7 +1808,15 @@ public static class SkiaCSharpModelExtensions
 
             if (!isDefaultPathClip)
             {
-                sb.AppendLine($"{indent}{counter.PathVarName}{counterPathResult} = {counter.PathVarName}{counterPathResult}.Op({counter.PathVarName}{counterPathClip}, SKPathOp.Intersect);");
+                if (isDefaultPathResult)
+                {
+                    sb.AppendLine($"{indent}var {counter.PathVarName}{counterPathResult} = {counter.PathVarName}{counterPathClip};");
+                    isDefaultPathResult = false;
+                }
+                else
+                {
+                    sb.AppendLine($"{indent}{counter.PathVarName}{counterPathResult} = {counter.PathVarName}{counterPathResult}.Op({counter.PathVarName}{counterPathClip}, SKPathOp.Intersect);");
+                }
             }
         }
 
@@ -1786,11 +1897,19 @@ public static class SkiaCSharpModelExtensions
                     }
                 case SaveLayerCanvasCommand saveLayerCanvasCommand:
                     {
+                        var bounds = saveLayerCanvasCommand.Bounds?.ToSKRect();
                         if (saveLayerCanvasCommand.Paint is { })
                         {
                             var counterPaint = ++counter.Paint;
                             saveLayerCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SaveLayer({counter.PaintVarName}{counterPaint});");
+                            if (bounds is { })
+                            {
+                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SaveLayer({bounds}, {counter.PaintVarName}{counterPaint});");
+                            }
+                            else
+                            {
+                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SaveLayer({counter.PaintVarName}{counterPaint});");
+                            }
 
                             // NOTE: Do not dispose created SKTypeface by font manager.
 #if USE_DISPOSE_TYPEFACE
@@ -1821,6 +1940,10 @@ public static class SkiaCSharpModelExtensions
 
                             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Dispose();");
                         }
+                        else if (bounds is { })
+                        {
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SaveLayer({bounds}, null);");
+                        }
                         else
                         {
                             sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SaveLayer();");
@@ -1835,9 +1958,16 @@ public static class SkiaCSharpModelExtensions
                             drawImageCanvasCommand.Image.ToSKImage(counter, sb, indent);
                             var source = drawImageCanvasCommand.Source.ToSKRect();
                             var dest = drawImageCanvasCommand.Dest.ToSKRect();
-                            var counterPaint = ++counter.Paint;
-                            drawImageCanvasCommand.Paint?.ToSKPaint(counter, sb, indent);
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawImage({counter.ImageVarName}{counterImage}, {source}, {dest}, {counter.PaintVarName}{counterPaint});");
+                            var paintExpression = "null";
+                            var counterPaint = -1;
+                            if (drawImageCanvasCommand.Paint is { })
+                            {
+                                counterPaint = ++counter.Paint;
+                                drawImageCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
+                                paintExpression = $"{counter.PaintVarName}{counterPaint}";
+                            }
+                            var samplingOptions = drawImageCanvasCommand.Sampling?.ToSKSamplingOptions() ?? drawImageCanvasCommand.Paint?.FilterQuality.ToSKSamplingOptions() ?? "SKSamplingOptions.Default";
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawImage({counter.ImageVarName}{counterImage}, {source}, {dest}, {samplingOptions}, {paintExpression});");
                             sb.AppendLine($"{indent}{counter.ImageVarName}{counterImage}?.Dispose();");
 
                             // NOTE: Do not dispose created SKTypeface by font manager.
@@ -1850,24 +1980,27 @@ public static class SkiaCSharpModelExtensions
                             sb.AppendLine($"{indent}}}");
                         } 
 #endif
-                            if (drawImageCanvasCommand.Paint?.Shader is { })
+                            if (drawImageCanvasCommand.Paint is { })
                             {
-                                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Shader?.Dispose();");
-                            }
-                            if (drawImageCanvasCommand.Paint?.ColorFilter is { })
-                            {
-                                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.ColorFilter?.Dispose();");
-                            }
-                            if (drawImageCanvasCommand.Paint?.ImageFilter is { })
-                            {
-                                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.ImageFilter?.Dispose();");
-                            }
-                            if (drawImageCanvasCommand.Paint?.PathEffect is { })
-                            {
-                                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.PathEffect?.Dispose();");
-                            }
+                                if (drawImageCanvasCommand.Paint.Shader is { })
+                                {
+                                    sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Shader?.Dispose();");
+                                }
+                                if (drawImageCanvasCommand.Paint.ColorFilter is { })
+                                {
+                                    sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.ColorFilter?.Dispose();");
+                                }
+                                if (drawImageCanvasCommand.Paint.ImageFilter is { })
+                                {
+                                    sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.ImageFilter?.Dispose();");
+                                }
+                                if (drawImageCanvasCommand.Paint.PathEffect is { })
+                                {
+                                    sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.PathEffect?.Dispose();");
+                                }
 
-                            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Dispose();");
+                                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Dispose();");
+                            }
                         }
                         break;
                     }
@@ -1890,7 +2023,29 @@ public static class SkiaCSharpModelExtensions
                             drawPathCanvasCommand.Path.ToSKPath(counter, sb, indent);
                             var counterPaint = ++counter.Paint;
                             drawPathCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawPath({counter.PathVarName}{counterPath}, {counter.PaintVarName}{counterPaint});");
+                            if (drawPathCanvasCommand.Paint.IsStrokeNonScaling &&
+                                drawPathCanvasCommand.Paint.Style == SKPaintStyle.Stroke)
+                            {
+                                var counterNonScalingPath = ++counter.Path;
+                                sb.AppendLine($"{indent}var matrix{counterNonScalingPath} = {counter.CanvasVarName}{counterCanvas}.TotalMatrix;");
+                                sb.AppendLine($"{indent}if (matrix{counterNonScalingPath}.IsIdentity)");
+                                sb.AppendLine($"{indent}{{");
+                                sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.DrawPath({counter.PathVarName}{counterPath}, {counter.PaintVarName}{counterPaint});");
+                                sb.AppendLine($"{indent}}}");
+                                sb.AppendLine($"{indent}else");
+                                sb.AppendLine($"{indent}{{");
+                                sb.AppendLine($"{indent}    using var {counter.PathVarName}{counterNonScalingPath} = new SKPath({counter.PathVarName}{counterPath});");
+                                sb.AppendLine($"{indent}    {counter.PathVarName}{counterNonScalingPath}.Transform(matrix{counterNonScalingPath});");
+                                sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.Save();");
+                                sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.ResetMatrix();");
+                                sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.DrawPath({counter.PathVarName}{counterNonScalingPath}, {counter.PaintVarName}{counterPaint});");
+                                sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.Restore();");
+                                sb.AppendLine($"{indent}}}");
+                            }
+                            else
+                            {
+                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawPath({counter.PathVarName}{counterPath}, {counter.PaintVarName}{counterPaint});");
+                            }
 
                             // NOTE: Do not dispose created SKTypeface by font manager.
 #if USE_DISPOSE_TYPEFACE
@@ -1924,6 +2079,85 @@ public static class SkiaCSharpModelExtensions
                         }
                         break;
                     }
+                case DrawPositionedTextRunCanvasCommand drawPositionedTextRunCanvasCommand:
+                    {
+                        if (drawPositionedTextRunCanvasCommand.Fragments is { Count: > 0 } && drawPositionedTextRunCanvasCommand.Paint is { })
+                        {
+                            var counterPaint = ++counter.Paint;
+                            drawPositionedTextRunCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
+                            var counterFont = ++counter.Font;
+                            if (drawPositionedTextRunCanvasCommand.Font is { } textRunFont)
+                            {
+                                textRunFont.ToSKFont(counter, sb, indent);
+                            }
+                            else
+                            {
+                                drawPositionedTextRunCanvasCommand.Paint.ToSKFont(counter, sb, indent);
+                            }
+                            var textAlign = (drawPositionedTextRunCanvasCommand.TextAlign ?? drawPositionedTextRunCanvasCommand.Paint.TextAlign).ToSKTextAlign();
+
+                            foreach (var fragment in drawPositionedTextRunCanvasCommand.Fragments)
+                            {
+                                var text = EspaceString(fragment.Text);
+                                var x = fragment.Point.X;
+                                var y = fragment.Point.Y;
+                                if (fragment.RotationDegrees == 0f && fragment.ScaleX == 1f)
+                                {
+                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText(\"{text}\", {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
+                                    continue;
+                                }
+
+                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Save();");
+                                if (fragment.RotationDegrees != 0f)
+                                {
+                                    var counterMatrix = ++counter.Matrix;
+                                    sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = SKMatrix.CreateRotationDegrees({fragment.RotationDegrees.ToFloatString()}, {x.ToFloatString()}, {y.ToFloatString()});");
+                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(ref {counter.MatrixVarName}{counterMatrix});");
+                                }
+
+                                if (fragment.ScaleX != 1f)
+                                {
+                                    var counterMatrix = ++counter.Matrix;
+                                    sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = SKMatrix.CreateScale({fragment.ScaleX.ToFloatString()}, 1f, {fragment.ScaleOriginX.ToFloatString()}, {y.ToFloatString()});");
+                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(ref {counter.MatrixVarName}{counterMatrix});");
+                                }
+
+                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText(\"{text}\", {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
+                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Restore();");
+                            }
+
+                            // NOTE: Do not dispose created SKTypeface by font manager.
+#if USE_DISPOSE_TYPEFACE
+                        if (drawPositionedTextRunCanvasCommand.Paint.Typeface is { })
+                        {
+                            sb.AppendLine($"{indent}if ({counter.PaintVarName}{counterPaint}.Typeface != SKTypeface.Default)");
+                            sb.AppendLine($"{indent}{{");
+                            sb.AppendLine($"{indent}    {counter.PaintVarName}{counterPaint}.Typeface?.Dispose();");
+                            sb.AppendLine($"{indent}}}");
+                        }
+#endif
+                            if (drawPositionedTextRunCanvasCommand.Paint.Shader is { })
+                            {
+                                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Shader?.Dispose();");
+                            }
+                            if (drawPositionedTextRunCanvasCommand.Paint.ColorFilter is { })
+                            {
+                                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.ColorFilter?.Dispose();");
+                            }
+                            if (drawPositionedTextRunCanvasCommand.Paint.ImageFilter is { })
+                            {
+                                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.ImageFilter?.Dispose();");
+                            }
+                            if (drawPositionedTextRunCanvasCommand.Paint.PathEffect is { })
+                            {
+                                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.PathEffect?.Dispose();");
+                            }
+
+                            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Dispose();");
+                            sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}?.Dispose();");
+                        }
+                        break;
+                    }
                 case DrawTextBlobCanvasCommand drawPositionedTextCanvasCommand:
                     {
                         if (drawPositionedTextCanvasCommand.TextBlob is { } && drawPositionedTextCanvasCommand.TextBlob.Points is { } && drawPositionedTextCanvasCommand.Paint is { })
@@ -1933,7 +2167,14 @@ public static class SkiaCSharpModelExtensions
                             var counterPaint = ++counter.Paint;
                             drawPositionedTextCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
                             var counterFont = ++counter.Font;
-                            sb.AppendLine($"{indent}var {counter.FontVarName}{counterFont} = {counter.PaintVarName}{counterPaint}.ToFont();");
+                            if (drawPositionedTextCanvasCommand.TextBlob.Font is { } textBlobFont)
+                            {
+                                textBlobFont.ToSKFont(counter, sb, indent);
+                            }
+                            else
+                            {
+                                drawPositionedTextCanvasCommand.Paint.ToSKFont(counter, sb, indent);
+                            }
                             var counterTextBlob = ++counter.TextBlob;
                             sb.AppendLine($"{indent}var {counter.TextBlobVarName}{counterTextBlob} = SKTextBlob.CreatePositioned(\"{text}\", {counter.FontVarName}{counterFont}, {points});");
                             var x = drawPositionedTextCanvasCommand.X;
@@ -1968,6 +2209,8 @@ public static class SkiaCSharpModelExtensions
                             }
 
                             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Dispose();");
+                            sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}?.Dispose();");
+                            sb.AppendLine($"{indent}{counter.TextBlobVarName}{counterTextBlob}?.Dispose();");
                         }
                         break;
                     }
@@ -1980,7 +2223,17 @@ public static class SkiaCSharpModelExtensions
                             var y = drawTextCanvasCommand.Y;
                             var counterPaint = ++counter.Paint;
                             drawTextCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText(\"{text}\", {x.ToFloatString()}, {y.ToFloatString()}, {counter.PaintVarName}{counterPaint});");
+                            var counterFont = ++counter.Font;
+                            if (drawTextCanvasCommand.Font is { } textFont)
+                            {
+                                textFont.ToSKFont(counter, sb, indent);
+                            }
+                            else
+                            {
+                                drawTextCanvasCommand.Paint.ToSKFont(counter, sb, indent);
+                            }
+                            var textAlign = (drawTextCanvasCommand.TextAlign ?? drawTextCanvasCommand.Paint.TextAlign).ToSKTextAlign();
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText(\"{text}\", {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
 
                             // NOTE: Do not dispose created SKTypeface by font manager.
 #if USE_DISPOSE_TYPEFACE
@@ -2010,6 +2263,7 @@ public static class SkiaCSharpModelExtensions
                             }
 
                             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Dispose();");
+                            sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}?.Dispose();");
                         }
                         break;
                     }
@@ -2024,7 +2278,17 @@ public static class SkiaCSharpModelExtensions
                             var vOffset = drawTextOnPathCanvasCommand.VOffset;
                             var counterPaint = ++counter.Paint;
                             drawTextOnPathCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawTextOnPath(\"{text}\", {counter.PathVarName}{counterPath}, {hOffset.ToFloatString()}, {vOffset.ToFloatString()}, {counter.PaintVarName}{counterPaint});");
+                            var counterFont = ++counter.Font;
+                            if (drawTextOnPathCanvasCommand.Font is { } textOnPathFont)
+                            {
+                                textOnPathFont.ToSKFont(counter, sb, indent);
+                            }
+                            else
+                            {
+                                drawTextOnPathCanvasCommand.Paint.ToSKFont(counter, sb, indent);
+                            }
+                            var textAlign = (drawTextOnPathCanvasCommand.TextAlign ?? drawTextOnPathCanvasCommand.Paint.TextAlign).ToSKTextAlign();
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawTextOnPath(\"{text}\", {counter.PathVarName}{counterPath}, {hOffset.ToFloatString()}, {vOffset.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
 
                             // NOTE: Do not dispose created SKTypeface by font manager.
 #if USE_DISPOSE_TYPEFACE
@@ -2054,6 +2318,7 @@ public static class SkiaCSharpModelExtensions
                             }
 
                             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Dispose();");
+                            sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}?.Dispose();");
                             sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}?.Dispose();");
                         }
                         break;

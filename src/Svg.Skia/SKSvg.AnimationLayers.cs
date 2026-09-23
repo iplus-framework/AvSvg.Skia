@@ -75,6 +75,7 @@ public partial class SKSvg
                 return;
             }
 
+            using var documentFontScope = PushDocumentFonts(sceneDocument.SourceDocument, sceneDocument.AssetLoader);
             var newModel = RecordOverlayNodeModel(sceneDocument, RootNode, ignoreAttributes);
             var newPicture = newModel is null ? null : owner.SkiaModel.ToSKPicture(newModel);
 
@@ -259,6 +260,7 @@ public partial class SKSvg
             }
 
             var cullRect = _animationLayerBounds ?? sceneDocument.CullRect;
+            using var documentFontScope = PushDocumentFonts(sceneDocument.SourceDocument, sceneDocument.AssetLoader);
             var dynamicLayerModel = RecordDynamicLayerModel(layerEntries, cullRect);
             var dynamicLayerPicture = SkiaModel.ToSKPicture(dynamicLayerModel);
             var compositeModel = ComposeAnimationLayerModel(_staticAnimationLayerModel, dynamicLayerModel, cullRect);
@@ -308,30 +310,58 @@ public partial class SKSvg
             return false;
         }
 
+        SKPicture? staticLayerModel;
+        SKPicture? dynamicLayerModel;
         SkiaSharp.SKPicture? staticLayerPicture;
         SkiaSharp.SKPicture? dynamicLayerPicture;
         lock (Sync)
         {
+            staticLayerModel = _staticAnimationLayerModel;
+            dynamicLayerModel = _dynamicAnimationLayerModel;
             staticLayerPicture = _staticAnimationLayerPicture;
             dynamicLayerPicture = _dynamicAnimationLayerPicture;
         }
 
-        if (staticLayerPicture is null && dynamicLayerPicture is null)
+        if (staticLayerModel is null &&
+            dynamicLayerModel is null &&
+            staticLayerPicture is null &&
+            dynamicLayerPicture is null)
         {
             return false;
         }
 
-        if (staticLayerPicture is { })
-        {
-            canvas.DrawPicture(staticLayerPicture);
-        }
-
-        if (dynamicLayerPicture is { })
-        {
-            canvas.DrawPicture(dynamicLayerPicture);
-        }
+        DrawAnimationLayer(staticLayerModel, staticLayerPicture, canvas);
+        DrawAnimationLayer(dynamicLayerModel, dynamicLayerPicture, canvas);
 
         return true;
+    }
+
+    private void DrawAnimationLayer(SKPicture? model, SkiaSharp.SKPicture? picture, SkiaSharp.SKCanvas canvas)
+    {
+        if (model is { } layerModel && !CanDrawLayerModel(layerModel, canvas))
+        {
+            return;
+        }
+
+        if (model is { } && ContainsNonScalingStroke(model))
+        {
+            SkiaModel.Draw(model, canvas);
+            return;
+        }
+
+        if (picture is { })
+        {
+            if (SKPictureExtensions.CanDrawPicture(picture, canvas))
+            {
+                canvas.DrawPicture(picture);
+            }
+            return;
+        }
+
+        if (model is { })
+        {
+            SkiaModel.Draw(model, canvas);
+        }
     }
 
     private bool TryRefreshAnimationLayerEntries(
@@ -401,6 +431,7 @@ public partial class SKSvg
         SkiaSharp.SKPicture? newStaticLayerPicture = null;
         if (topologyChanged || _staticAnimationLayerModel is null || _staticAnimationLayerPicture is null)
         {
+            using var documentFontScope = PushDocumentFonts(sceneDocument.SourceDocument, sceneDocument.AssetLoader);
             newStaticLayerModel = RecordStaticLayerModel(sceneDocument, rootInfos, cullRect, IgnoreAttributes);
             newStaticLayerPicture = SkiaModel.ToSKPicture(newStaticLayerModel);
             if (newStaticLayerPicture is null)
@@ -733,7 +764,10 @@ public partial class SKSvg
         {
             if (layerEntries[i].Model is { } layerModel)
             {
-                canvas.DrawPicture(layerModel);
+                if (CanDrawModelInCull(layerModel, cullRect))
+                {
+                    canvas.DrawPicture(layerModel);
+                }
             }
         }
 
@@ -747,12 +781,18 @@ public partial class SKSvg
 
         if (staticLayerModel is { })
         {
-            canvas.DrawPicture(staticLayerModel);
+            if (CanDrawModelInCull(staticLayerModel, cullRect))
+            {
+                canvas.DrawPicture(staticLayerModel);
+            }
         }
 
         if (dynamicLayerModel is { })
         {
-            canvas.DrawPicture(dynamicLayerModel);
+            if (CanDrawModelInCull(dynamicLayerModel, cullRect))
+            {
+                canvas.DrawPicture(dynamicLayerModel);
+            }
         }
 
         return recorder.EndRecording();
@@ -763,7 +803,7 @@ public partial class SKSvg
         SvgSceneNode node,
         DrawAttributes ignoreAttributes)
     {
-        var bounds = SvgSceneNodeBoundsService.GetRenderableBounds(node);
+        var bounds = SvgSceneNodeBoundsService.GetRenderablePaintBounds(node);
         if (bounds.IsEmpty || bounds.Width <= 0f || bounds.Height <= 0f)
         {
             return null;
@@ -805,7 +845,7 @@ public partial class SKSvg
 
         canvas.Save();
 
-        var enableClip = !ignoreAttributes.HasFlag(DrawAttributes.ClipPath);
+        var enableClip = !ignoreAttributes.Has(DrawAttributes.ClipPath);
         if (node.Overflow is { } overflow)
         {
             canvas.ClipRect(overflow, SKClipOperation.Intersect);
@@ -831,18 +871,36 @@ public partial class SKSvg
             canvas.ClipRect(innerClip, SKClipOperation.Intersect);
         }
 
-        var enableMask = !ignoreAttributes.HasFlag(DrawAttributes.Mask);
-        var enableOpacity = !ignoreAttributes.HasFlag(DrawAttributes.Opacity);
-        var enableFilter = !ignoreAttributes.HasFlag(DrawAttributes.Filter);
+        var enableMask = !ignoreAttributes.Has(DrawAttributes.Mask);
+        var enableOpacity = !ignoreAttributes.Has(DrawAttributes.Opacity);
+        var enableFilter = !ignoreAttributes.Has(DrawAttributes.Filter);
+        var enableBlendMode = node.BlendModePaint is not null;
+        var enableIsolation = node.IsIsolationGroup &&
+            !enableBlendMode &&
+            (node.MaskPaint is null || node.MaskNode is null || !enableMask) &&
+            (node.Opacity is null || !enableOpacity) &&
+            (node.Filter is null || !enableFilter);
+
+        var hasLayerBounds = SvgSceneRenderer.TryGetLocalLayerBounds(node, out var layerBounds);
+
+        if (enableIsolation)
+        {
+            SvgSceneRenderer.SaveLayerToCanvas(canvas, hasLayerBounds ? layerBounds : null, new SKPaint());
+        }
+
+        if (enableBlendMode)
+        {
+            SvgSceneRenderer.SaveLayerToCanvas(canvas, hasLayerBounds ? layerBounds : null, node.BlendModePaint!);
+        }
 
         if (node.MaskPaint is { } maskPaint && node.MaskNode is not null && enableMask)
         {
-            canvas.SaveLayer(maskPaint);
+            SvgSceneRenderer.SaveLayerToCanvas(canvas, hasLayerBounds ? layerBounds : null, maskPaint);
         }
 
         if (node.Opacity is { } opacity && enableOpacity)
         {
-            canvas.SaveLayer(opacity);
+            SvgSceneRenderer.SaveLayerToCanvas(canvas, hasLayerBounds ? layerBounds : null, opacity);
         }
 
         if (node.Filter is { } filter && enableFilter)
@@ -850,33 +908,33 @@ public partial class SKSvg
             if (node.FilterClip is { } filterClip)
             {
                 canvas.ClipRect(filterClip, SKClipOperation.Intersect);
+                canvas.SaveLayer(filterClip, filter);
             }
-
-            canvas.SaveLayer(filter);
+            else
+            {
+                SvgSceneRenderer.SaveLayerToCanvas(canvas, hasLayerBounds ? layerBounds : null, filter);
+            }
         }
 
-        if (node.LocalModel is { } localModel)
-        {
-            canvas.DrawPicture(localModel);
-        }
+        SvgSceneRenderer.DrawNodeLocalVisuals(node, canvas);
 
         for (var i = 0; i < node.Children.Count; i++)
         {
             if (!RenderStaticNodeToCanvas(node.Children[i], canvas, cutRoots, ignoreAttributes))
             {
-                RestoreStaticNode(canvas, node, enableMask, enableOpacity, enableFilter);
+                RestoreStaticNode(canvas, node, enableMask, enableOpacity, enableFilter, enableBlendMode, enableIsolation);
                 return false;
             }
         }
 
         if (node.MaskNode is { } maskNode && node.MaskDstIn is { } maskDstIn && enableMask)
         {
-            canvas.SaveLayer(maskDstIn);
+            SvgSceneRenderer.SaveLayerToCanvas(canvas, hasLayerBounds ? layerBounds : null, maskDstIn);
             _ = RenderStaticNodeToCanvas(maskNode, canvas, cutRoots, ignoreAttributes);
             canvas.Restore();
         }
 
-        RestoreStaticNode(canvas, node, enableMask, enableOpacity, enableFilter);
+        RestoreStaticNode(canvas, node, enableMask, enableOpacity, enableFilter, enableBlendMode, enableIsolation);
         return true;
     }
 
@@ -885,7 +943,9 @@ public partial class SKSvg
         SvgSceneNode node,
         bool enableMask,
         bool enableOpacity,
-        bool enableFilter)
+        bool enableFilter,
+        bool enableBlendMode,
+        bool enableIsolation)
     {
         if (node.Filter is not null && enableFilter)
         {
@@ -902,6 +962,41 @@ public partial class SKSvg
             canvas.Restore();
         }
 
+        if (enableBlendMode)
+        {
+            canvas.Restore();
+        }
+
+        if (enableIsolation)
+        {
+            canvas.Restore();
+        }
+
         canvas.Restore();
+    }
+
+    private bool CanDrawLayerModel(SKPicture model, SkiaSharp.SKCanvas canvas)
+    {
+        return SKPictureExtensions.CanDrawPictureCullRect(SkiaModel.ToSKRect(model.CullRect), canvas);
+    }
+
+    private static bool CanDrawModelInCull(SKPicture model, SKRect cullRect)
+    {
+        return !HasPositiveArea(model.CullRect) ||
+               !HasPositiveArea(cullRect) ||
+               RectsIntersect(model.CullRect, cullRect);
+    }
+
+    private static bool RectsIntersect(SKRect left, SKRect right)
+    {
+        return left.Left < right.Right &&
+               right.Left < left.Right &&
+               left.Top < right.Bottom &&
+               right.Top < left.Bottom;
+    }
+
+    private static bool HasPositiveArea(SKRect bounds)
+    {
+        return bounds.Width > 0f && bounds.Height > 0f;
     }
 }
